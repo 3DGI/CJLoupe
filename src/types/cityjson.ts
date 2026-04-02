@@ -10,6 +10,7 @@ export interface ViewerValidationError {
   geometryIndex: number | null
   shellIndex: number | null
   faceIndex: number | null
+  location: Vec3 | null
 }
 
 export type ViewerFocusTarget =
@@ -17,11 +18,12 @@ export type ViewerFocusTarget =
       kind: 'feature'
       featureId: string
     }
-  | {
+    | {
       kind: 'error'
       featureId: string
       objectId: string | null
       faceIndex: number | null
+      location: Vec3 | null
     }
   | null
 

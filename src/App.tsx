@@ -228,6 +228,7 @@ function App() {
       featureId: selectedFeature.id,
       objectId: error.cityObjectId,
       faceIndex: error.faceIndex,
+      location: error.location,
     })
     setFocusRevision((current) => current + 1)
   }

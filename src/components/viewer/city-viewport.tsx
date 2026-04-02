@@ -1094,32 +1094,56 @@ function centerViewOnValidationError(
     ? feature.objects.find((candidate) => candidate.id === focusTarget.objectId)
     : null
 
-  if (!object) {
-    centerViewOnFeature(runtime, data, feature)
-    return
-  }
-
   const face =
-    focusTarget.faceIndex != null ? object.polygons[focusTarget.faceIndex] ?? null : null
+    object && focusTarget.faceIndex != null ? object.polygons[focusTarget.faceIndex] ?? null : null
   const faceExtent = face
     ? extentFromVertexIndices(uniqueVertexIndices(face), feature.vertices)
     : null
-  const objectExtent = extentFromVertexIndices(object.vertexIndices, feature.vertices)
-  const targetExtent = faceExtent ?? objectExtent ?? feature.extent
-  const center = localCenterFromExtent(targetExtent, data.center)
+  const objectExtent =
+    object ? extentFromVertexIndices(object.vertexIndices, feature.vertices) : null
+  const featureSize = extentMaxDimension(feature.extent)
+  const objectSize = objectExtent ? extentMaxDimension(objectExtent) : featureSize
+
+  if (faceExtent) {
+    centerViewOnExtent(runtime, data, faceExtent, Math.max(objectSize * 0.35, runtime.sceneScale * 0.015, 3))
+    return
+  }
+
+  if (focusTarget.location) {
+    const center = new THREE.Vector3(
+      focusTarget.location[0] - data.center[0],
+      focusTarget.location[1] - data.center[1],
+      focusTarget.location[2] - data.center[2],
+    )
+    const direction = getCurrentViewDirection(runtime)
+    const baseDistance = Math.max(objectSize * 0.85, featureSize * 0.18, runtime.sceneScale * 0.02, 4)
+    const distance = baseDistance * lensDistanceScale(runtime.camera.fov)
+    const nextPosition = center.clone().add(direction.multiplyScalar(distance))
+    setArcballPose(runtime, center, nextPosition)
+    return
+  }
+
+  if (objectExtent) {
+    centerViewOnExtent(runtime, data, objectExtent, Math.max(objectSize * 0.35, runtime.sceneScale * 0.015, 3))
+    return
+  }
+
+  centerViewOnFeature(runtime, data, feature)
+}
+
+function centerViewOnExtent(
+  runtime: Runtime,
+  data: ViewerDataset,
+  extent: ViewerFeature['extent'],
+  minimumDistance: number,
+) {
+  const center = localCenterFromExtent(extent, data.center)
   const direction = getCurrentViewDirection(runtime)
-  const sizeX = targetExtent[3] - targetExtent[0]
-  const sizeY = targetExtent[4] - targetExtent[1]
-  const sizeZ = targetExtent[5] - targetExtent[2]
+  const sizeX = extent[3] - extent[0]
+  const sizeY = extent[4] - extent[1]
+  const sizeZ = extent[5] - extent[2]
   const targetSize = Math.max(sizeX, sizeY, sizeZ)
-  const objectSize = objectExtent
-    ? Math.max(
-        objectExtent[3] - objectExtent[0],
-        objectExtent[4] - objectExtent[1],
-        objectExtent[5] - objectExtent[2],
-      )
-    : targetSize
-  const baseDistance = Math.max(targetSize * 4.2, objectSize * 0.35, runtime.sceneScale * 0.015, 3)
+  const baseDistance = Math.max(targetSize * 4.2, minimumDistance)
   const distance = baseDistance * lensDistanceScale(runtime.camera.fov)
   const nextPosition = center.clone().add(direction.multiplyScalar(distance))
   setArcballPose(runtime, center, nextPosition)
@@ -1247,6 +1271,10 @@ function extentFromVertexIndices(indices: number[], vertices: Vec3[]): ViewerFea
 
 function uniqueVertexIndices(polygon: PolygonRings) {
   return [...new Set(polygon.flat())]
+}
+
+function extentMaxDimension(extent: ViewerFeature['extent']) {
+  return Math.max(extent[3] - extent[0], extent[4] - extent[1], extent[5] - extent[2])
 }
 
 function clearTransientGroup(group: THREE.Group) {

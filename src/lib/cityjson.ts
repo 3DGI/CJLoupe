@@ -356,6 +356,7 @@ function parseValidationError(error: Val3dityError): ViewerValidationError {
     geometryIndex: parseNullableInteger(parts.geom),
     shellIndex: parseNullableInteger(parts.shell),
     faceIndex: parseNullableInteger(parts.face),
+    location: parseValidationLocation(error.info, error.description),
   }
 }
 
@@ -366,6 +367,31 @@ function parseNullableInteger(value: string | undefined) {
 
   const parsed = Number.parseInt(value, 10)
   return Number.isNaN(parsed) ? null : parsed
+}
+
+function parseValidationLocation(...sources: Array<string | undefined>) {
+  const coordinatePattern =
+    /\(\s*(-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)\s*,\s*(-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)\s*,\s*(-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)\s*\)/i
+
+  for (const source of sources) {
+    if (!source) {
+      continue
+    }
+
+    const match = source.match(coordinatePattern)
+    if (!match) {
+      continue
+    }
+
+    const coordinates = match.slice(1, 4).map((entry) => Number.parseFloat(entry))
+    if (coordinates.some((value) => Number.isNaN(value))) {
+      continue
+    }
+
+    return coordinates as Vec3
+  }
+
+  return null
 }
 
 function applyTransform(vertex: number[], transform: CityJsonTransform): Vec3 {
