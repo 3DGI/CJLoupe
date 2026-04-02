@@ -81,6 +81,9 @@ function CityViewport({
     editMode,
     selectedVertexIndex,
   })
+  const onSelectFeatureRef = useRef(onSelectFeature)
+  const onSelectVertexRef = useRef(onSelectVertex)
+  const onVertexCommitRef = useRef(onVertexCommit)
 
   useEffect(() => {
     dataRef.current = data
@@ -102,6 +105,10 @@ function CityViewport({
       selectedVertexIndex,
     }
   }, [selectedFeatureId, activeObjectId, editMode, selectedVertexIndex])
+
+  useEffect(() => { onSelectFeatureRef.current = onSelectFeature }, [onSelectFeature])
+  useEffect(() => { onSelectVertexRef.current = onSelectVertex }, [onSelectVertex])
+  useEffect(() => { onVertexCommitRef.current = onVertexCommit }, [onVertexCommit])
 
   useEffect(() => {
     const container = containerRef.current
@@ -248,7 +255,7 @@ function CityViewport({
         )
         const handleHit = handleHits[0]
         if (handleHit) {
-          onSelectVertex(handleHit.object.userData.vertexIndex as number)
+          onSelectVertexRef.current(handleHit.object.userData.vertexIndex as number)
           return
         }
       }
@@ -265,11 +272,11 @@ function CityViewport({
       if (meshHit) {
         const featureId = meshHit.object.userData.featureId as string
         const objectId = meshHit.object.userData.objectId as string
-        onSelectFeature(featureId, objectId)
+        onSelectFeatureRef.current(featureId, objectId)
         return
       }
 
-      onSelectVertex(null)
+      onSelectVertexRef.current(null)
     }
 
     const handleDoubleClick = (event: MouseEvent) => {
@@ -309,7 +316,7 @@ function CityViewport({
 
         const committedVertices = runtime.featureDrafts.get(featureId)?.map((vertex) => [...vertex] as Vec3)
         if (committedVertices) {
-          onVertexCommit(featureId, committedVertices)
+          onVertexCommitRef.current(featureId, committedVertices)
         }
       }
     })
@@ -367,7 +374,8 @@ function CityViewport({
       container.removeChild(renderer.domElement)
       runtimeRef.current = null
     }
-  }, [onSelectFeature, onSelectVertex, onVertexCommit])
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- callbacks accessed via refs to avoid full scene teardown
+  }, [])
 
   useEffect(() => {
     const runtime = runtimeRef.current

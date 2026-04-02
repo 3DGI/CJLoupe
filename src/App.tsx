@@ -60,6 +60,8 @@ function App() {
   const [showOnlyInvalidFeatures, setShowOnlyInvalidFeatures] = useState(false)
   const [isolateSelectedFeature, setIsolateSelectedFeature] = useState(false)
   const [detailTab, setDetailTab] = useState('errors')
+  const [isDragging, setIsDragging] = useState(false)
+  const dragCountRef = useRef(0)
 
   const featureMap = useMemo(() => {
     return new Map(dataset?.features.map((feature) => [feature.id, feature]) ?? [])
@@ -129,12 +131,7 @@ function App() {
     void loadFromSample()
   }, [loadFromSample])
 
-  async function handleFileSelection(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    if (!file) {
-      return
-    }
-
+  async function openCityJsonFile(file: File) {
     setIsLoading(true)
     setError(null)
 
@@ -146,20 +143,13 @@ function App() {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to parse selected file.'
       setError(message)
     } finally {
-      event.target.value = ''
       setIsLoading(false)
     }
   }
 
-  async function handleAnnotationSelection(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    if (!file) {
-      return
-    }
-
+  async function openAnnotationFile(file: File) {
     if (!dataset) {
       setError('Open a CityJSON feature file before loading annotations.')
-      event.target.value = ''
       return
     }
 
@@ -174,7 +164,68 @@ function App() {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to parse annotation report.'
       setError(message)
     } finally {
-      event.target.value = ''
+      setIsLoading(false)
+    }
+  }
+
+  function handleFileSelection(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (file) void openCityJsonFile(file)
+    event.target.value = ''
+  }
+
+  function handleAnnotationSelection(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (file) void openAnnotationFile(file)
+    event.target.value = ''
+  }
+
+  function handleDrop(event: React.DragEvent) {
+    event.preventDefault()
+    setIsDragging(false)
+    const files = Array.from(event.dataTransfer.files)
+    if (files.length === 0) return
+
+    let cityFile: File | null = null
+    let reportFile: File | null = null
+
+    for (const file of files) {
+      const name = file.name.toLowerCase()
+      if (name.endsWith('.jsonl') || name.endsWith('.city.json') || name.endsWith('.city.jsonl')) {
+        cityFile = file
+      } else if (name.endsWith('.json')) {
+        reportFile = file
+      }
+    }
+
+    if (cityFile && reportFile) {
+      void openCityJsonAndReport(cityFile, reportFile)
+    } else if (cityFile) {
+      void openCityJsonFile(cityFile)
+    } else if (reportFile) {
+      if (dataset) {
+        void openAnnotationFile(reportFile)
+      } else {
+        void openCityJsonFile(reportFile)
+      }
+    }
+  }
+
+  async function openCityJsonAndReport(cityFile: File, reportFile: File) {
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const [nextDataset, annotations] = await Promise.all([
+        loadCityJsonSequenceFromFile(cityFile),
+        loadValidationReportFromFile(reportFile),
+      ])
+      applyDataset(mergeValidationAnnotations(nextDataset, annotations))
+      setAnnotationSourceName(reportFile.name)
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : 'Failed to load dropped files.'
+      setError(message)
+    } finally {
       setIsLoading(false)
     }
   }
@@ -303,7 +354,13 @@ function App() {
   }, [applyFeatureVertices, selectedFeatureId, toggleEditMode])
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
+    <div
+      className="flex h-screen w-screen overflow-hidden bg-background text-foreground"
+      onDragEnter={(event) => { event.preventDefault(); dragCountRef.current++; setIsDragging(true) }}
+      onDragOver={(event) => event.preventDefault()}
+      onDragLeave={() => { dragCountRef.current--; if (dragCountRef.current === 0) setIsDragging(false) }}
+      onDrop={(event) => { dragCountRef.current = 0; handleDrop(event) }}
+    >
       <aside
         className={cn(
           'panel-shell relative z-20 flex h-full shrink-0 border-r border-white/10 transition-[width] duration-300',
@@ -761,6 +818,17 @@ function App() {
         className="hidden"
         onChange={handleAnnotationSelection}
       />
+
+      {isDragging && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="rounded-2xl border-2 border-dashed border-cyan-300/50 bg-cyan-400/10 px-10 py-8 text-center">
+            <p className="text-lg font-semibold text-white">Drop file to open</p>
+            <p className="mt-1 text-sm text-white/60">
+              .city.jsonl / .city.json for features, .json for val3dity report
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
