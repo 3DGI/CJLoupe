@@ -950,7 +950,7 @@ function updateHandleScreenSize(runtime: Runtime, selectedVertexIndex: number | 
   for (const [vertexIndex, handle] of runtime.handlesByVertexIndex.entries()) {
     const distance = runtime.camera.position.distanceTo(handle.position)
     const worldUnitsPerPixel = (2 * Math.tan(fovRadians / 2) * distance) / viewportHeight
-    const radiusPixels = vertexIndex === selectedVertexIndex ? 7 : 5.5
+    const radiusPixels = vertexIndex === selectedVertexIndex ? 3.5 : 2.75
     const radiusWorld = Math.max(worldUnitsPerPixel * radiusPixels, 0.01)
     handle.scale.setScalar(radiusWorld)
   }
@@ -958,7 +958,7 @@ function updateHandleScreenSize(runtime: Runtime, selectedVertexIndex: number | 
   for (const marker of runtime.annotationVertexMarkers) {
     const distance = runtime.camera.position.distanceTo(marker.position)
     const worldUnitsPerPixel = (2 * Math.tan(fovRadians / 2) * distance) / viewportHeight
-    const radiusWorld = Math.max(worldUnitsPerPixel * 3.75, 0.01)
+    const radiusWorld = Math.max(worldUnitsPerPixel * 1.875, 0.01)
     marker.scale.setScalar(radiusWorld)
   }
 }
