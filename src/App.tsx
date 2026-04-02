@@ -57,6 +57,7 @@ function App() {
   const [annotationSourceName, setAnnotationSourceName] = useState<string | null>(null)
   const [cameraFocalLength, setCameraFocalLength] = useState(50)
   const [hideOccludedEditEdges, setHideOccludedEditEdges] = useState(true)
+  const [hideOccludedAnnotations, setHideOccludedAnnotations] = useState(true)
   const [showOnlyInvalidFeatures, setShowOnlyInvalidFeatures] = useState(false)
   const [isolateSelectedFeature, setIsolateSelectedFeature] = useState(false)
   const [detailTab, setDetailTab] = useState('errors')
@@ -76,6 +77,7 @@ function App() {
     selectedFeature && selectedVertexIndex != null
       ? selectedFeature.vertices[selectedVertexIndex] ?? null
       : null
+  const hasValidationAnnotations = dataset?.features.some((feature) => feature.errors.length > 0) ?? false
 
   const filteredFeatures = useMemo(() => {
     if (!dataset) {
@@ -708,6 +710,7 @@ function App() {
           data={dataset}
           cameraFocalLength={cameraFocalLength}
           hideOccludedEditEdges={hideOccludedEditEdges}
+          hideOccludedAnnotations={hideOccludedAnnotations}
           isolateSelectedFeature={isolateSelectedFeature}
           geometryRevision={geometryRevision}
           focusRevision={focusRevision}
@@ -722,6 +725,13 @@ function App() {
         />
 
         <div className="pointer-events-none absolute inset-0 canvas-fade" />
+        <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2">
+          <div className="relative size-7 opacity-80">
+            <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-white/65" />
+            <div className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-white/65" />
+            <div className="absolute left-1/2 top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/75 bg-black/35" />
+          </div>
+        </div>
 
         <div className="pointer-events-none absolute bottom-4 left-4 right-4 z-10">
           <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-black/40 px-3 py-2.5 backdrop-blur-md">
@@ -770,9 +780,19 @@ function App() {
                     onClick={() => setHideOccludedEditEdges((current) => !current)}
                     disabled={!editMode || !activeObject}
                   >
-                    {hideOccludedEditEdges ? 'Cull edges' : 'Show edges'}
+                    {hideOccludedEditEdges ? 'Xray edges' : 'Cull edges'}
                   </Button>
                 </>
+              )}
+              {hasValidationAnnotations && (
+                <Button
+                  variant={hideOccludedAnnotations ? 'secondary' : 'outline'}
+                  size="sm"
+                  className="h-8 px-2.5"
+                  onClick={() => setHideOccludedAnnotations((current) => !current)}
+                >
+                  {hideOccludedAnnotations ? 'Xray anno' : 'Cull anno'}
+                </Button>
               )}
               <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/4 px-2.5 py-1.5">
                 <span className="font-mono text-[11px] text-white/65">{cameraFocalLength}mm</span>

@@ -18,6 +18,7 @@ type CityViewportProps = {
   data: ViewerDataset | null
   cameraFocalLength: number
   hideOccludedEditEdges: boolean
+  hideOccludedAnnotations: boolean
   isolateSelectedFeature: boolean
   geometryRevision: number
   focusRevision: number
@@ -56,6 +57,7 @@ function CityViewport({
   data,
   cameraFocalLength,
   hideOccludedEditEdges,
+  hideOccludedAnnotations,
   isolateSelectedFeature,
   geometryRevision,
   focusRevision,
@@ -74,6 +76,7 @@ function CityViewport({
   const dataRef = useRef<ViewerDataset | null>(data)
   const initialCameraFocalLengthRef = useRef(cameraFocalLength)
   const hideOccludedEditEdgesRef = useRef(hideOccludedEditEdges)
+  const hideOccludedAnnotationsRef = useRef(hideOccludedAnnotations)
   const isolateSelectedFeatureRef = useRef(isolateSelectedFeature)
   const selectionRef = useRef({
     selectedFeatureId,
@@ -92,6 +95,10 @@ function CityViewport({
   useEffect(() => {
     hideOccludedEditEdgesRef.current = hideOccludedEditEdges
   }, [hideOccludedEditEdges])
+
+  useEffect(() => {
+    hideOccludedAnnotationsRef.current = hideOccludedAnnotations
+  }, [hideOccludedAnnotations])
 
   useEffect(() => {
     isolateSelectedFeatureRef.current = isolateSelectedFeature
@@ -374,7 +381,6 @@ function CityViewport({
       container.removeChild(renderer.domElement)
       runtimeRef.current = null
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- callbacks accessed via refs to avoid full scene teardown
   }, [])
 
   useEffect(() => {
@@ -389,7 +395,7 @@ function CityViewport({
       fitCameraToDataset(runtime, data)
       fittedDatasetKeyRef.current = datasetKey
     }
-    rebuildAnnotations(runtime, data)
+    rebuildAnnotations(runtime, data, hideOccludedAnnotationsRef.current)
     syncSelection(
       runtime,
       data,
@@ -408,7 +414,7 @@ function CityViewport({
     }
 
     rebuildScene(runtime, currentData)
-    rebuildAnnotations(runtime, currentData)
+    rebuildAnnotations(runtime, currentData, hideOccludedAnnotationsRef.current)
     syncSelection(
       runtime,
       currentData,
@@ -418,6 +424,16 @@ function CityViewport({
     )
     renderViewport(runtime, selectionRef.current.selectedVertexIndex)
   }, [geometryRevision])
+
+  useEffect(() => {
+    const runtime = runtimeRef.current
+    if (!runtime) {
+      return
+    }
+
+    syncAnnotationDepthCulling(runtime, hideOccludedAnnotations)
+    renderViewport(runtime, selectionRef.current.selectedVertexIndex)
+  }, [hideOccludedAnnotations])
 
   useEffect(() => {
     const runtime = runtimeRef.current
@@ -541,7 +557,11 @@ function rebuildFeatureGeometry(runtime: Runtime, data: ViewerDataset, featureId
   }
 }
 
-function rebuildAnnotations(runtime: Runtime, data: ViewerDataset) {
+function rebuildAnnotations(
+  runtime: Runtime,
+  data: ViewerDataset,
+  hideOccludedAnnotations: boolean,
+) {
   clearTransientGroup(runtime.annotationGroup)
   runtime.annotationVertexMarkers = []
 
@@ -572,7 +592,7 @@ function rebuildAnnotations(runtime: Runtime, data: ViewerDataset) {
         color: '#991b1b',
         transparent: true,
         opacity: 0.58,
-        depthTest: false,
+        depthTest: hideOccludedAnnotations,
         depthWrite: false,
         polygonOffset: true,
         polygonOffsetFactor: -1,
@@ -581,6 +601,7 @@ function rebuildAnnotations(runtime: Runtime, data: ViewerDataset) {
       })
       const faceMesh = new THREE.Mesh(faceGeometry, faceMaterial)
       faceMesh.userData.featureId = feature.id
+      faceMesh.userData.annotationLayer = 'face'
       faceMesh.renderOrder = 10
       runtime.annotationGroup.add(faceMesh)
 
@@ -613,7 +634,7 @@ function rebuildAnnotations(runtime: Runtime, data: ViewerDataset) {
     const pointGeometry = new THREE.SphereGeometry(1, 12, 12)
     const pointMaterial = new THREE.MeshBasicMaterial({
       color: '#7f1d1d',
-      depthTest: false,
+      depthTest: hideOccludedAnnotations,
       depthWrite: false,
       transparent: true,
       opacity: 0.95,
@@ -630,12 +651,15 @@ function rebuildAnnotations(runtime: Runtime, data: ViewerDataset) {
       seen.add(key)
       const pointMesh = new THREE.Mesh(pointGeometry.clone(), pointMaterial.clone())
       pointMesh.userData.featureId = entry.featureId
+      pointMesh.userData.annotationLayer = 'point'
       pointMesh.position.set(position[0], position[1], position[2])
       pointMesh.renderOrder = 11
       runtime.annotationGroup.add(pointMesh)
       runtime.annotationVertexMarkers.push(pointMesh)
     }
   }
+
+  syncAnnotationDepthCulling(runtime, hideOccludedAnnotations)
 }
 
 function syncSelection(
@@ -943,6 +967,27 @@ function renderViewport(runtime: Runtime, selectedVertexIndex: number | null) {
   updateHandleScreenSize(runtime, selectedVertexIndex)
   runtime.renderer.clear(true, true, true)
   runtime.renderer.render(runtime.scene, runtime.camera)
+}
+
+function syncAnnotationDepthCulling(runtime: Runtime, hideOccludedAnnotations: boolean) {
+  for (const child of runtime.annotationGroup.children) {
+    if (!(child instanceof THREE.Mesh)) {
+      continue
+    }
+
+    const material = child.material
+    if (Array.isArray(material)) {
+      for (const entry of material) {
+        entry.depthTest = hideOccludedAnnotations
+        entry.needsUpdate = true
+      }
+    } else {
+      material.depthTest = hideOccludedAnnotations
+      material.needsUpdate = true
+    }
+
+    child.renderOrder = child.userData.annotationLayer === 'point' ? 11 : 10
+  }
 }
 
 function buildEdgeSegments(
