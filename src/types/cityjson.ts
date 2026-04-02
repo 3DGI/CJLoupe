@@ -1,0 +1,57 @@
+export type Vec3 = [number, number, number]
+export type PolygonRings = number[][]
+
+export interface ViewerValidationError {
+  code: number
+  description: string
+  id: string
+  info: string
+  cityObjectId: string | null
+  geometryIndex: number | null
+  shellIndex: number | null
+  faceIndex: number | null
+}
+
+export type ViewerFocusTarget =
+  | {
+      kind: 'feature'
+      featureId: string
+    }
+  | {
+      kind: 'error'
+      featureId: string
+      objectId: string | null
+      faceIndex: number | null
+    }
+  | null
+
+export interface ViewerDataset {
+  sourceName: string
+  center: Vec3
+  extent: [number, number, number, number, number, number]
+  features: ViewerFeature[]
+}
+
+export interface ViewerFeature {
+  id: string
+  label: string
+  rootObjectId: string
+  type: string
+  validity: boolean | null
+  errors: ViewerValidationError[]
+  attributes: Record<string, unknown>
+  originalVertices: Vec3[]
+  vertices: Vec3[]
+  objects: ViewerCityObject[]
+  extent: [number, number, number, number, number, number]
+}
+
+export interface ViewerCityObject {
+  id: string
+  type: string
+  attributes: Record<string, unknown>
+  geometryType: string | null
+  lod: string | null
+  polygons: PolygonRings[]
+  vertexIndices: number[]
+}

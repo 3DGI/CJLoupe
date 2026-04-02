@@ -1,0 +1,3061 @@
+{
+  "all_errors": [
+    102,
+    104,
+    203,
+    302,
+    303,
+    307
+  ],
+  "dataset_errors": [],
+  "features": [
+    {
+      "errors": [],
+      "id": "1",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "2",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "3",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "4",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "5",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "6",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "7",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "8",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "9",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [
+        {
+          "code": 104,
+          "description": "RING_SELF_INTERSECTION",
+          "id": "coid=10-0|geom=0|shell=0|face=354",
+          "info": "ring self-intersects or is collapsed to a line"
+        }
+      ],
+      "id": "10",
+      "type": "Building",
+      "validity": false
+    },
+    {
+      "errors": [],
+      "id": "11",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [
+        {
+          "code": 303,
+          "description": "NON_MANIFOLD_CASE",
+          "id": "coid=12-0|geom=0|shell=0|face=176",
+          "info": ""
+        },
+        {
+          "code": 303,
+          "description": "NON_MANIFOLD_CASE",
+          "id": "coid=12-0|geom=0|shell=0|face=271",
+          "info": ""
+        },
+        {
+          "code": 307,
+          "description": "POLYGON_WRONG_ORIENTATION",
+          "id": "coid=12-0|geom=0|shell=0|face=174",
+          "info": ""
+        }
+      ],
+      "id": "12",
+      "type": "Building",
+      "validity": false
+    },
+    {
+      "errors": [],
+      "id": "13",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [
+        {
+          "code": 104,
+          "description": "RING_SELF_INTERSECTION",
+          "id": "coid=14-0|geom=0|shell=0|face=865",
+          "info": "ring self-intersects or is collapsed to a line"
+        },
+        {
+          "code": 203,
+          "description": "NON_PLANAR_POLYGON_DISTANCE_PLANE",
+          "id": "coid=14-0|geom=0|shell=0|face=817",
+          "info": "distance to fitted plane: 0.406435 (tolerance=0.01)"
+        }
+      ],
+      "id": "14",
+      "type": "Building",
+      "validity": false
+    },
+    {
+      "errors": [],
+      "id": "15",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "16",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "17",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "18",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "19",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "20",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "21",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "22",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "23",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "24",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "25",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "26",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "27",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "28",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "29",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "30",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "31",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "32",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "33",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [
+        {
+          "code": 102,
+          "description": "CONSECUTIVE_POINTS_SAME",
+          "id": "coid=34-0|geom=0|shell=0|face=49",
+          "info": ""
+        },
+        {
+          "code": 102,
+          "description": "CONSECUTIVE_POINTS_SAME",
+          "id": "coid=34-0|geom=0|shell=0|face=116",
+          "info": ""
+        },
+        {
+          "code": 104,
+          "description": "RING_SELF_INTERSECTION",
+          "id": "coid=34-0|geom=0|shell=0|face=161",
+          "info": "ring self-intersects or is collapsed to a line"
+        },
+        {
+          "code": 203,
+          "description": "NON_PLANAR_POLYGON_DISTANCE_PLANE",
+          "id": "coid=34-0|geom=0|shell=0|face=158",
+          "info": "distance to fitted plane: 0.0120963 (tolerance=0.01)"
+        }
+      ],
+      "id": "34",
+      "type": "Building",
+      "validity": false
+    },
+    {
+      "errors": [],
+      "id": "35",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "36",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "37",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "38",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "39",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "40",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "41",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "42",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "43",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "44",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "45",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "46",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "47",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "48",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "49",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "50",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "51",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "52",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "53",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "54",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "55",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "56",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "57",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "58",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "59",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "60",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "61",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "62",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "63",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "64",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "65",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "66",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "67",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "68",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "69",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "70",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "71",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "72",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "73",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "74",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "75",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "76",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "77",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "78",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "79",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "80",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "81",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "82",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "83",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "84",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "85",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "86",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "87",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "88",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "89",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "90",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "91",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "92",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "93",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "94",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "95",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "96",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "97",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "98",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "99",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "100",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "101",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "102",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "103",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "104",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "105",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "106",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "107",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "108",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "109",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "110",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "111",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "112",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "113",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "114",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "115",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "116",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "117",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "118",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "119",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "120",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "121",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "122",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "123",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "124",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "125",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "126",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "127",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "128",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "129",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "130",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "131",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "132",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "133",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "134",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "135",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "136",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "137",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "138",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "139",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "140",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [
+        {
+          "code": 302,
+          "description": "SHELL_NOT_CLOSED",
+          "id": "coid=141-0|geom=0|shell=0|face=",
+          "info": "Location hole: (122437, 486016, 0.507)"
+        },
+        {
+          "code": 302,
+          "description": "SHELL_NOT_CLOSED",
+          "id": "coid=141-0|geom=0|shell=0|face=",
+          "info": "Location hole: (122438, 486014, 0.507)"
+        }
+      ],
+      "id": "141",
+      "type": "Building",
+      "validity": false
+    },
+    {
+      "errors": [],
+      "id": "142",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "143",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "144",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "145",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "146",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "147",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "148",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "149",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "150",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "151",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "152",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "153",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "154",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "155",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "156",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "157",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "158",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "159",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "160",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "161",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "162",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "163",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "164",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "165",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "166",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "167",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "168",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "169",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "170",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "171",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "172",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "173",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "174",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [
+        {
+          "code": 102,
+          "description": "CONSECUTIVE_POINTS_SAME",
+          "id": "coid=175-0|geom=0|shell=0|face=34",
+          "info": ""
+        },
+        {
+          "code": 102,
+          "description": "CONSECUTIVE_POINTS_SAME",
+          "id": "coid=175-0|geom=0|shell=0|face=43",
+          "info": ""
+        }
+      ],
+      "id": "175",
+      "type": "Building",
+      "validity": false
+    },
+    {
+      "errors": [],
+      "id": "176",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "177",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "178",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "179",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "180",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "181",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "182",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "183",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "184",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "185",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "186",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "187",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "188",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "189",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "190",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "191",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "192",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "193",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "194",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "195",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "196",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "197",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "198",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "199",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "200",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "201",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "202",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "203",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "204",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "205",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "206",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "207",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "208",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "209",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "210",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "211",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "212",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "213",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "214",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "215",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "216",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "217",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "218",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "219",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "220",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "221",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "222",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "223",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "224",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "225",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "226",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "227",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "228",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "229",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "230",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "231",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "232",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "233",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "234",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "235",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "236",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "237",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "238",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "239",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "240",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "241",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "242",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [
+        {
+          "code": 302,
+          "description": "SHELL_NOT_CLOSED",
+          "id": "coid=243-0|geom=0|shell=0|face=",
+          "info": "Location hole: (122439, 486031, 0.156)"
+        },
+        {
+          "code": 302,
+          "description": "SHELL_NOT_CLOSED",
+          "id": "coid=243-0|geom=0|shell=0|face=",
+          "info": "Location hole: (122434, 486026, 0.156)"
+        }
+      ],
+      "id": "243",
+      "type": "Building",
+      "validity": false
+    },
+    {
+      "errors": [],
+      "id": "244",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "245",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "246",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "247",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "248",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "249",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "250",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "251",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "252",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "253",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "254",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "255",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "256",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "257",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "258",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "259",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "260",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "261",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "262",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "263",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "264",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "265",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "266",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "267",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "268",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "269",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "270",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "271",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "272",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "273",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "274",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "275",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "276",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "277",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "278",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "279",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "280",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "281",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "282",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "283",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "284",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "285",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "286",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "287",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "288",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "289",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "290",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "291",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "292",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "293",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "294",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "295",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "296",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "297",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "298",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "299",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "300",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "301",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "302",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "303",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "304",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "305",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "306",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "307",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "308",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "309",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "310",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "311",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "312",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "313",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "314",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "315",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "316",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "317",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "318",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "319",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "320",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "321",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "322",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "323",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "324",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "325",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "326",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "327",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "328",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [
+        {
+          "code": 102,
+          "description": "CONSECUTIVE_POINTS_SAME",
+          "id": "coid=329-0|geom=0|shell=0|face=13",
+          "info": ""
+        },
+        {
+          "code": 102,
+          "description": "CONSECUTIVE_POINTS_SAME",
+          "id": "coid=329-0|geom=0|shell=0|face=15",
+          "info": ""
+        }
+      ],
+      "id": "329",
+      "type": "Building",
+      "validity": false
+    },
+    {
+      "errors": [],
+      "id": "330",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "331",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "332",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "333",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "334",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "335",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "336",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "337",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "338",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "339",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "340",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "341",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "342",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "343",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "344",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "345",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "346",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "347",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "348",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "349",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "350",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "351",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "352",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "353",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "354",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "355",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "356",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "357",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "358",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "359",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "360",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "361",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "362",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "363",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "364",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "365",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "366",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "367",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "368",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "369",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "370",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "371",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "372",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "373",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "374",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "375",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "376",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "377",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "378",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "379",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "380",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "381",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "382",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "383",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "384",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "385",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "386",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "387",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "388",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "389",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "390",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [
+        {
+          "code": 303,
+          "description": "NON_MANIFOLD_CASE",
+          "id": "coid=391-0|geom=0|shell=0|face=31",
+          "info": ""
+        },
+        {
+          "code": 303,
+          "description": "NON_MANIFOLD_CASE",
+          "id": "coid=391-0|geom=0|shell=0|face=38",
+          "info": ""
+        },
+        {
+          "code": 307,
+          "description": "POLYGON_WRONG_ORIENTATION",
+          "id": "coid=391-0|geom=0|shell=0|face=26",
+          "info": ""
+        }
+      ],
+      "id": "391",
+      "type": "Building",
+      "validity": false
+    },
+    {
+      "errors": [],
+      "id": "392",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "393",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "394",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "395",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "396",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "397",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "398",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "399",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "400",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "401",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "402",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "403",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "404",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [
+        {
+          "code": 102,
+          "description": "CONSECUTIVE_POINTS_SAME",
+          "id": "coid=405-0|geom=0|shell=0|face=68",
+          "info": ""
+        },
+        {
+          "code": 102,
+          "description": "CONSECUTIVE_POINTS_SAME",
+          "id": "coid=405-0|geom=0|shell=0|face=107",
+          "info": ""
+        },
+        {
+          "code": 102,
+          "description": "CONSECUTIVE_POINTS_SAME",
+          "id": "coid=405-0|geom=0|shell=0|face=141",
+          "info": ""
+        },
+        {
+          "code": 102,
+          "description": "CONSECUTIVE_POINTS_SAME",
+          "id": "coid=405-0|geom=0|shell=0|face=148",
+          "info": ""
+        }
+      ],
+      "id": "405",
+      "type": "Building",
+      "validity": false
+    },
+    {
+      "errors": [],
+      "id": "406",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "407",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "408",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "409",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "410",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "411",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "412",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "413",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "414",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "415",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "416",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "417",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "418",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "419",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "420",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "421",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "422",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "423",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "424",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "425",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "426",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "427",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "428",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "429",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "430",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "431",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "432",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "433",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "434",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "435",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "436",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "437",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "438",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "439",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "440",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "441",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "442",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "443",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "444",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [
+        {
+          "code": 102,
+          "description": "CONSECUTIVE_POINTS_SAME",
+          "id": "coid=445-0|geom=0|shell=0|face=75",
+          "info": ""
+        },
+        {
+          "code": 102,
+          "description": "CONSECUTIVE_POINTS_SAME",
+          "id": "coid=445-0|geom=0|shell=0|face=76",
+          "info": ""
+        }
+      ],
+      "id": "445",
+      "type": "Building",
+      "validity": false
+    },
+    {
+      "errors": [],
+      "id": "446",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "447",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "448",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "449",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "450",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "451",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "452",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "453",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "454",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "455",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "456",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "457",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "458",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "459",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "460",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "461",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "462",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "463",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "464",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "465",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "466",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "467",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "468",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "469",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "470",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "471",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "472",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "473",
+      "type": "Building",
+      "validity": true
+    },
+    {
+      "errors": [],
+      "id": "474",
+      "type": "Building",
+      "validity": true
+    }
+  ],
+  "features_overview": [
+    {
+      "total": 474,
+      "type": "Building",
+      "valid": 463
+    }
+  ],
+  "input_file": "/data/geodepot/rf-val3dity/rf-out/122064_485853.city.jsonl",
+  "input_file_type": "CityJSONSeq",
+  "parameters": {
+    "overlap_tol": -1.0,
+    "planarity_d2p_tol": 0.01,
+    "planarity_n_tol": 20.0,
+    "snap_tol": 0.001
+  },
+  "primitives_overview": [
+    {
+      "total": 449,
+      "type": "Solid",
+      "valid": 438
+    },
+    {
+      "total": 474,
+      "type": "MultiSurface",
+      "valid": 474
+    }
+  ],
+  "time": "2026-04-01T19:14:25 (CEST)",
+  "type": "val3dity_report",
+  "val3dity_version": "2.6.0",
+  "validity": false
+}
