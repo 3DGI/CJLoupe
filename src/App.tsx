@@ -4,12 +4,10 @@ import {
   Crosshair,
   FileWarning,
   FolderOpen,
-  Layers3,
   LocateFixed,
   Move3D,
   Search,
   SquareMousePointer,
-  Workflow,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
@@ -18,8 +16,8 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { CityViewport } from '@/components/viewer/city-viewport'
 import {
   loadCityJsonSequenceFromFile,
@@ -61,6 +59,7 @@ function App() {
   const [hideOccludedEditEdges, setHideOccludedEditEdges] = useState(true)
   const [showOnlyInvalidFeatures, setShowOnlyInvalidFeatures] = useState(false)
   const [isolateSelectedFeature, setIsolateSelectedFeature] = useState(false)
+  const [detailTab, setDetailTab] = useState('errors')
 
   const featureMap = useMemo(() => {
     return new Map(dataset?.features.map((feature) => [feature.id, feature]) ?? [])
@@ -198,14 +197,15 @@ function App() {
     setAnnotationSourceName(null)
   }
 
-  function centerSelectedFeature() {
-    if (!selectedFeature) {
+  function centerFeatureById(featureId: string) {
+    const feature = featureMap.get(featureId)
+    if (!feature) {
       return
     }
 
     setFocusTarget({
       kind: 'feature',
-      featureId: selectedFeature.id,
+      featureId: feature.id,
     })
     setFocusRevision((current) => current + 1)
   }
@@ -242,10 +242,6 @@ function App() {
     })
   }, [])
 
-  const toggleIsolateSelectedFeature = useCallback(() => {
-    setIsolateSelectedFeature((current) => !current)
-  }, [])
-
   const handleSelectFeature = useCallback((featureId: string, objectId?: string | null) => {
     const feature = featureMap.get(featureId)
     if (!feature) {
@@ -256,11 +252,6 @@ function App() {
     setActiveObjectId(objectId ?? feature.objects[0]?.id ?? null)
     setSelectedVertexIndex(null)
   }, [featureMap])
-
-  function handleSelectObject(objectId: string) {
-    setActiveObjectId(objectId)
-    setSelectedVertexIndex(null)
-  }
 
   const applyFeatureVertices = useCallback((featureId: string, vertices: Vec3[]) => {
     setDataset((current) => {
@@ -273,23 +264,6 @@ function App() {
         feature.vertices = cloneVertices(vertices)
       }
 
-      return current
-    })
-    setGeometryRevision((current) => current + 1)
-  }, [])
-
-  const handleVertexCommit = useCallback((featureId: string, vertices: Vec3[]) => {
-    setDataset((current) => {
-      if (!current) {
-        return current
-      }
-
-      const feature = current.features.find((candidate) => candidate.id === featureId)
-      if (!feature) {
-        return current
-      }
-
-      feature.vertices = cloneVertices(vertices)
       return current
     })
     setGeometryRevision((current) => current + 1)
@@ -332,12 +306,12 @@ function App() {
       <aside
         className={cn(
           'panel-shell relative z-20 flex h-full shrink-0 border-r border-white/10 transition-[width] duration-300',
-          isPaneCollapsed ? 'w-16' : 'w-[min(36rem,44vw)]',
+          isPaneCollapsed ? 'w-16' : 'w-[min(29rem,34vw)]',
         )}
       >
         <div className="pointer-events-auto flex h-full w-full">
-          <div className="flex h-full w-16 shrink-0 flex-col items-center justify-between border-r border-white/10 bg-black/20 py-4">
-            <div className="flex flex-col items-center gap-3">
+          <div className="flex h-full w-16 shrink-0 flex-col items-center justify-between border-r border-white/10 bg-black/20 py-3">
+            <div className="flex flex-col items-center gap-2">
               <Button
                 size="icon"
                 variant="ghost"
@@ -350,63 +324,57 @@ function App() {
               <Badge variant="secondary" className="rotate-90 rounded-full px-2 py-0.5 font-mono text-[10px]">
                 cjvis
               </Badge>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="rounded-full"
+                onClick={() => fileInputRef.current?.click()}
+                aria-label="Open CityJSON file"
+                title="Open CityJSON file"
+              >
+                <FolderOpen className="size-4" />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="rounded-full"
+                onClick={() => annotationInputRef.current?.click()}
+                aria-label="Open annotation file"
+                title="Open annotation file"
+              >
+                <FileWarning className="size-4" />
+              </Button>
             </div>
 
-            <div className="flex flex-col items-center gap-3">
+            <div className="flex flex-col items-center gap-2">
               <Badge variant="outline" className="border-cyan-400/30 bg-cyan-500/10 text-cyan-100">
                 {dataset?.features.length ?? 0}
               </Badge>
-              <Badge variant="outline" className="border-amber-400/30 bg-amber-500/10 text-amber-100">
-                {selectedFeature ? selectedFeature.objects.length : 0}
+              <Badge variant="outline" className="border-red-400/30 bg-red-500/10 text-red-100">
+                {dataset?.features.filter((feature) => feature.errors.length > 0).length ?? 0}
               </Badge>
             </div>
           </div>
 
           {!isPaneCollapsed && (
-            <div className="grid min-h-0 min-w-0 flex-1 grid-cols-2">
-              <div className="flex min-h-0 min-w-0 flex-col border-r border-white/10">
-                <div className="space-y-4 p-4">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+              <section className="flex min-h-0 flex-[1.05] flex-col border-b border-white/10">
+                <div className="space-y-3 p-4 pb-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-xs uppercase tracking-[0.22em] text-cyan-200/80">
+                      <p className="text-[11px] uppercase tracking-[0.22em] text-cyan-200/75">
                         CityJSON Webviewer
                       </p>
-                      <h1 className="mt-1 text-2xl font-semibold tracking-tight text-white">
-                        Feature Index
+                      <h1 className="mt-1 text-lg font-semibold tracking-tight text-white">
+                        Features
                       </h1>
                     </div>
-                    <Badge className="bg-white/10 text-white hover:bg-white/10">
+                    <Badge className="max-w-[12rem] truncate bg-white/10 text-white hover:bg-white/10">
                       {dataset?.sourceName ?? 'No file'}
                     </Badge>
                   </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="gap-2"
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <FolderOpen className="size-4" />
-                      Open file
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="gap-2"
-                      onClick={() => annotationInputRef.current?.click()}
-                    >
-                      <FileWarning className="size-4" />
-                      Open annotations
-                    </Button>
-                    <Button variant="ghost" size="sm" className="gap-2" onClick={toggleEditMode}>
-                      <Move3D className="size-4" />
-                      {editMode ? 'Leave edit mode' : 'Edit mode'}
-                    </Button>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-white/65">
-                    <span className="font-mono uppercase tracking-[0.16em]">Annotations</span>
+                  <div className="flex items-center justify-between gap-2 text-xs text-white/65">
                     <Badge
                       variant="outline"
                       className={cn(
@@ -415,7 +383,7 @@ function App() {
                           : 'border-white/10 bg-white/5 text-white/55',
                       )}
                     >
-                      {annotationSourceName ?? 'None loaded'}
+                      {annotationSourceName ?? 'No annotations'}
                     </Badge>
                     {annotationSourceName && (
                       <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={clearAnnotations}>
@@ -425,20 +393,20 @@ function App() {
                   </div>
 
                   <div className="relative">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-white/45" />
+                    <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-white/45" />
                     <Input
                       value={searchQuery}
                       onChange={(event) => setSearchQuery(event.target.value)}
-                      placeholder="Search by id, type, identificatie"
-                      className="pl-9"
+                      placeholder="Search features"
+                      className="h-9 pl-8"
                     />
                   </div>
 
-                  <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/4 px-3 py-2.5">
+                  <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/4 px-3 py-2">
                     <div>
-                      <p className="text-xs uppercase tracking-[0.16em] text-white/45">Feature filter</p>
-                      <p className="mt-1 text-sm text-white/70">
-                        {showOnlyInvalidFeatures ? 'Showing only features with validation errors.' : 'Showing all features.'}
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-white/45">Errors only</p>
+                      <p className="text-xs text-white/60">
+                        {filteredFeatures.length} of {dataset?.features.length ?? 0}
                       </p>
                     </div>
                     <Switch
@@ -448,17 +416,10 @@ function App() {
                       aria-label="Show only features with validation errors"
                     />
                   </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <MetricCard label="Features" value={dataset?.features.length ?? 0} icon={<Layers3 className="size-4" />} />
-                    <MetricCard label="Objects" value={selectedFeature?.objects.length ?? 0} icon={<Workflow className="size-4" />} />
-                  </div>
                 </div>
 
-                <Separator className="bg-white/10" />
-
                 <ScrollArea className="min-h-0 flex-1">
-                  <div className="space-y-2 p-3">
+                  <div className="space-y-1.5 p-3 pt-0">
                     {filteredFeatures.map((feature) => {
                       const isSelected = feature.id === selectedFeatureId
                       const errorCount = feature.errors.length
@@ -468,8 +429,12 @@ function App() {
                           key={feature.id}
                           type="button"
                           onClick={() => handleSelectFeature(feature.id)}
+                          onDoubleClick={() => {
+                            handleSelectFeature(feature.id)
+                            centerFeatureById(feature.id)
+                          }}
                           className={cn(
-                            'w-full rounded-xl border px-3 py-3 text-left transition',
+                            'w-full rounded-lg border px-2.5 py-2 text-left transition',
                             isSelected
                               ? 'border-cyan-300/40 bg-cyan-400/10 text-white shadow-[0_0_0_1px_rgba(56,189,248,0.25)]'
                               : isInvalid
@@ -477,32 +442,32 @@ function App() {
                                 : 'border-white/8 bg-white/3 text-white/78 hover:border-white/16 hover:bg-white/6',
                           )}
                         >
-                          <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold">{feature.label}</p>
-                              <p className="truncate font-mono text-[11px] uppercase tracking-[0.16em] text-white/45">
+                              <p className="truncate text-sm font-medium">{feature.label}</p>
+                              <p className="truncate font-mono text-[10px] uppercase tracking-[0.14em] text-white/42">
                                 {feature.id}
                               </p>
                             </div>
                             <Badge
                               variant="outline"
                               className={cn(
-                                'shrink-0',
+                                'shrink-0 px-1.5 py-0 text-[10px]',
                                 isSelected
                                   ? 'border-cyan-300/30 bg-cyan-300/10 text-cyan-50'
                                   : isInvalid
                                     ? 'border-red-300/30 bg-red-400/12 text-red-50'
-                                  : 'border-white/10 bg-white/5 text-white/60',
+                                    : 'border-white/10 bg-white/5 text-white/60',
                               )}
                             >
                               {feature.type}
                             </Badge>
                           </div>
 
-                          <div className="mt-3 flex items-center gap-3 text-[11px] text-white/55">
-                            <span>{feature.objects.length} cityobjects</span>
-                            <span>{feature.vertices.length} vertices</span>
-                            {errorCount > 0 && <span className="text-red-200">{errorCount} errors</span>}
+                          <div className="mt-1.5 flex items-center gap-2 text-[10px] text-white/52">
+                            <span>{feature.objects.length} obj</span>
+                            <span>{feature.vertices.length} vtx</span>
+                            {errorCount > 0 && <span className="text-red-200">{errorCount} err</span>}
                           </div>
                         </button>
                       )
@@ -515,213 +480,166 @@ function App() {
                     )}
                   </div>
                 </ScrollArea>
-              </div>
+              </section>
 
-              <div className="flex min-h-0 min-w-0 flex-col">
-                <div className="space-y-4 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.22em] text-amber-200/80">
-                        Selection
-                      </p>
-                      <h2 className="mt-1 text-2xl font-semibold tracking-tight text-white">
-                        {selectedFeature?.label ?? 'No feature selected'}
-                      </h2>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {selectedFeature && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="gap-2"
-                          onClick={centerSelectedFeature}
-                        >
-                          <LocateFixed className="size-4" />
-                          Center view
-                        </Button>
-                      )}
-                      {selectedFeature && (
-                        <Button
-                          variant={isolateSelectedFeature ? 'secondary' : 'outline'}
-                          size="sm"
-                          className="gap-2"
-                          onClick={toggleIsolateSelectedFeature}
-                        >
-                          {isolateSelectedFeature ? 'Show all' : 'Isolate selected'}
-                        </Button>
-                      )}
-                      {selectedFeature && (
-                        <Button
-                          variant={hideOccludedEditEdges ? 'secondary' : 'outline'}
-                          size="sm"
-                          className="gap-2"
-                          onClick={() => setHideOccludedEditEdges((current) => !current)}
-                          disabled={!editMode || !activeObject}
-                        >
-                          {hideOccludedEditEdges ? 'Cull hidden edges' : 'Show hidden edges'}
-                        </Button>
-                      )}
+              <Tabs value={detailTab} onValueChange={setDetailTab} asChild>
+                <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+                  <div className="space-y-3 p-4 pb-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.22em] text-amber-200/80">
+                          Selection
+                        </p>
+                        <h2 className="mt-1 text-lg font-semibold tracking-tight text-white">
+                          {selectedFeature?.label ?? 'No feature selected'}
+                        </h2>
+                        {selectedFeature && (
+                          <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-white/42">
+                            {selectedFeature.id}
+                          </p>
+                        )}
+                      </div>
                       {selectedFeature && (
                         <Badge variant="outline" className="border-amber-300/30 bg-amber-400/10 text-amber-50">
                           {selectedFeature.type}
                         </Badge>
                       )}
                     </div>
-                  </div>
 
-                  <div className="grid grid-cols-2 gap-2">
-                    <MetricCard label="Selected object" value={activeObject?.id ?? 'None'} icon={<SquareMousePointer className="size-4" />} compact />
-                    <MetricCard
-                      label="Selected vertex"
-                      value={selectedVertexIndex != null ? `#${selectedVertexIndex}` : 'None'}
-                      icon={<Crosshair className="size-4" />}
-                      compact
-                    />
-                  </div>
-
-                  <div className="rounded-2xl border border-white/10 bg-white/4 px-3 py-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-xs uppercase tracking-[0.16em] text-white/45">Lens</p>
-                      <span className="font-mono text-xs text-white/65">{cameraFocalLength}mm</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={12}
-                      max={120}
-                      step={1}
-                      value={cameraFocalLength}
-                      onChange={(event) => setCameraFocalLength(Number(event.target.value))}
-                      className="mt-3 h-2 w-full cursor-pointer appearance-none rounded-full bg-white/12 accent-cyan-300"
-                      aria-label="Camera focal length"
-                    />
-                    <p className="mt-2 text-xs text-white/50">
-                      12mm is wide-angle, 50mm is a standard lens, and longer lenses compress perspective.
-                    </p>
-                  </div>
-                </div>
-
-                <Separator className="bg-white/10" />
-
-                <ScrollArea className="min-h-0 flex-1">
-                  <div className="space-y-5 p-4">
-                    {selectedFeature ? (
+                    {selectedFeature && (
                       <>
-                        <DetailSection title="CityObjects">
-                          <div className="grid gap-2">
-                            {selectedFeature.objects.map((object) => (
-                              <button
-                                key={object.id}
-                                type="button"
-                                onClick={() => handleSelectObject(object.id)}
-                                className={cn(
-                                  'rounded-xl border px-3 py-3 text-left transition',
-                                  object.id === activeObjectId
-                                    ? 'border-amber-300/40 bg-amber-400/10 text-white'
-                                    : 'border-white/8 bg-white/3 text-white/75 hover:border-white/16 hover:bg-white/6',
-                                )}
-                              >
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <p className="truncate text-sm font-semibold">{object.id}</p>
-                                    <p className="truncate text-xs text-white/45">{object.type}</p>
-                                  </div>
-                                  <Badge variant="outline" className="border-white/10 bg-white/5 text-white/55">
-                                    {object.geometryType ?? 'No geometry'}
-                                  </Badge>
-                                </div>
-                              </button>
-                            ))}
-                          </div>
-                        </DetailSection>
-
-                        {editMode && activeObject && (
-                          <DetailSection title="Edit Mode">
-                            <div className="space-y-3 rounded-2xl border border-amber-400/15 bg-amber-500/8 p-3">
-                              <p className="text-sm leading-6 text-white/78">
-                                Vertex handles are visible for <span className="font-semibold text-white">{activeObject.id}</span>. Click a
-                                vertex, then drag the transform gizmo to move it.
-                              </p>
-                              {selectedVertex && (
-                                <div className="rounded-xl border border-white/10 bg-black/20 p-3 font-mono text-xs text-white/75">
-                                  <p>x {selectedVertex[0].toFixed(3)}</p>
-                                  <p>y {selectedVertex[1].toFixed(3)}</p>
-                                  <p>z {selectedVertex[2].toFixed(3)}</p>
-                                </div>
-                              )}
-                            </div>
-                          </DetailSection>
-                        )}
-
-                        <DetailSection title="Validation">
-                          <div className="space-y-3">
-                            <div
+                        <div className="flex flex-wrap gap-1.5">
+                          {selectedFeature.objects.map((object) => (
+                            <button
+                              key={object.id}
+                              type="button"
+                              onClick={() => { setActiveObjectId(object.id); setSelectedVertexIndex(null) }}
                               className={cn(
-                                'rounded-xl border px-3 py-3 text-sm',
-                                selectedFeature.validity === false
-                                  ? 'border-red-400/20 bg-red-500/10 text-red-50'
-                                  : 'border-emerald-400/20 bg-emerald-500/10 text-emerald-50',
+                                'rounded-md border px-2 py-1 text-left text-xs transition',
+                                object.id === activeObjectId
+                                  ? 'border-amber-300/40 bg-amber-400/10 text-white'
+                                  : 'border-white/8 bg-white/3 text-white/70 hover:border-white/16 hover:bg-white/6',
                               )}
                             >
-                              {selectedFeature.validity === false
-                                ? `Invalid feature with ${selectedFeature.errors.length} reported errors.`
-                                : 'No validation errors reported for this feature.'}
-                            </div>
+                              <span className="block max-w-[12rem] truncate font-medium">{object.id}</span>
+                              <span className="block text-[10px] text-white/45">{object.type}</span>
+                            </button>
+                          ))}
+                        </div>
 
-                            {selectedFeature.errors.length > 0 && (
-                              <div className="grid gap-2">
-                                {selectedFeature.errors.map((error) => (
-                                  <button
-                                    key={`${error.id}-${error.code}`}
-                                    type="button"
-                                    onClick={() => centerValidationError(error)}
-                                    className="w-full rounded-xl border border-red-400/15 bg-red-500/8 px-3 py-3 text-left transition hover:border-red-300/28 hover:bg-red-500/12 focus-visible:border-red-300/32 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300/30"
-                                  >
-                                    <div className="flex items-start justify-between gap-3">
-                                      <div>
-                                        <p className="text-sm font-semibold text-red-50">{error.description}</p>
-                                        <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-red-200/65">
-                                          code {error.code}
-                                        </p>
-                                      </div>
-                                      <Badge variant="outline" className="border-red-300/30 bg-red-400/10 text-red-50">
-                                        face {error.faceIndex ?? '—'}
-                                      </Badge>
-                                    </div>
-                                    <p className="mt-2 break-words font-mono text-[11px] text-red-100/70">
-                                      {error.id}
-                                    </p>
-                                    {error.info && (
-                                      <p className="mt-2 text-sm text-red-50/85">{error.info}</p>
-                                    )}
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </DetailSection>
-
-                        <DetailSection title="Attributes">
-                          <dl className="space-y-2">
-                            {Object.entries(selectedFeature.attributes).map(([key, value]) => (
-                              <div
-                                key={key}
-                                className="rounded-xl border border-white/8 bg-white/3 px-3 py-2.5"
-                              >
-                                <dt className="font-mono text-[11px] uppercase tracking-[0.16em] text-white/40">{key}</dt>
-                                <dd className="mt-1 break-words text-sm text-white/80">{formatValue(value)}</dd>
-                              </div>
-                            ))}
-                          </dl>
-                        </DetailSection>
+                        <TabsList>
+                          <TabsTrigger value="errors">Errors</TabsTrigger>
+                          <TabsTrigger value="attributes">Attributes</TabsTrigger>
+                        </TabsList>
                       </>
-                    ) : (
-                      <div className="rounded-2xl border border-dashed border-white/12 bg-white/3 px-4 py-6 text-sm text-white/55">
-                        Click a building in the scene or choose a feature from the left column.
-                      </div>
                     )}
                   </div>
-                </ScrollArea>
-              </div>
+
+                  <ScrollArea className="min-h-0 min-w-0 flex-1">
+                    <div className="min-w-0 space-y-4 p-4 pt-0">
+                      {selectedFeature ? (
+                        <>
+                          {editMode && activeObject && (
+                            <DetailSection title="Edit Mode">
+                              <div className="space-y-2 rounded-xl border border-amber-400/15 bg-amber-500/8 p-3">
+                                <p className="text-sm leading-5 text-white/78">
+                                  Editing <span className="font-semibold text-white">{activeObject.id}</span>. Click a
+                                  vertex, then drag the gizmo.
+                                </p>
+                                {selectedVertex && (
+                                  <div className="rounded-lg border border-white/10 bg-black/20 p-3 font-mono text-xs text-white/75">
+                                    <p>x {selectedVertex[0].toFixed(3)}</p>
+                                    <p>y {selectedVertex[1].toFixed(3)}</p>
+                                    <p>z {selectedVertex[2].toFixed(3)}</p>
+                                  </div>
+                                )}
+                              </div>
+                            </DetailSection>
+                          )}
+
+                          <TabsContent value="errors">
+                            <DetailSection title="Errors">
+                              <div className="space-y-3">
+                                <div
+                                  className={cn(
+                                    'rounded-lg border px-3 py-2.5 text-sm',
+                                    selectedFeature.validity === false
+                                      ? 'border-red-400/20 bg-red-500/10 text-red-50'
+                                      : 'border-emerald-400/20 bg-emerald-500/10 text-emerald-50',
+                                  )}
+                                >
+                                  {selectedFeature.validity === false
+                                    ? `Invalid feature with ${selectedFeature.errors.length} reported errors.`
+                                    : 'No validation errors reported for this feature.'}
+                                </div>
+
+                                {selectedFeature.errors.length > 0 ? (
+                                  <div className="grid gap-2">
+                                    {selectedFeature.errors.map((error) => (
+                                      <button
+                                        key={`${error.id}-${error.code}`}
+                                        type="button"
+                                        onClick={() => centerValidationError(error)}
+                                        className="w-full rounded-lg border border-red-400/15 bg-red-500/8 px-3 py-2.5 text-left transition hover:border-red-300/28 hover:bg-red-500/12 focus-visible:border-red-300/32 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300/30"
+                                      >
+                                        <div className="flex items-start justify-between gap-3">
+                                          <div className="min-w-0">
+                                            <p className="truncate text-sm font-semibold text-red-50">{error.description}</p>
+                                            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-red-200/65">
+                                              code {error.code}
+                                            </p>
+                                          </div>
+                                          <Badge variant="outline" className="border-red-300/30 bg-red-400/10 text-red-50">
+                                            face {error.faceIndex ?? '—'}
+                                          </Badge>
+                                        </div>
+                                        <p className="mt-1.5 break-words font-mono text-[10px] text-red-100/70">
+                                          {error.id}
+                                        </p>
+                                        {error.info && (
+                                          <p className="mt-1.5 text-sm text-red-50/85">{error.info}</p>
+                                        )}
+                                      </button>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
+                            </DetailSection>
+                          </TabsContent>
+
+                          <TabsContent value="attributes">
+                            <DetailSection title="Attributes">
+                              <dl className="m-0 min-w-0 space-y-2">
+                                {Object.entries(selectedFeature.attributes).map(([key, value]) => (
+                                  <div
+                                    key={key}
+                                    className="min-w-0 w-full overflow-hidden rounded-lg border border-white/8 bg-white/3 px-2.5 py-1.5"
+                                  >
+                                    <dt className="m-0 min-w-0 font-mono text-[10px] uppercase tracking-[0.16em] text-white/38">
+                                      {key}
+                                    </dt>
+                                    <dd className="m-0 mt-1 min-w-0 max-w-full">
+                                      <div className="min-w-0 max-w-full overflow-x-auto overflow-y-hidden">
+                                        <div className="w-fit min-w-full pr-2 whitespace-nowrap text-[13px] leading-5 text-white/80">
+                                          {formatValue(value)}
+                                        </div>
+                                      </div>
+                                    </dd>
+                                  </div>
+                                ))}
+                              </dl>
+                            </DetailSection>
+                          </TabsContent>
+                        </>
+                      ) : (
+                        <div className="rounded-xl border border-dashed border-white/12 bg-white/3 px-4 py-6 text-sm text-white/55">
+                          Click a building in the scene or choose a feature from the left column.
+                        </div>
+                      )}
+                    </div>
+                  </ScrollArea>
+                </section>
+              </Tabs>
             </div>
           )}
         </div>
@@ -742,12 +660,80 @@ function App() {
           selectedVertexIndex={selectedVertexIndex}
           onSelectFeature={handleSelectFeature}
           onSelectVertex={setSelectedVertexIndex}
-          onVertexCommit={handleVertexCommit}
+          onVertexCommit={applyFeatureVertices}
         />
 
         <div className="pointer-events-none absolute inset-0 canvas-fade" />
 
-        <div className="pointer-events-none absolute bottom-4 right-4 z-10 max-w-md rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white/70 backdrop-blur-md">
+        <div className="pointer-events-none absolute bottom-4 left-4 right-4 z-10">
+          <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-black/40 px-3 py-2.5 backdrop-blur-md">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <Badge variant="outline" className="border-white/10 bg-white/5 text-white/70">
+                {selectedFeature?.label ?? 'No feature'}
+              </Badge>
+              <Badge variant="outline" className="border-amber-300/25 bg-amber-400/10 text-amber-50">
+                <SquareMousePointer className="mr-1 size-3.5" />
+                {activeObject?.id ?? 'No object'}
+              </Badge>
+              <Badge variant="outline" className="border-cyan-300/25 bg-cyan-400/10 text-cyan-50">
+                <Crosshair className="mr-1 size-3.5" />
+                {selectedVertexIndex != null ? `Vertex ${selectedVertexIndex}` : 'No vertex'}
+              </Badge>
+            </div>
+
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2.5" onClick={toggleEditMode}>
+                <Move3D className="size-3.5" />
+                {editMode ? 'Exit edit' : 'Edit'}
+              </Button>
+              {selectedFeature && (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 gap-1.5 px-2.5"
+                    onClick={() => centerFeatureById(selectedFeature.id)}
+                  >
+                    <LocateFixed className="size-3.5" />
+                    Center
+                  </Button>
+                  <Button
+                    variant={isolateSelectedFeature ? 'secondary' : 'outline'}
+                    size="sm"
+                    className="h-8 px-2.5"
+                    onClick={() => setIsolateSelectedFeature((current) => !current)}
+                  >
+                    {isolateSelectedFeature ? 'Show all' : 'Isolate'}
+                  </Button>
+                  <Button
+                    variant={hideOccludedEditEdges ? 'secondary' : 'outline'}
+                    size="sm"
+                    className="h-8 px-2.5"
+                    onClick={() => setHideOccludedEditEdges((current) => !current)}
+                    disabled={!editMode || !activeObject}
+                  >
+                    {hideOccludedEditEdges ? 'Cull edges' : 'Show edges'}
+                  </Button>
+                </>
+              )}
+              <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/4 px-2.5 py-1.5">
+                <span className="font-mono text-[11px] text-white/65">{cameraFocalLength}mm</span>
+                <input
+                  type="range"
+                  min={12}
+                  max={120}
+                  step={1}
+                  value={cameraFocalLength}
+                  onChange={(event) => setCameraFocalLength(Number(event.target.value))}
+                  className="h-2 w-32 cursor-pointer appearance-none rounded-full bg-white/12 accent-cyan-300"
+                  aria-label="Camera focal length"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="pointer-events-none absolute right-4 top-4 z-10 max-w-md rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white/70 backdrop-blur-md">
           {error ? (
             <span>{error}</span>
           ) : isLoading ? (
@@ -786,38 +772,13 @@ function DetailSection({
   children: ReactNode
 }) {
   return (
-    <section className="space-y-3">
+    <section className="min-w-0 space-y-3">
       <div className="flex items-center gap-2">
         <div className="h-px flex-1 bg-white/10" />
         <p className="text-xs uppercase tracking-[0.18em] text-white/45">{title}</p>
       </div>
       {children}
     </section>
-  )
-}
-
-function MetricCard({
-  label,
-  value,
-  icon,
-  compact = false,
-}: {
-  label: string
-  value: string | number
-  icon: ReactNode
-  compact?: boolean
-}) {
-  return (
-    <div
-      className={cn(
-        'rounded-2xl border border-white/10 bg-white/4',
-        compact ? 'px-3 py-3' : 'px-3 py-3.5',
-      )}
-    >
-      <div className="flex items-center gap-2 text-white/45">{icon}</div>
-      <p className="mt-3 text-xs uppercase tracking-[0.16em] text-white/45">{label}</p>
-      <p className="mt-1 truncate text-lg font-semibold text-white">{value}</p>
-    </div>
   )
 }
 
@@ -828,10 +789,6 @@ function formatValue(value: unknown) {
 
   if (typeof value === 'number') {
     return Number.isInteger(value) ? value.toString() : value.toFixed(3)
-  }
-
-  if (typeof value === 'boolean') {
-    return value ? 'true' : 'false'
   }
 
   if (Array.isArray(value)) {
