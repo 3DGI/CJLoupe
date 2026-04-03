@@ -744,54 +744,6 @@ function App() {
                     <div className="min-w-0 space-y-4 p-4 pt-0">
                       {selectedFeature ? (
                         <>
-                          {editMode && activeObject && (
-                            <DetailSection title="Edit Mode">
-                              <div className="space-y-2 rounded-xl border border-amber-400/15 bg-amber-500/8 p-3">
-                                <p className="text-sm leading-5 text-white/78">
-                                  Editing <span className="font-semibold text-white">{activeObject.id}</span>. Click
-                                  the active object to select a face, press <span className="font-semibold text-white">J</span>
-                                  {' / '}
-                                  <span className="font-semibold text-white">K</span> to step through its vertices, or
-                                  Ctrl-click a vertex and drag the gizmo. Shift-click selects a face.
-                                </p>
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <Badge variant="outline" className="border-amber-300/30 bg-amber-400/10 text-amber-50">
-                                    {selectedFaceIndex != null
-                                      ? `Face ${selectedFaceIndex}`
-                                      : 'No face selected'}
-                                  </Badge>
-                                  {selectedFaceVertexIndices.length > 0 && (
-                                    <Badge variant="outline" className="border-white/10 bg-white/5 text-white/65">
-                                      {selectedFaceVertexIndices.length} vertices
-                                    </Badge>
-                                  )}
-                                </div>
-                                <div className="flex flex-wrap gap-2">
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8 px-2.5"
-                                    onClick={() => cycleSelectedFaceVertex(-1)}
-                                    disabled={selectedFaceVertexIndices.length === 0}
-                                  >
-                                    Prev vertex (J)
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8 px-2.5"
-                                    onClick={() => cycleSelectedFaceVertex(1)}
-                                    disabled={selectedFaceVertexIndices.length === 0}
-                                  >
-                                    Next vertex (K)
-                                  </Button>
-                                </div>
-                              </div>
-                            </DetailSection>
-                          )}
-
                           <TabsContent value="errors">
                             <DetailSection title="Errors">
                               <div className="space-y-3">
@@ -927,6 +879,52 @@ function App() {
             <div className="absolute left-1/2 top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/75 bg-black/35" />
           </div>
         </div>
+
+        {editMode && activeObject && (
+          <div className="pointer-events-none absolute bottom-24 left-4 z-10 max-w-md">
+            <div className="pointer-events-auto space-y-2 rounded-2xl border border-amber-400/15 bg-black/45 p-3 backdrop-blur-md">
+              <p className="text-sm leading-5 text-white/78">
+                Editing <span className="font-semibold text-white">{activeObject.id}</span>. Shift-click the active
+                object to select a face, press <span className="font-semibold text-white">J</span>
+                {' / '}
+                <span className="font-semibold text-white">K</span> to step through its vertices, or Cmd/Ctrl-click a
+                vertex and drag the gizmo.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className="border-amber-300/30 bg-amber-400/10 text-amber-50">
+                  {selectedFaceIndex != null ? `Face ${selectedFaceIndex}` : 'No face selected'}
+                </Badge>
+                {selectedFaceVertexIndices.length > 0 && (
+                  <Badge variant="outline" className="border-white/10 bg-white/5 text-white/65">
+                    {selectedFaceVertexIndices.length} vertices
+                  </Badge>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-2.5"
+                  onClick={() => cycleSelectedFaceVertex(-1)}
+                  disabled={selectedFaceVertexIndices.length === 0}
+                >
+                  Prev vertex (J)
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-2.5"
+                  onClick={() => cycleSelectedFaceVertex(1)}
+                  disabled={selectedFaceVertexIndices.length === 0}
+                >
+                  Next vertex (K)
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="pointer-events-none absolute bottom-4 left-4 right-4 z-10">
           <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-black/40 px-3 py-2.5 backdrop-blur-md">
