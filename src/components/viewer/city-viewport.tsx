@@ -277,6 +277,8 @@ function CityViewport({
         if (handleHit) {
           return
         }
+
+        return
       }
 
       if (!event.shiftKey) {

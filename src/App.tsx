@@ -117,7 +117,9 @@ function App() {
         loadCityJsonSequenceFromUrl(SAMPLE_URL, 'rf-val3dity sample'),
         loadValidationReportFromUrl(SAMPLE_REPORT_URL),
       ])
-      applyDataset(mergeValidationAnnotations(nextDataset, annotations))
+      const mergedDataset = mergeValidationAnnotations(nextDataset, annotations)
+      applyDataset(mergedDataset)
+      setShowOnlyInvalidFeatures(mergedDataset.features.some((feature) => feature.errors.length > 0))
       setAnnotationSourceName('val-report.json')
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to load sample file.'
@@ -158,7 +160,15 @@ function App() {
 
     try {
       const annotations = await loadValidationReportFromFile(file)
-      setDataset((current) => (current ? mergeValidationAnnotations(current, annotations) : current))
+      setDataset((current) => {
+        if (!current) {
+          return current
+        }
+
+        const nextDataset = mergeValidationAnnotations(current, annotations)
+        setShowOnlyInvalidFeatures(nextDataset.features.some((feature) => feature.errors.length > 0))
+        return nextDataset
+      })
       setAnnotationSourceName(file.name)
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to parse annotation report.'
@@ -220,7 +230,9 @@ function App() {
         loadCityJsonSequenceFromFile(cityFile),
         loadValidationReportFromFile(reportFile),
       ])
-      applyDataset(mergeValidationAnnotations(nextDataset, annotations))
+      const mergedDataset = mergeValidationAnnotations(nextDataset, annotations)
+      applyDataset(mergedDataset)
+      setShowOnlyInvalidFeatures(mergedDataset.features.some((feature) => feature.errors.length > 0))
       setAnnotationSourceName(reportFile.name)
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to load dropped files.'
@@ -287,7 +299,10 @@ function App() {
   const toggleEditMode = useCallback(() => {
     setEditMode((current) => {
       const next = !current
-      if (!next) {
+      if (next) {
+        setIsolateSelectedFeature(true)
+      } else {
+        setIsolateSelectedFeature(false)
         setSelectedVertexIndex(null)
       }
       return next
@@ -367,12 +382,18 @@ function App() {
         event.preventDefault()
         applyFeatureVertices(selectedFeatureId, originalVertices)
         setSelectedVertexIndex(null)
+        return
+      }
+
+      if (event.key.toLowerCase() === 'x' && editMode) {
+        event.preventDefault()
+        setHideOccludedEditEdges((current) => !current)
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [applyFeatureVertices, selectedFeatureId, toggleEditMode])
+  }, [applyFeatureVertices, editMode, selectedFeatureId, toggleEditMode])
 
   return (
     <div
@@ -507,10 +528,11 @@ function App() {
                         <button
                           key={feature.id}
                           type="button"
-                          onClick={() => handleSelectFeature(feature.id)}
-                          onDoubleClick={() => {
+                          onClick={(event) => {
                             handleSelectFeature(feature.id)
-                            centerFeatureById(feature.id)
+                            if (event.shiftKey) {
+                              centerFeatureById(feature.id)
+                            }
                           }}
                           className={cn(
                             'w-full rounded-lg border px-2.5 py-2 text-left transition',
@@ -798,6 +820,25 @@ function App() {
               </Button>
               {selectedFeature && (
                 <>
+                  <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/4 px-2.5 py-1.5">
+                    <span className="text-xs text-white/70">Isolate</span>
+                    <Switch
+                      checked={isolateSelectedFeature}
+                      onCheckedChange={setIsolateSelectedFeature}
+                      aria-label="Toggle isolate selected feature"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/4 px-2.5 py-1.5">
+                    <span className={cn('text-xs', editMode && activeObject ? 'text-white/70' : 'text-white/40')}>
+                      Xray
+                    </span>
+                    <Switch
+                      checked={!hideOccludedEditEdges}
+                      onCheckedChange={(checked) => setHideOccludedEditEdges(!checked)}
+                      disabled={!editMode || !activeObject}
+                      aria-label="Toggle xray view for edit mode"
+                    />
+                  </div>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -806,23 +847,6 @@ function App() {
                   >
                     <LocateFixed className="size-3.5" />
                     Center
-                  </Button>
-                  <Button
-                    variant={isolateSelectedFeature ? 'secondary' : 'outline'}
-                    size="sm"
-                    className="h-8 px-2.5"
-                    onClick={() => setIsolateSelectedFeature((current) => !current)}
-                  >
-                    {isolateSelectedFeature ? 'Show all' : 'Isolate'}
-                  </Button>
-                  <Button
-                    variant={hideOccludedEditEdges ? 'secondary' : 'outline'}
-                    size="sm"
-                    className="h-8 px-2.5"
-                    onClick={() => setHideOccludedEditEdges((current) => !current)}
-                    disabled={!editMode || !activeObject}
-                  >
-                    {hideOccludedEditEdges ? 'Xray edit' : 'Cull edit'}
                   </Button>
                 </>
               )}
