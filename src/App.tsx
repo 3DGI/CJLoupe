@@ -52,6 +52,7 @@ function App() {
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null)
   const [activeObjectId, setActiveObjectId] = useState<string | null>(null)
   const [selectedFaceIndex, setSelectedFaceIndex] = useState<number | null>(null)
+  const [selectedFaceRingIndex, setSelectedFaceRingIndex] = useState(0)
   const [selectedVertexIndex, setSelectedVertexIndex] = useState<number | null>(null)
   const [geometryRevision, setGeometryRevision] = useState(0)
   const [focusRevision, setFocusRevision] = useState(0)
@@ -82,10 +83,22 @@ function App() {
     activeObject && selectedFaceIndex != null
       ? activeObject.polygons[selectedFaceIndex] ?? null
       : null
+  const selectedFaceRingCount = selectedFace?.length ?? 0
+  const selectedFaceHoleCount = Math.max(selectedFaceRingCount - 1, 0)
+  const activeFaceRingIndex =
+    selectedFaceRingCount > 0
+      ? Math.min(selectedFaceRingIndex, selectedFaceRingCount - 1)
+      : 0
   const selectedFaceVertexIndices = useMemo(
-    () => getFaceVertexCycle(selectedFace),
-    [selectedFace],
+    () => getFaceVertexCycle(selectedFace, activeFaceRingIndex),
+    [activeFaceRingIndex, selectedFace],
   )
+  const selectedFaceRingLabel =
+    selectedFaceRingCount === 0
+      ? 'No ring selected'
+      : activeFaceRingIndex === 0
+        ? 'Outer ring'
+        : `Hole ${activeFaceRingIndex}`
 
   const filteredFeatures = useMemo(() => {
     if (!dataset) {
@@ -262,6 +275,7 @@ function App() {
     setSelectedFeatureId(firstFeature?.id ?? null)
     setActiveObjectId(firstFeature?.objects[0]?.id ?? null)
     setSelectedFaceIndex(null)
+    setSelectedFaceRingIndex(0)
     setSelectedVertexIndex(null)
     setEditMode(false)
   }
@@ -331,6 +345,7 @@ function App() {
       (selectedFeature.objects.length === 1 ? selectedFeature.objects[0]?.id ?? null : activeObjectId)
 
     setSelectedFaceIndex(error.faceIndex)
+    setSelectedFaceRingIndex(0)
     setActiveObjectId(inferredObjectId)
     setSelectedVertexIndex(null)
     setFocusTarget({
@@ -352,10 +367,12 @@ function App() {
       } else {
         setIsolateSelectedFeature(false)
         setSelectedFaceIndex(null)
+        setSelectedFaceRingIndex(0)
         setSelectedVertexIndex(null)
       }
       if (next) {
         setSelectedFaceIndex(null)
+        setSelectedFaceRingIndex(0)
       }
       return next
     })
@@ -370,16 +387,25 @@ function App() {
     setSelectedFeatureId(featureId)
     setActiveObjectId(objectId ?? feature.objects[0]?.id ?? null)
     setSelectedFaceIndex(null)
+    setSelectedFaceRingIndex(0)
     setSelectedVertexIndex(null)
   }, [featureMap])
 
   const handleSelectFace = useCallback((faceIndex: number | null) => {
     setSelectedFaceIndex(faceIndex)
+    setSelectedFaceRingIndex(0)
     setSelectedVertexIndex(null)
   }, [])
 
   const handleSelectVertex = useCallback((vertexIndex: number | null) => {
     setSelectedVertexIndex(vertexIndex)
+
+    if (selectedFace && vertexIndex != null) {
+      const ringIndex = selectedFace.findIndex((ring) => ring.includes(vertexIndex))
+      if (ringIndex >= 0) {
+        setSelectedFaceRingIndex(ringIndex)
+      }
+    }
 
     if (!editMode || vertexIndex == null || !selectedFeature) {
       return
@@ -397,7 +423,7 @@ function App() {
       vertexIndex,
     })
     setFocusRevision((current) => current + 1)
-  }, [activeObjectId, editMode, selectedFeature])
+  }, [activeObjectId, editMode, selectedFace, selectedFeature])
 
   const cycleSelectedFaceVertex = useCallback((direction: -1 | 1) => {
     if (selectedFaceVertexIndices.length === 0) {
@@ -417,6 +443,15 @@ function App() {
 
     handleSelectVertex(selectedFaceVertexIndices[nextIndex] ?? null)
   }, [handleSelectVertex, selectedFaceVertexIndices, selectedVertexIndex])
+
+  const cycleSelectedFaceRing = useCallback(() => {
+    if (selectedFaceRingCount <= 1) {
+      return
+    }
+
+    setSelectedFaceRingIndex((current) => (current + 1) % selectedFaceRingCount)
+    setSelectedVertexIndex(null)
+  }, [selectedFaceRingCount])
 
   const applyFeatureVertices = useCallback((featureId: string, vertices: Vec3[]) => {
     setDataset((current) => {
@@ -469,6 +504,12 @@ function App() {
         return
       }
 
+      if (editMode && event.key.toLowerCase() === 'r') {
+        event.preventDefault()
+        cycleSelectedFaceRing()
+        return
+      }
+
       if (event.key.toLowerCase() === 'u') {
         if (!selectedFeatureId) {
           return
@@ -493,7 +534,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [applyFeatureVertices, centerCurrentSelection, cycleSelectedFaceVertex, editMode, selectedFeatureId, toggleEditMode])
+  }, [applyFeatureVertices, centerCurrentSelection, cycleSelectedFaceRing, cycleSelectedFaceVertex, editMode, selectedFeatureId, toggleEditMode])
 
   return (
     <div
@@ -737,6 +778,7 @@ function App() {
                               onClick={() => {
                                 setActiveObjectId(object.id)
                                 setSelectedFaceIndex(null)
+                                setSelectedFaceRingIndex(0)
                                 setSelectedVertexIndex(null)
                               }}
                               className={cn(
@@ -918,13 +960,19 @@ function App() {
                 Editing <span className="font-semibold text-white">{activeObject.id}</span>. Shift-click the active
                 object to select a face, press <span className="font-semibold text-white">J</span>
                 {' / '}
-                <span className="font-semibold text-white">K</span> to step through its vertices, or Cmd/Ctrl-click a
-                vertex and drag the gizmo.
+                <span className="font-semibold text-white">K</span> to step through the current ring, press
+                <span className="font-semibold text-white"> R</span> to cycle rings, or Cmd/Ctrl-click a vertex and
+                drag the gizmo.
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline" className="border-amber-300/30 bg-amber-400/10 text-amber-50">
                   {selectedFaceIndex != null ? `Face ${selectedFaceIndex}` : 'No face selected'}
                 </Badge>
+                {selectedFaceRingCount > 0 && (
+                  <Badge variant="outline" className="border-white/10 bg-white/5 text-white/65">
+                    {selectedFaceRingLabel}
+                  </Badge>
+                )}
                 {selectedFaceVertexIndices.length > 0 && (
                   <Badge variant="outline" className="border-white/10 bg-white/5 text-white/65">
                     {selectedFaceVertexIndices.length} vertices
@@ -932,6 +980,16 @@ function App() {
                 )}
               </div>
               <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-2.5"
+                  onClick={cycleSelectedFaceRing}
+                  disabled={selectedFaceHoleCount === 0}
+                >
+                  Next ring (R)
+                </Button>
                 <Button
                   type="button"
                   variant="outline"
@@ -1041,7 +1099,7 @@ function App() {
             <span>Loading CityJSON feature sequence…</span>
           ) : (
             <span>
-              Hold Shift and click geometry to select. Double-click to recenter navigation. {editMode ? 'Tab exits edit mode, Shift-click selects a face, Ctrl-click selects a vertex, C centers the current selection, X toggles xray, J/K cycle face vertices, and U resets the selected feature geometry.' : 'Tab enters edit mode for the current cityobject. C centers the active mesh.'}
+              Hold Shift and click geometry to select. Double-click to recenter navigation. {editMode ? 'Tab exits edit mode, Shift-click selects a face, Ctrl-click selects a vertex, C centers the current selection, X toggles xray, R cycles face rings, J/K cycle the active ring, and U resets the selected feature geometry.' : 'Tab enters edit mode for the current cityobject. C centers the active mesh.'}
             </span>
           )}
         </div>
@@ -1120,12 +1178,12 @@ function cloneVertices(vertices: Vec3[]) {
   return vertices.map((vertex) => [...vertex] as Vec3)
 }
 
-function getFaceVertexCycle(rings: number[][] | null) {
-  const outerRing = rings?.[0] ?? []
+function getFaceVertexCycle(rings: number[][] | null, ringIndex: number) {
+  const targetRing = rings?.[ringIndex] ?? []
   const seen = new Set<number>()
   const vertexIndices: number[] = []
 
-  for (const vertexIndex of outerRing) {
+  for (const vertexIndex of targetRing) {
     if (seen.has(vertexIndex)) {
       continue
     }
