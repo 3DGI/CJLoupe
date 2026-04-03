@@ -258,7 +258,7 @@ function CityViewport({
       updateRaycastPointer(activeRuntime, event)
 
       const selection = selectionRef.current
-      if (selection.editMode) {
+      if (selection.editMode && event.shiftKey) {
         updateEditPointRaycastThreshold(activeRuntime, currentData, selection)
         const handleTargets = [activeRuntime.selectedEditPoint, activeRuntime.editPoints].filter(
           (entry): entry is THREE.Points => entry != null,
