@@ -339,6 +339,7 @@ function App() {
       objectId: inferredObjectId,
       faceIndex: error.faceIndex,
       location: error.location,
+      preserveCameraOffset: editMode,
     })
     setFocusRevision((current) => current + 1)
   }
@@ -627,7 +628,7 @@ function App() {
                         <div
                           key={feature.id}
                           className={cn(
-                            'flex items-center gap-2 rounded-lg border px-2.5 py-2 transition',
+                            'flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-lg border px-2.5 py-2 transition',
                             isSelected
                               ? 'border-cyan-300/40 bg-cyan-400/10 text-white shadow-[0_0_0_1px_rgba(56,189,248,0.25)]'
                               : isInvalid
@@ -638,7 +639,7 @@ function App() {
                           <button
                             type="button"
                             onClick={() => handleSelectFeature(feature.id)}
-                            className="min-w-0 flex-1 text-left"
+                            className="min-w-0 flex-1 overflow-hidden text-left"
                           >
                             <div className="flex items-start justify-between gap-2">
                               <div className="min-w-0">
@@ -786,20 +787,20 @@ function App() {
                                       return (
                                         <div
                                           key={`${error.id}-${error.code}`}
-                                          className="flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left transition"
+                                          className="flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-lg border px-3 py-2.5 text-left transition"
                                           style={{
                                             borderColor: `${color}30`,
                                             backgroundColor: `${color}18`,
                                           }}
                                         >
-                                          <div className="min-w-0 flex-1">
-                                            <div className="flex items-start justify-between gap-3">
+                                          <div className="min-w-0 flex-1 overflow-hidden">
+                                            <div className="flex min-w-0 items-start justify-between gap-3">
                                               <div className="flex min-w-0 items-start gap-2.5">
                                                 <span
                                                   className="mt-1 h-3 w-3 shrink-0 rounded-sm"
                                                   style={{ backgroundColor: color }}
                                                 />
-                                                <div className="min-w-0">
+                                                <div className="min-w-0 overflow-hidden">
                                                   <p className="truncate text-sm font-semibold text-white/90">{error.description}</p>
                                                   <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/50">
                                                     code {error.code}
