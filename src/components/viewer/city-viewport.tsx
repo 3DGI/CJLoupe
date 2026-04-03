@@ -53,6 +53,7 @@ type Runtime = {
   annotationVertexMarkers: THREE.Points[]
   featureDrafts: Map<string, Vec3[]>
   sceneScale: number
+  editPivot: Vec3 | null
 }
 
 function CityViewport({
@@ -136,6 +137,7 @@ function CityViewport({
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
       alpha: true,
+      logarithmicDepthBuffer: true,
     })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.outputColorSpace = THREE.SRGBColorSpace
@@ -148,7 +150,7 @@ function CityViewport({
     arcball.enableGrid = false
     arcball.setGizmosVisible(false)
     arcball.rotateSpeed = 1.15
-    arcball.scaleFactor = 1.08
+    arcball.scaleFactor = 1.04
     arcball.unsetMouseAction('WHEEL', 'SHIFT')
     arcball.unsetMouseAction(1, 'SHIFT')
 
@@ -206,6 +208,7 @@ function CityViewport({
       annotationVertexMarkers: [],
       featureDrafts: new Map(),
       sceneScale: 1,
+      editPivot: null,
     }
     runtime.raycaster.params.Points.threshold = 1
 
@@ -357,10 +360,11 @@ function CityViewport({
         return
       }
 
+      const pivot = activeRuntime.editPivot ?? currentData.center
       draftVertices[vertexIndex] = [
-        handle.position.x + currentData.center[0],
-        handle.position.y + currentData.center[1],
-        handle.position.z + currentData.center[2],
+        handle.position.x + pivot[0],
+        handle.position.y + pivot[1],
+        handle.position.z + pivot[2],
       ]
       rebuildFeatureGeometry(activeRuntime, currentData, featureId)
       rebuildEditWireframe(
@@ -534,18 +538,32 @@ function rebuildScene(runtime: Runtime, data: ViewerDataset) {
       continue
     }
 
+    // Center each feature's mesh geometry around the feature's own center
+    // to keep float32 vertex buffer values small and avoid GPU precision jitter.
+    const featureCenter: Vec3 = [
+      (feature.extent[0] + feature.extent[3]) * 0.5,
+      (feature.extent[1] + feature.extent[4]) * 0.5,
+      (feature.extent[2] + feature.extent[5]) * 0.5,
+    ]
+
     for (const object of feature.objects) {
       if (object.polygons.length === 0) {
         continue
       }
 
-      const geometry = buildObjectGeometry(object.polygons, draftVertices, data.center)
+      const geometry = buildObjectGeometry(object.polygons, draftVertices, featureCenter)
       const material = createMaterial(object.type)
       const mesh = new THREE.Mesh(geometry, material)
+      mesh.position.set(
+        featureCenter[0] - data.center[0],
+        featureCenter[1] - data.center[1],
+        featureCenter[2] - data.center[2],
+      )
       mesh.userData = {
         featureId: feature.id,
         objectId: object.id,
         objectType: object.type,
+        featureCenter,
       }
       runtime.meshesByObjectKey.set(objectKey(feature.id, object.id), mesh)
       runtime.rootGroup.add(mesh)
@@ -566,7 +584,8 @@ function rebuildFeatureGeometry(runtime: Runtime, data: ViewerDataset, featureId
       continue
     }
 
-    const nextGeometry = buildObjectGeometry(object.polygons, vertices, data.center)
+    const center = (mesh.userData.featureCenter as Vec3) ?? data.center
+    const nextGeometry = buildObjectGeometry(object.polygons, vertices, center)
     mesh.geometry.dispose()
     mesh.geometry = nextGeometry
   }
@@ -697,8 +716,10 @@ function syncSelection(
 
     material.color.set(isActiveObject ? '#f59e0b' : isSelectedFeature ? '#7dd3fc' : baseColor)
     material.emissive.set(isActiveObject ? '#78350f' : isSelectedFeature ? '#082f49' : '#020617')
-    material.opacity = isSelectedFeature ? 1 : 0.88
+    material.opacity = 1
     material.roughness = isActiveObject ? 0.38 : 0.72
+    material.transparent = false
+    material.depthWrite = true
     mesh.visible = !isolateActive || isSelectedFeature
   }
 
@@ -725,6 +746,9 @@ function rebuildHandles(
   clearEditPointOverlays(runtime)
   runtime.transform.detach()
   runtime.transform.enabled = false
+  runtime.editPivot = null
+  runtime.handleGroup.position.set(0, 0, 0)
+  runtime.edgeGroup.position.set(0, 0, 0)
 
   if (!selection.editMode || !selection.selectedFeatureId || !selection.activeObjectId) {
     return
@@ -740,11 +764,30 @@ function rebuildHandles(
     return
   }
 
+  // Re-center edit geometry around the feature's own center to avoid
+  // float32 precision jitter when zoomed in close and rotating.
+  const editPivot: Vec3 = [
+    (feature.extent[0] + feature.extent[3]) * 0.5,
+    (feature.extent[1] + feature.extent[4]) * 0.5,
+    (feature.extent[2] + feature.extent[5]) * 0.5,
+  ]
+  runtime.editPivot = editPivot
+  runtime.handleGroup.position.set(
+    editPivot[0] - data.center[0],
+    editPivot[1] - data.center[1],
+    editPivot[2] - data.center[2],
+  )
+  runtime.edgeGroup.position.set(
+    editPivot[0] - data.center[0],
+    editPivot[1] - data.center[1],
+    editPivot[2] - data.center[2],
+  )
+
   rebuildEditWireframe(runtime, data, selection, hideOccludedEditEdges)
   runtime.editPoints = buildEditPoints(
     object.vertexIndices,
     draftVertices,
-    data.center,
+    editPivot,
     '#f8fafc',
     5.5,
     hideOccludedEditEdges,
@@ -757,7 +800,7 @@ function rebuildHandles(
       runtime.selectedEditPoint = buildEditPoints(
         [selection.selectedVertexIndex],
         draftVertices,
-        data.center,
+        editPivot,
         '#f59e0b',
         7,
         hideOccludedEditEdges,
@@ -766,9 +809,9 @@ function rebuildHandles(
 
       runtime.transformProxy = new THREE.Object3D()
       runtime.transformProxy.position.set(
-        selectedVertex[0] - data.center[0],
-        selectedVertex[1] - data.center[1],
-        selectedVertex[2] - data.center[2],
+        selectedVertex[0] - editPivot[0],
+        selectedVertex[1] - editPivot[1],
+        selectedVertex[2] - editPivot[2],
       )
       runtime.handleGroup.add(runtime.transformProxy)
       runtime.transform.attach(runtime.transformProxy)
@@ -801,10 +844,11 @@ function rebuildEditWireframe(
     return
   }
 
+  const edgeCenter = runtime.editPivot ?? data.center
   const edgeSegments = buildEdgeSegments(
     object.polygons,
     draftVertices,
-    data.center,
+    edgeCenter,
     selection.selectedVertexIndex,
   )
   ensureEditWireframeObjects(runtime)
@@ -1001,12 +1045,13 @@ function syncEditPointGeometry(
     return
   }
 
-  updatePointPositions(runtime.editPoints, object.vertexIndices, draftVertices, data.center)
+  const pointCenter = runtime.editPivot ?? data.center
+  updatePointPositions(runtime.editPoints, object.vertexIndices, draftVertices, pointCenter)
   updatePointPositions(
     runtime.selectedEditPoint,
     selection.selectedVertexIndex != null ? [selection.selectedVertexIndex] : [],
     draftVertices,
-    data.center,
+    pointCenter,
   )
 }
 
@@ -1118,6 +1163,7 @@ function clearEditPointOverlays(runtime: Runtime) {
 }
 
 function renderViewport(runtime: Runtime) {
+  updateCameraClipping(runtime)
   runtime.renderer.clear(true, true, true)
   runtime.renderer.render(runtime.scene, runtime.camera)
 }
@@ -1255,16 +1301,14 @@ function fitCameraToDataset(runtime: Runtime, data: ViewerDataset) {
   const distance =
     size * 1.76 * lensDistanceScale(runtime.camera.fov)
 
-  runtime.camera.near = Math.max(size / 50000, 0.01)
-  runtime.camera.far = size * 40
   runtime.camera.position.copy(focusPoint).add(direction.multiplyScalar(distance))
   runtime.camera.lookAt(focusPoint)
   runtime.camera.updateMatrix()
   runtime.camera.updateMatrixWorld(true)
-  runtime.camera.updateProjectionMatrix()
-  runtime.arcball.minDistance = Math.max(size * 0.0002, 0.1)
+  runtime.arcball.minDistance = Math.max(size * 0.000002, 0.001)
   runtime.arcball.maxDistance = size * 18
   syncArcballState(runtime, focusPoint)
+  updateCameraClipping(runtime)
 }
 
 function centerViewOnFeature(
@@ -1360,8 +1404,9 @@ function createMaterial(objectType: string) {
     color: baseColorForType(objectType),
     roughness: 0.72,
     metalness: 0.08,
-    transparent: true,
-    opacity: 0.88,
+    transparent: false,
+    opacity: 1,
+    depthWrite: true,
     side: THREE.DoubleSide,
   })
 }
@@ -1432,6 +1477,23 @@ function lensDistanceScale(verticalFovDegrees: number) {
   const referenceFovRadians = THREE.MathUtils.degToRad(50)
   const currentFovRadians = THREE.MathUtils.degToRad(verticalFovDegrees)
   return Math.tan(referenceFovRadians / 2) / Math.tan(currentFovRadians / 2)
+}
+
+function updateCameraClipping(runtime: Runtime) {
+  const center = getArcballCenter(runtime.arcball)
+  const distance = Math.max(runtime.camera.position.distanceTo(center), 0.001)
+  const sceneScale = Math.max(runtime.sceneScale, 1)
+  const nextNear = Math.max(Math.min(distance * 0.01, sceneScale / 1500), 0.0005)
+  const nextFar = Math.max(sceneScale * 8, distance * 8, 50)
+
+  if (
+    Math.abs(runtime.camera.near - nextNear) > 1e-7 ||
+    Math.abs(runtime.camera.far - nextFar) > 1e-4
+  ) {
+    runtime.camera.near = nextNear
+    runtime.camera.far = nextFar
+    runtime.camera.updateProjectionMatrix()
+  }
 }
 
 function getCurrentViewDirection(runtime: Runtime) {
