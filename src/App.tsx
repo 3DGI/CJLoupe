@@ -701,13 +701,12 @@ function App() {
                                 </div>
                               </div>
                             </div>
-                            <div className="mt-1.5 flex items-center gap-2 text-[10px] text-white/52">
+                            <div className="mt-1 flex items-center gap-2 text-[10px] text-white/52">
                               <span>{feature.objects.length} obj</span>
                               <span>{feature.vertices.length} vtx</span>
                               {errorCount > 0 && (
                                 <span className="text-red-200">
-                                  {errorCount} err
-                                  {' '}({[...new Set(feature.errors.map((e) => e.code))].join(', ')})
+                                  {errorCount} err ({[...new Set(feature.errors.map((e) => e.code))].join(', ')})
                                 </span>
                               )}
                             </div>
@@ -743,17 +742,12 @@ function App() {
               <Tabs value={detailTab} onValueChange={setDetailTab} asChild>
                 <section className="flex min-h-0 min-w-0 flex-1 flex-col">
                   <div className="space-y-3 p-4 pb-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.22em] text-amber-200/80">
-                          Selection
-                        </p>
-                        <h2 className="mt-1 text-lg font-semibold tracking-tight text-white">
-                          {selectedFeature?.label ?? 'No feature selected'}
-                        </h2>
-                      </div>
+                    <div className="flex items-center gap-2">
+                      <p className="min-w-0 truncate text-sm font-semibold text-white">
+                        {selectedFeature?.label ?? 'No feature selected'}
+                      </p>
                       {selectedFeature && (
-                        <Badge variant="outline" className="border-amber-300/30 bg-amber-400/10 text-amber-50">
+                        <Badge variant="outline" className="shrink-0 border-amber-300/30 bg-amber-400/10 text-amber-50">
                           {selectedFeature.type}
                         </Badge>
                       )}
@@ -773,21 +767,25 @@ function App() {
                                 setSelectedVertexIndex(null)
                               }}
                               className={cn(
-                                'rounded-md border px-2 py-1 text-left text-xs transition',
+                                'flex items-center gap-1.5 rounded-md border px-2 py-1 text-left text-xs transition',
                                 object.id === activeObjectId
                                   ? 'border-amber-300/40 bg-amber-400/10 text-white'
                                   : 'border-white/8 bg-white/3 text-white/70 hover:border-white/16 hover:bg-white/6',
                               )}
                             >
-                              <span className="block max-w-[12rem] truncate font-medium">{object.id}</span>
-                              <span className="block text-[10px] text-white/45">{object.type}</span>
+                              <span className="truncate font-medium">{object.id}</span>
+                              <span className="shrink-0 text-[10px] text-white/45">{object.type}</span>
                             </button>
                           ))}
                         </div>
 
                         <TabsList>
-                          <TabsTrigger value="errors">Errors</TabsTrigger>
-                          <TabsTrigger value="attributes">Attributes</TabsTrigger>
+                          <TabsTrigger value="errors">
+                            Errors{selectedFeature.errors.length > 0 ? ` (${selectedFeature.errors.length})` : ''}
+                          </TabsTrigger>
+                          <TabsTrigger value="attributes">
+                            Attributes ({Object.keys(selectedFeature.attributes).length})
+                          </TabsTrigger>
                         </TabsList>
                       </>
                     )}
@@ -800,19 +798,6 @@ function App() {
                           <TabsContent value="errors">
                             <DetailSection title="Errors">
                               <div className="space-y-3">
-                                <div
-                                  className={cn(
-                                    'rounded-lg border px-3 py-2.5 text-sm',
-                                    selectedFeature.validity === false
-                                      ? 'border-red-400/20 bg-red-500/10 text-red-50'
-                                      : 'border-emerald-400/20 bg-emerald-500/10 text-emerald-50',
-                                  )}
-                                >
-                                  {selectedFeature.validity === false
-                                    ? `Invalid feature with ${selectedFeature.errors.length} reported errors.`
-                                    : 'No validation errors reported for this feature.'}
-                                </div>
-
                                 {selectedFeature.errors.length > 0 ? (
                                   <div className="grid gap-2">
                                     {selectedFeature.errors
