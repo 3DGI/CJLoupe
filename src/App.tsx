@@ -610,13 +610,6 @@ function App() {
                                   Editing <span className="font-semibold text-white">{activeObject.id}</span>. Click a
                                   vertex, then drag the gizmo.
                                 </p>
-                                {selectedVertex && (
-                                  <div className="rounded-lg border border-white/10 bg-black/20 p-3 font-mono text-xs text-white/75">
-                                    <p>x {selectedVertex[0].toFixed(3)}</p>
-                                    <p>y {selectedVertex[1].toFixed(3)}</p>
-                                    <p>z {selectedVertex[2].toFixed(3)}</p>
-                                  </div>
-                                )}
                               </div>
                             </DetailSection>
                           )}
@@ -758,17 +751,24 @@ function App() {
         <div className="pointer-events-none absolute bottom-4 left-4 right-4 z-10">
           <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-black/40 px-3 py-2.5 backdrop-blur-md">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <Badge variant="outline" className="border-white/10 bg-white/5 text-white/70">
-                {selectedFeature?.label ?? 'No feature'}
-              </Badge>
-              <Badge variant="outline" className="border-amber-300/25 bg-amber-400/10 text-amber-50">
-                <SquareMousePointer className="mr-1 size-3.5" />
-                {activeObject?.id ?? 'No object'}
-              </Badge>
-              <Badge variant="outline" className="border-cyan-300/25 bg-cyan-400/10 text-cyan-50">
-                <Crosshair className="mr-1 size-3.5" />
-                {selectedVertexIndex != null ? `Vertex ${selectedVertexIndex}` : 'No vertex'}
-              </Badge>
+              {isPaneCollapsed && (
+                <>
+                  <Badge variant="outline" className="border-white/10 bg-white/5 text-white/70">
+                    {selectedFeature?.label ?? 'No feature'}
+                  </Badge>
+                  <Badge variant="outline" className="border-amber-300/25 bg-amber-400/10 text-amber-50">
+                    <SquareMousePointer className="mr-1 size-3.5" />
+                    {activeObject?.id ?? 'No object'}
+                  </Badge>
+                </>
+              )}
+              {selectedVertex && (
+                <span className="font-mono text-[11px] text-white/65">
+                  vtx {selectedVertexIndex}
+                  <span className="mx-1 text-white/30">|</span>
+                  {selectedVertex[0].toFixed(3)}, {selectedVertex[1].toFixed(3)}, {selectedVertex[2].toFixed(3)}
+                </span>
+              )}
             </div>
 
             <div className="ml-auto flex flex-wrap items-center gap-2">
