@@ -27,8 +27,10 @@ type CityViewportProps = {
   selectedFeatureId: string | null
   activeObjectId: string | null
   editMode: boolean
+  selectedFaceIndex: number | null
   selectedVertexIndex: number | null
   onSelectFeature: (featureId: string, objectId?: string | null) => void
+  onSelectFace: (faceIndex: number | null) => void
   onSelectVertex: (vertexIndex: number | null) => void
   onVertexCommit: (featureId: string, vertices: Vec3[]) => void
 }
@@ -68,8 +70,10 @@ function CityViewport({
   selectedFeatureId,
   activeObjectId,
   editMode,
+  selectedFaceIndex,
   selectedVertexIndex,
   onSelectFeature,
+  onSelectFace,
   onSelectVertex,
   onVertexCommit,
 }: CityViewportProps) {
@@ -84,9 +88,11 @@ function CityViewport({
     selectedFeatureId,
     activeObjectId,
     editMode,
+    selectedFaceIndex,
     selectedVertexIndex,
   })
   const onSelectFeatureRef = useRef(onSelectFeature)
+  const onSelectFaceRef = useRef(onSelectFace)
   const onSelectVertexRef = useRef(onSelectVertex)
   const onVertexCommitRef = useRef(onVertexCommit)
 
@@ -107,11 +113,13 @@ function CityViewport({
       selectedFeatureId,
       activeObjectId,
       editMode,
+      selectedFaceIndex,
       selectedVertexIndex,
     }
-  }, [selectedFeatureId, activeObjectId, editMode, selectedVertexIndex])
+  }, [selectedFeatureId, activeObjectId, editMode, selectedFaceIndex, selectedVertexIndex])
 
   useEffect(() => { onSelectFeatureRef.current = onSelectFeature }, [onSelectFeature])
+  useEffect(() => { onSelectFaceRef.current = onSelectFace }, [onSelectFace])
   useEffect(() => { onSelectVertexRef.current = onSelectVertex }, [onSelectVertex])
   useEffect(() => { onVertexCommitRef.current = onVertexCommit }, [onVertexCommit])
 
@@ -258,7 +266,8 @@ function CityViewport({
       updateRaycastPointer(activeRuntime, event)
 
       const selection = selectionRef.current
-      if (selection.editMode && event.shiftKey) {
+      const isVertexSelectionModifier = event.ctrlKey || event.metaKey
+      if (selection.editMode && isVertexSelectionModifier) {
         updateEditPointRaycastThreshold(activeRuntime, currentData, selection)
         const handleTargets = [activeRuntime.selectedEditPoint, activeRuntime.editPoints].filter(
           (entry): entry is THREE.Points => entry != null,
@@ -278,6 +287,67 @@ function CityViewport({
           return
         }
 
+        const activeFeature =
+          selection.selectedFeatureId
+            ? currentData.features.find((candidate) => candidate.id === selection.selectedFeatureId) ?? null
+            : null
+        const activeObject =
+          activeFeature?.objects.find((candidate) => candidate.id === selection.activeObjectId) ?? null
+        const activeMesh =
+          selection.selectedFeatureId && selection.activeObjectId
+            ? activeRuntime.meshesByObjectKey.get(
+                objectKey(selection.selectedFeatureId, selection.activeObjectId),
+              ) ?? null
+            : null
+
+        if (!activeFeature || !activeObject || !activeMesh) {
+          return
+        }
+
+        const meshHits = activeRuntime.raycaster.intersectObject(activeMesh, false)
+        const meshHit = meshHits[0]
+        const triangleFaceIndices = (activeMesh.userData.triangleFaceIndices as number[] | undefined) ?? []
+        const polygonIndex =
+          meshHit && typeof meshHit.faceIndex === 'number'
+            ? triangleFaceIndices[meshHit.faceIndex] ?? null
+            : null
+        const polygon = polygonIndex != null ? activeObject.polygons[polygonIndex] ?? null : null
+        const nearestVertexIndex =
+          meshHit && polygon
+            ? findNearestVertexIndexOnPolygon(meshHit.point, polygon, activeFeature.vertices, currentData.center)
+            : null
+
+        if (nearestVertexIndex != null) {
+          onSelectVertexRef.current(nearestVertexIndex)
+        }
+        return
+      }
+
+      if (selection.editMode) {
+        if (!event.shiftKey) {
+          return
+        }
+
+        const activeMesh =
+          selection.selectedFeatureId && selection.activeObjectId
+            ? activeRuntime.meshesByObjectKey.get(
+                objectKey(selection.selectedFeatureId, selection.activeObjectId),
+              ) ?? null
+            : null
+
+        if (!activeMesh) {
+          return
+        }
+
+        const meshHits = activeRuntime.raycaster.intersectObject(activeMesh, false)
+        const meshHit = meshHits[0]
+        const triangleFaceIndices = (activeMesh.userData.triangleFaceIndices as number[] | undefined) ?? []
+        const faceIndex =
+          meshHit && typeof meshHit.faceIndex === 'number'
+            ? triangleFaceIndices[meshHit.faceIndex] ?? null
+            : null
+
+        onSelectFaceRef.current(faceIndex)
         return
       }
 
@@ -456,7 +526,7 @@ function CityViewport({
       isolateSelectedFeatureRef.current,
     )
     renderViewport(runtime)
-  }, [selectedFeatureId, activeObjectId, editMode, selectedVertexIndex, hideOccludedEditEdges, isolateSelectedFeature])
+  }, [selectedFeatureId, activeObjectId, editMode, selectedFaceIndex, selectedVertexIndex, hideOccludedEditEdges, isolateSelectedFeature])
 
   useEffect(() => {
     const runtime = runtimeRef.current
@@ -555,6 +625,7 @@ function rebuildScene(runtime: Runtime, data: ViewerDataset) {
         objectId: object.id,
         objectType: object.type,
         featureCenter,
+        triangleFaceIndices: geometry.userData.triangleFaceIndices,
       }
       runtime.meshesByObjectKey.set(objectKey(feature.id, object.id), mesh)
       runtime.rootGroup.add(mesh)
@@ -580,6 +651,7 @@ function rebuildFeatureGeometry(runtime: Runtime, data: ViewerDataset, featureId
     const nextGeometry = buildObjectGeometry(object.polygons, vertices, center, faceGroups)
     mesh.geometry.dispose()
     mesh.geometry = nextGeometry
+    mesh.userData.triangleFaceIndices = nextGeometry.userData.triangleFaceIndices
   }
 }
 
@@ -595,6 +667,7 @@ function syncSelection(
     selectedFeatureId: string | null
     activeObjectId: string | null
     editMode: boolean
+    selectedFaceIndex: number | null
     selectedVertexIndex: number | null
   },
   hideOccludedEditEdges: boolean,
@@ -638,6 +711,7 @@ function rebuildHandles(
     selectedFeatureId: string | null
     activeObjectId: string | null
     editMode: boolean
+    selectedFaceIndex: number | null
     selectedVertexIndex: number | null
   },
   hideOccludedEditEdges: boolean,
@@ -728,6 +802,7 @@ function rebuildEditWireframe(
     selectedFeatureId: string | null
     activeObjectId: string | null
     editMode: boolean
+    selectedFaceIndex: number | null
     selectedVertexIndex: number | null
   },
   hideOccludedEditEdges: boolean,
@@ -749,6 +824,7 @@ function rebuildEditWireframe(
     object.polygons,
     draftVertices,
     edgeCenter,
+    selection.selectedFaceIndex,
     selection.selectedVertexIndex,
   )
   ensureEditWireframeObjects(runtime)
@@ -853,6 +929,7 @@ function buildObjectGeometry(
 ) {
   const positions: number[] = []
   const groupedIndices = new Map<number, number[]>()
+  const groupedTriangleFaceIndices = new Map<number, number[]>()
   let offset = 0
 
   for (let polyIndex = 0; polyIndex < polygons.length; polyIndex++) {
@@ -876,28 +953,35 @@ function buildObjectGeometry(
 
     const groupIndex = faceGroups?.get(polyIndex) ?? 0
     const bucket = groupedIndices.get(groupIndex) ?? []
+    const bucketFaceIndices = groupedTriangleFaceIndices.get(groupIndex) ?? []
     const triangles = triangulatePolygon(projectedPolygon)
     for (const triangle of triangles) {
       bucket.push(offset + triangle[0], offset + triangle[1], offset + triangle[2])
+      bucketFaceIndices.push(polyIndex)
     }
     groupedIndices.set(groupIndex, bucket)
+    groupedTriangleFaceIndices.set(groupIndex, bucketFaceIndices)
 
     offset += flatVertices.length
   }
 
   const allIndices: number[] = []
+  const triangleFaceIndices: number[] = []
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
 
   const sortedKeys = [...groupedIndices.keys()].sort((a, b) => a - b)
   for (const key of sortedKeys) {
     const bucket = groupedIndices.get(key)!
+    const bucketFaceIndices = groupedTriangleFaceIndices.get(key) ?? []
     const start = allIndices.length
     allIndices.push(...bucket)
+    triangleFaceIndices.push(...bucketFaceIndices)
     geometry.addGroup(start, bucket.length, key)
   }
 
   geometry.setIndex(allIndices)
+  geometry.userData.triangleFaceIndices = triangleFaceIndices
   geometry.computeVertexNormals()
   geometry.computeBoundingSphere()
   return geometry
@@ -950,6 +1034,7 @@ function syncEditPointGeometry(
     selectedFeatureId: string | null
     activeObjectId: string | null
     editMode: boolean
+    selectedFaceIndex: number | null
     selectedVertexIndex: number | null
   },
 ) {
@@ -1014,6 +1099,7 @@ function updateEditPointRaycastThreshold(
     selectedFeatureId: string | null
     activeObjectId: string | null
     editMode: boolean
+    selectedFaceIndex: number | null
     selectedVertexIndex: number | null
   },
 ) {
@@ -1071,13 +1157,15 @@ function buildEdgeSegments(
   polygons: PolygonRings[],
   vertices: Vec3[],
   center: Vec3,
+  selectedFaceIndex: number | null,
   selectedVertexIndex: number | null,
 ) {
   const base: number[] = []
   const highlight: number[] = []
-  const seenEdges = new Set<string>()
+  const edgeMap = new Map<string, { positions: number[]; highlight: boolean }>()
 
-  for (const polygon of polygons) {
+  for (let polyIndex = 0; polyIndex < polygons.length; polyIndex += 1) {
+    const polygon = polygons[polyIndex]
     for (const ring of polygon) {
       if (ring.length < 2) {
         continue
@@ -1094,26 +1182,33 @@ function buildEdgeSegments(
 
         const edgeKey =
           startIndex < endIndex ? `${startIndex}:${endIndex}` : `${endIndex}:${startIndex}`
-        if (seenEdges.has(edgeKey)) {
-          continue
-        }
-
-        seenEdges.add(edgeKey)
-        const target =
+        const shouldHighlight =
+          selectedFaceIndex === polyIndex ||
           selectedVertexIndex != null &&
           (startIndex === selectedVertexIndex || endIndex === selectedVertexIndex)
-            ? highlight
-            : base
-        target.push(
+        const edgePositions = [
           start[0] - center[0],
           start[1] - center[1],
           start[2] - center[2],
           end[0] - center[0],
           end[1] - center[1],
           end[2] - center[2],
-        )
+        ]
+        const existing = edgeMap.get(edgeKey)
+        if (existing) {
+          existing.highlight = existing.highlight || shouldHighlight
+        } else {
+          edgeMap.set(edgeKey, {
+            positions: edgePositions,
+            highlight: shouldHighlight,
+          })
+        }
       }
     }
+  }
+
+  for (const edge of edgeMap.values()) {
+    ;(edge.highlight ? highlight : base).push(...edge.positions)
   }
 
   return { base, highlight }
@@ -1257,9 +1352,14 @@ function centerViewOnValidationError(
     object ? extentFromVertexIndices(object.vertexIndices, feature.vertices) : null
   const featureSize = extentMaxDimension(feature.extent)
   const objectSize = objectExtent ? extentMaxDimension(objectExtent) : featureSize
+  const preserveCameraOffset = focusTarget.preserveCameraOffset === true
 
   if (faceExtent) {
-    centerViewOnExtent(runtime, data, faceExtent, Math.max(objectSize * 0.35, runtime.sceneScale * 0.015, 3))
+    if (preserveCameraOffset) {
+      centerViewOnExtentPreservingOffset(runtime, data, faceExtent)
+    } else {
+      centerViewOnExtent(runtime, data, faceExtent, Math.max(objectSize * 0.35, runtime.sceneScale * 0.015, 3))
+    }
     return
   }
 
@@ -1269,16 +1369,24 @@ function centerViewOnValidationError(
       focusTarget.location[1] - data.center[1],
       focusTarget.location[2] - data.center[2],
     )
-    const direction = getCurrentViewDirection(runtime)
-    const baseDistance = Math.max(objectSize * 0.85, featureSize * 0.18, runtime.sceneScale * 0.02, 4)
-    const distance = baseDistance * lensDistanceScale(runtime.camera.fov)
-    const nextPosition = center.clone().add(direction.multiplyScalar(distance))
+    const nextPosition = preserveCameraOffset
+      ? center.clone().add(runtime.camera.position.clone().sub(getArcballCenter(runtime.arcball).clone()))
+      : center.clone().add(
+          getCurrentViewDirection(runtime).multiplyScalar(
+            Math.max(objectSize * 0.85, featureSize * 0.18, runtime.sceneScale * 0.02, 4) *
+              lensDistanceScale(runtime.camera.fov),
+          ),
+        )
     setArcballPose(runtime, center, nextPosition)
     return
   }
 
   if (objectExtent) {
-    centerViewOnExtent(runtime, data, objectExtent, Math.max(objectSize * 0.35, runtime.sceneScale * 0.015, 3))
+    if (preserveCameraOffset) {
+      centerViewOnExtentPreservingOffset(runtime, data, objectExtent)
+    } else {
+      centerViewOnExtent(runtime, data, objectExtent, Math.max(objectSize * 0.35, runtime.sceneScale * 0.015, 3))
+    }
     return
   }
 
@@ -1300,6 +1408,18 @@ function centerViewOnExtent(
   const baseDistance = Math.max(targetSize * 4.2, minimumDistance)
   const distance = baseDistance * lensDistanceScale(runtime.camera.fov)
   const nextPosition = center.clone().add(direction.multiplyScalar(distance))
+  setArcballPose(runtime, center, nextPosition)
+}
+
+function centerViewOnExtentPreservingOffset(
+  runtime: Runtime,
+  data: ViewerDataset,
+  extent: ViewerFeature['extent'],
+) {
+  const center = localCenterFromExtent(extent, data.center)
+  const currentCenter = getArcballCenter(runtime.arcball).clone()
+  const cameraOffset = runtime.camera.position.clone().sub(currentCenter)
+  const nextPosition = center.clone().add(cameraOffset)
   setArcballPose(runtime, center, nextPosition)
 }
 
@@ -1442,6 +1562,36 @@ function lensDistanceScale(verticalFovDegrees: number) {
   const referenceFovRadians = THREE.MathUtils.degToRad(50)
   const currentFovRadians = THREE.MathUtils.degToRad(verticalFovDegrees)
   return Math.tan(referenceFovRadians / 2) / Math.tan(currentFovRadians / 2)
+}
+
+function findNearestVertexIndexOnPolygon(
+  hitPoint: THREE.Vector3,
+  polygon: PolygonRings,
+  vertices: Vec3[],
+  dataCenter: Vec3,
+) {
+  let nearestVertexIndex: number | null = null
+  let nearestDistanceSquared = Number.POSITIVE_INFINITY
+
+  for (const vertexIndex of uniqueVertexIndices(polygon)) {
+    const vertex = vertices[vertexIndex]
+    if (!vertex) {
+      continue
+    }
+
+    const localVertex = new THREE.Vector3(
+      vertex[0] - dataCenter[0],
+      vertex[1] - dataCenter[1],
+      vertex[2] - dataCenter[2],
+    )
+    const distanceSquared = localVertex.distanceToSquared(hitPoint)
+    if (distanceSquared < nearestDistanceSquared) {
+      nearestDistanceSquared = distanceSquared
+      nearestVertexIndex = vertexIndex
+    }
+  }
+
+  return nearestVertexIndex
 }
 
 function updateCameraClipping(runtime: Runtime) {

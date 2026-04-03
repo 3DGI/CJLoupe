@@ -50,6 +50,7 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null)
   const [activeObjectId, setActiveObjectId] = useState<string | null>(null)
+  const [selectedFaceIndex, setSelectedFaceIndex] = useState<number | null>(null)
   const [selectedVertexIndex, setSelectedVertexIndex] = useState<number | null>(null)
   const [geometryRevision, setGeometryRevision] = useState(0)
   const [focusRevision, setFocusRevision] = useState(0)
@@ -76,6 +77,14 @@ function App() {
     selectedFeature && selectedVertexIndex != null
       ? selectedFeature.vertices[selectedVertexIndex] ?? null
       : null
+  const selectedFace =
+    activeObject && selectedFaceIndex != null
+      ? activeObject.polygons[selectedFaceIndex] ?? null
+      : null
+  const selectedFaceVertexIndices = useMemo(
+    () => getFaceVertexCycle(selectedFace),
+    [selectedFace],
+  )
 
   const filteredFeatures = useMemo(() => {
     if (!dataset) {
@@ -251,6 +260,7 @@ function App() {
     const firstFeature = nextDataset.features[0] ?? null
     setSelectedFeatureId(firstFeature?.id ?? null)
     setActiveObjectId(firstFeature?.objects[0]?.id ?? null)
+    setSelectedFaceIndex(null)
     setSelectedVertexIndex(null)
     setEditMode(false)
   }
@@ -273,6 +283,38 @@ function App() {
     setFocusRevision((current) => current + 1)
   }
 
+  const centerCurrentSelection = useCallback(() => {
+    if (!selectedFeature) {
+      return
+    }
+
+    if (editMode && selectedVertexIndex != null) {
+      setFocusTarget({
+        kind: 'vertex',
+        featureId: selectedFeature.id,
+        objectId: activeObjectId,
+        vertexIndex: selectedVertexIndex,
+      })
+      setFocusRevision((current) => current + 1)
+      return
+    }
+
+    if (activeObjectId) {
+      setFocusTarget({
+        kind: 'error',
+        featureId: selectedFeature.id,
+        objectId: activeObjectId,
+        faceIndex: editMode ? selectedFaceIndex : null,
+        location: null,
+        preserveCameraOffset: editMode,
+      })
+      setFocusRevision((current) => current + 1)
+      return
+    }
+
+    centerFeatureById(selectedFeature.id)
+  }, [activeObjectId, editMode, selectedFaceIndex, selectedFeature, selectedVertexIndex])
+
   function centerValidationError(error: ViewerValidationError) {
     if (!selectedFeature) {
       return
@@ -285,6 +327,7 @@ function App() {
       setActiveObjectId(error.cityObjectId)
     }
 
+    setSelectedFaceIndex(error.faceIndex)
     setSelectedVertexIndex(null)
     setFocusTarget({
       kind: 'error',
@@ -303,7 +346,11 @@ function App() {
         setIsolateSelectedFeature(true)
       } else {
         setIsolateSelectedFeature(false)
+        setSelectedFaceIndex(null)
         setSelectedVertexIndex(null)
+      }
+      if (next) {
+        setSelectedFaceIndex(null)
       }
       return next
     })
@@ -317,8 +364,14 @@ function App() {
 
     setSelectedFeatureId(featureId)
     setActiveObjectId(objectId ?? feature.objects[0]?.id ?? null)
+    setSelectedFaceIndex(null)
     setSelectedVertexIndex(null)
   }, [featureMap])
+
+  const handleSelectFace = useCallback((faceIndex: number | null) => {
+    setSelectedFaceIndex(faceIndex)
+    setSelectedVertexIndex(null)
+  }, [])
 
   const handleSelectVertex = useCallback((vertexIndex: number | null) => {
     setSelectedVertexIndex(vertexIndex)
@@ -340,6 +393,25 @@ function App() {
     })
     setFocusRevision((current) => current + 1)
   }, [activeObjectId, editMode, selectedFeature])
+
+  const cycleSelectedFaceVertex = useCallback((direction: -1 | 1) => {
+    if (selectedFaceVertexIndices.length === 0) {
+      return
+    }
+
+    const currentIndex = selectedVertexIndex != null
+      ? selectedFaceVertexIndices.indexOf(selectedVertexIndex)
+      : -1
+
+    const nextIndex =
+      currentIndex === -1
+        ? direction > 0
+          ? 0
+          : selectedFaceVertexIndices.length - 1
+        : (currentIndex + direction + selectedFaceVertexIndices.length) % selectedFaceVertexIndices.length
+
+    handleSelectVertex(selectedFaceVertexIndices[nextIndex] ?? null)
+  }, [handleSelectVertex, selectedFaceVertexIndices, selectedVertexIndex])
 
   const applyFeatureVertices = useCallback((featureId: string, vertices: Vec3[]) => {
     setDataset((current) => {
@@ -369,6 +441,29 @@ function App() {
         return
       }
 
+      if (
+        event.key.toLowerCase() === 'c' &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey
+      ) {
+        event.preventDefault()
+        centerCurrentSelection()
+        return
+      }
+
+      if (editMode && event.key.toLowerCase() === 'j') {
+        event.preventDefault()
+        cycleSelectedFaceVertex(-1)
+        return
+      }
+
+      if (editMode && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        cycleSelectedFaceVertex(1)
+        return
+      }
+
       if (event.key.toLowerCase() === 'u') {
         if (!selectedFeatureId) {
           return
@@ -393,7 +488,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [applyFeatureVertices, editMode, selectedFeatureId, toggleEditMode])
+  }, [applyFeatureVertices, centerCurrentSelection, cycleSelectedFaceVertex, editMode, selectedFeatureId, toggleEditMode])
 
   return (
     <div
@@ -619,7 +714,11 @@ function App() {
                             <button
                               key={object.id}
                               type="button"
-                              onClick={() => { setActiveObjectId(object.id); setSelectedVertexIndex(null) }}
+                              onClick={() => {
+                                setActiveObjectId(object.id)
+                                setSelectedFaceIndex(null)
+                                setSelectedVertexIndex(null)
+                              }}
                               className={cn(
                                 'rounded-md border px-2 py-1 text-left text-xs transition',
                                 object.id === activeObjectId
@@ -649,9 +748,46 @@ function App() {
                             <DetailSection title="Edit Mode">
                               <div className="space-y-2 rounded-xl border border-amber-400/15 bg-amber-500/8 p-3">
                                 <p className="text-sm leading-5 text-white/78">
-                                  Editing <span className="font-semibold text-white">{activeObject.id}</span>. Click a
-                                  vertex, then drag the gizmo.
+                                  Editing <span className="font-semibold text-white">{activeObject.id}</span>. Click
+                                  the active object to select a face, press <span className="font-semibold text-white">J</span>
+                                  {' / '}
+                                  <span className="font-semibold text-white">K</span> to step through its vertices, or
+                                  Ctrl-click a vertex and drag the gizmo. Shift-click selects a face.
                                 </p>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Badge variant="outline" className="border-amber-300/30 bg-amber-400/10 text-amber-50">
+                                    {selectedFaceIndex != null
+                                      ? `Face ${selectedFaceIndex}`
+                                      : 'No face selected'}
+                                  </Badge>
+                                  {selectedFaceVertexIndices.length > 0 && (
+                                    <Badge variant="outline" className="border-white/10 bg-white/5 text-white/65">
+                                      {selectedFaceVertexIndices.length} vertices
+                                    </Badge>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 px-2.5"
+                                    onClick={() => cycleSelectedFaceVertex(-1)}
+                                    disabled={selectedFaceVertexIndices.length === 0}
+                                  >
+                                    Prev vertex (J)
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 px-2.5"
+                                    onClick={() => cycleSelectedFaceVertex(1)}
+                                    disabled={selectedFaceVertexIndices.length === 0}
+                                  >
+                                    Next vertex (K)
+                                  </Button>
+                                </div>
                               </div>
                             </DetailSection>
                           )}
@@ -775,8 +911,10 @@ function App() {
           selectedFeatureId={selectedFeatureId}
           activeObjectId={activeObjectId}
           editMode={editMode}
+          selectedFaceIndex={selectedFaceIndex}
           selectedVertexIndex={selectedVertexIndex}
           onSelectFeature={handleSelectFeature}
+          onSelectFace={handleSelectFace}
           onSelectVertex={handleSelectVertex}
           onVertexCommit={applyFeatureVertices}
         />
@@ -843,7 +981,7 @@ function App() {
                     variant="ghost"
                     size="sm"
                     className="h-8 gap-1.5 px-2.5"
-                    onClick={() => centerFeatureById(selectedFeature.id)}
+                    onClick={centerCurrentSelection}
                   >
                     <LocateFixed className="size-3.5" />
                     Center
@@ -874,7 +1012,7 @@ function App() {
             <span>Loading CityJSON feature sequence…</span>
           ) : (
             <span>
-              Hold Shift and click geometry to select. Double-click to recenter navigation. {editMode ? 'Tab exits edit mode and U resets the selected feature geometry.' : 'Tab enters edit mode for the current cityobject.'}
+              Hold Shift and click geometry to select. Double-click to recenter navigation. {editMode ? 'Tab exits edit mode, Shift-click selects a face, Ctrl-click selects a vertex, C centers the current selection, X toggles xray, J/K cycle face vertices, and U resets the selected feature geometry.' : 'Tab enters edit mode for the current cityobject. C centers the active mesh.'}
             </span>
           )}
         </div>
@@ -951,6 +1089,23 @@ export default App
 
 function cloneVertices(vertices: Vec3[]) {
   return vertices.map((vertex) => [...vertex] as Vec3)
+}
+
+function getFaceVertexCycle(rings: number[][] | null) {
+  const outerRing = rings?.[0] ?? []
+  const seen = new Set<number>()
+  const vertexIndices: number[] = []
+
+  for (const vertexIndex of outerRing) {
+    if (seen.has(vertexIndex)) {
+      continue
+    }
+
+    seen.add(vertexIndex)
+    vertexIndices.push(vertexIndex)
+  }
+
+  return vertexIndices
 }
 
 function isEditableTarget(target: EventTarget | null) {

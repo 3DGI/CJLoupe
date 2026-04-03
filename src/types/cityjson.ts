@@ -30,6 +30,7 @@ export type ViewerFocusTarget =
       objectId: string | null
       faceIndex: number | null
       location: Vec3 | null
+      preserveCameraOffset?: boolean
     }
   | null
 
