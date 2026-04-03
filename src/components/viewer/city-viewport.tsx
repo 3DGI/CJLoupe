@@ -465,6 +465,8 @@ function CityViewport({
 
     if (focusTarget.kind === 'error') {
       centerViewOnValidationError(runtime, currentData, focusTarget)
+    } else if (focusTarget.kind === 'vertex') {
+      centerViewOnVertex(runtime, currentData, focusTarget)
     } else {
       const feature = currentData.features.find((candidate) => candidate.id === focusTarget.featureId)
       if (!feature) {
@@ -1201,6 +1203,32 @@ function centerViewOnFeature(
   const distance = baseDistance * lensDistanceScale(runtime.camera.fov)
 
   const nextPosition = center.clone().add(direction.multiplyScalar(distance))
+  setArcballPose(runtime, center, nextPosition)
+}
+
+function centerViewOnVertex(
+  runtime: Runtime,
+  data: ViewerDataset,
+  focusTarget: Extract<ViewerFocusTarget, { kind: 'vertex' }>,
+) {
+  const feature = data.features.find((candidate) => candidate.id === focusTarget.featureId)
+  if (!feature) {
+    return
+  }
+
+  const vertex = feature.vertices[focusTarget.vertexIndex]
+  if (!vertex) {
+    return
+  }
+
+  const center = new THREE.Vector3(
+    vertex[0] - data.center[0],
+    vertex[1] - data.center[1],
+    vertex[2] - data.center[2],
+  )
+  const currentCenter = getArcballCenter(runtime.arcball).clone()
+  const cameraOffset = runtime.camera.position.clone().sub(currentCenter)
+  const nextPosition = center.clone().add(cameraOffset)
   setArcballPose(runtime, center, nextPosition)
 }
 

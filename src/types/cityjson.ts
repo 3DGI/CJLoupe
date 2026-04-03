@@ -18,6 +18,12 @@ export type ViewerFocusTarget =
       kind: 'feature'
       featureId: string
     }
+  | {
+      kind: 'vertex'
+      featureId: string
+      objectId: string | null
+      vertexIndex: number
+    }
     | {
       kind: 'error'
       featureId: string

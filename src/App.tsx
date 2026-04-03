@@ -1,7 +1,6 @@
 import {
   ChevronLeft,
   ChevronRight,
-  Crosshair,
   FileWarning,
   FolderOpen,
   LocateFixed,
@@ -305,6 +304,27 @@ function App() {
     setActiveObjectId(objectId ?? feature.objects[0]?.id ?? null)
     setSelectedVertexIndex(null)
   }, [featureMap])
+
+  const handleSelectVertex = useCallback((vertexIndex: number | null) => {
+    setSelectedVertexIndex(vertexIndex)
+
+    if (!editMode || vertexIndex == null || !selectedFeature) {
+      return
+    }
+
+    const vertex = selectedFeature.vertices[vertexIndex]
+    if (!vertex) {
+      return
+    }
+
+    setFocusTarget({
+      kind: 'vertex',
+      featureId: selectedFeature.id,
+      objectId: activeObjectId,
+      vertexIndex,
+    })
+    setFocusRevision((current) => current + 1)
+  }, [activeObjectId, editMode, selectedFeature])
 
   const applyFeatureVertices = useCallback((featureId: string, vertices: Vec3[]) => {
     setDataset((current) => {
@@ -735,7 +755,7 @@ function App() {
           editMode={editMode}
           selectedVertexIndex={selectedVertexIndex}
           onSelectFeature={handleSelectFeature}
-          onSelectVertex={setSelectedVertexIndex}
+          onSelectVertex={handleSelectVertex}
           onVertexCommit={applyFeatureVertices}
         />
 
