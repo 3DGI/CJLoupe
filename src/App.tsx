@@ -120,10 +120,9 @@ function App() {
         feature.id,
         feature.label,
         feature.type,
-        feature.attributes.identificatie,
-        feature.attributes.gebruiksdoel,
+        ...Object.values(feature.attributes),
       ]
-        .filter(Boolean)
+        .filter((value) => typeof value === 'string')
         .join(' ')
         .toLowerCase()
 
@@ -684,11 +683,8 @@ function App() {
                           >
                             <div className="flex items-start justify-between gap-2">
                               <div className="min-w-0">
-                                <p className="truncate text-sm font-medium">{feature.label}</p>
-                                <div className="mt-0.5 flex items-center gap-1.5">
-                                  <p className="truncate font-mono text-[10px] uppercase tracking-[0.14em] text-white/42">
-                                    {feature.id}
-                                  </p>
+                                <div className="flex items-center gap-1.5">
+                                  <p className="truncate text-sm font-medium">{feature.label}</p>
                                   <Badge
                                     variant="outline"
                                     className={cn(
@@ -755,11 +751,6 @@ function App() {
                         <h2 className="mt-1 text-lg font-semibold tracking-tight text-white">
                           {selectedFeature?.label ?? 'No feature selected'}
                         </h2>
-                        {selectedFeature && (
-                          <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-white/42">
-                            {selectedFeature.id}
-                          </p>
-                        )}
                       </div>
                       {selectedFeature && (
                         <Badge variant="outline" className="border-amber-300/30 bg-amber-400/10 text-amber-50">

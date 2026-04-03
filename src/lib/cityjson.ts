@@ -326,16 +326,8 @@ function uniqueVertexIndices(polygons: PolygonRings[]) {
   return [...indices].sort((left, right) => left - right)
 }
 
-function deriveFeatureLabel(featureId: string, attributes: Record<string, unknown>) {
-  return (
-    stringOrUndefined(attributes.identificatie) ??
-    stringOrUndefined(attributes.fuuid) ??
-    featureId
-  )
-}
-
-function stringOrUndefined(value: unknown) {
-  return typeof value === 'string' && value.length > 0 ? value : undefined
+function deriveFeatureLabel(featureId: string, _attributes: Record<string, unknown>) {
+  return featureId
 }
 
 function parseValidationError(error: Val3dityError): ViewerValidationError {
