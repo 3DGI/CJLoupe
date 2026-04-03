@@ -45,10 +45,12 @@ type Runtime = {
   raycaster: THREE.Raycaster
   pointer: THREE.Vector2
   meshesByObjectKey: Map<string, THREE.Mesh>
-  handlesByVertexIndex: Map<number, THREE.Mesh>
+  editPoints: THREE.Points | null
+  selectedEditPoint: THREE.Points | null
+  transformProxy: THREE.Object3D | null
   editBaseEdges: LineSegments2 | null
   editHighlightEdges: LineSegments2 | null
-  annotationVertexMarkers: THREE.Mesh[]
+  annotationVertexMarkers: THREE.Points[]
   featureDrafts: Map<string, Vec3[]>
   sceneScale: number
 }
@@ -196,13 +198,16 @@ function CityViewport({
       raycaster: new THREE.Raycaster(),
       pointer: new THREE.Vector2(),
       meshesByObjectKey: new Map(),
-      handlesByVertexIndex: new Map(),
+      editPoints: null,
+      selectedEditPoint: null,
+      transformProxy: null,
       editBaseEdges: null,
       editHighlightEdges: null,
       annotationVertexMarkers: [],
       featureDrafts: new Map(),
       sceneScale: 1,
     }
+    runtime.raycaster.params.Points.threshold = 1
 
     runtimeRef.current = runtime
     let pendingRenderFrame: number | null = null
@@ -213,7 +218,7 @@ function CityViewport({
         return
       }
 
-      renderViewport(activeRuntime, selectionRef.current.selectedVertexIndex)
+      renderViewport(activeRuntime)
     }
 
     const requestRender = () => {
@@ -256,13 +261,22 @@ function CityViewport({
 
       const selection = selectionRef.current
       if (selection.editMode) {
-        const handleHits = activeRuntime.raycaster.intersectObjects(
-          [...activeRuntime.handlesByVertexIndex.values()],
-          false,
+        updateEditPointRaycastThreshold(activeRuntime, currentData, selection)
+        const handleTargets = [activeRuntime.selectedEditPoint, activeRuntime.editPoints].filter(
+          (entry): entry is THREE.Points => entry != null,
         )
+        const handleHits = activeRuntime.raycaster.intersectObjects(handleTargets, false)
         const handleHit = handleHits[0]
+        if (handleHit && typeof handleHit.index === 'number') {
+          const indices = (handleHit.object.userData.vertexIndices as number[] | undefined) ?? []
+          const vertexIndex = indices[handleHit.index]
+          if (vertexIndex != null) {
+            onSelectVertexRef.current(vertexIndex)
+            return
+          }
+        }
+
         if (handleHit) {
-          onSelectVertexRef.current(handleHit.object.userData.vertexIndex as number)
           return
         }
       }
@@ -337,7 +351,7 @@ function CityViewport({
         return
       }
 
-      const handle = activeRuntime.handlesByVertexIndex.get(vertexIndex)
+      const handle = activeRuntime.transformProxy
       const draftVertices = activeRuntime.featureDrafts.get(featureId)
       if (!handle || !draftVertices) {
         return
@@ -355,6 +369,7 @@ function CityViewport({
         selectionRef.current,
         hideOccludedEditEdgesRef.current,
       )
+      syncEditPointGeometry(activeRuntime, currentData, selectionRef.current)
       requestRender()
     })
 
@@ -403,7 +418,7 @@ function CityViewport({
       hideOccludedEditEdgesRef.current,
       isolateSelectedFeatureRef.current,
     )
-    renderViewport(runtime, selectionRef.current.selectedVertexIndex)
+    renderViewport(runtime)
   }, [data])
 
   useEffect(() => {
@@ -422,7 +437,7 @@ function CityViewport({
       hideOccludedEditEdgesRef.current,
       isolateSelectedFeatureRef.current,
     )
-    renderViewport(runtime, selectionRef.current.selectedVertexIndex)
+    renderViewport(runtime)
   }, [geometryRevision])
 
   useEffect(() => {
@@ -432,7 +447,7 @@ function CityViewport({
     }
 
     syncAnnotationDepthCulling(runtime, hideOccludedAnnotations)
-    renderViewport(runtime, selectionRef.current.selectedVertexIndex)
+    renderViewport(runtime)
   }, [hideOccludedAnnotations])
 
   useEffect(() => {
@@ -449,7 +464,7 @@ function CityViewport({
       hideOccludedEditEdgesRef.current,
       isolateSelectedFeatureRef.current,
     )
-    renderViewport(runtime, selectionRef.current.selectedVertexIndex)
+    renderViewport(runtime)
   }, [selectedFeatureId, activeObjectId, editMode, selectedVertexIndex, hideOccludedEditEdges, isolateSelectedFeature])
 
   useEffect(() => {
@@ -470,7 +485,7 @@ function CityViewport({
       centerViewOnFeature(runtime, currentData, feature)
     }
 
-    renderViewport(runtime, selectionRef.current.selectedVertexIndex)
+    renderViewport(runtime)
   }, [focusRevision, focusTarget])
 
   useEffect(() => {
@@ -496,7 +511,7 @@ function CityViewport({
     } else {
       syncArcballState(runtime, center)
     }
-    renderViewport(runtime, selectionRef.current.selectedVertexIndex)
+    renderViewport(runtime)
   }, [cameraFocalLength])
 
   return <div ref={containerRef} className="absolute inset-0" />
@@ -565,7 +580,7 @@ function rebuildAnnotations(
   clearTransientGroup(runtime.annotationGroup)
   runtime.annotationVertexMarkers = []
 
-  const pointPositions: Array<{ featureId: string; position: Vec3 }> = []
+  const pointPositionsByFeature = new Map<string, number[]>()
 
   for (const feature of data.features) {
     if (feature.errors.length === 0) {
@@ -618,45 +633,40 @@ function rebuildAnnotations(
           continue
         }
 
-        pointPositions.push({
-          featureId: feature.id,
-          position: [
-            vertex[0] - data.center[0],
-            vertex[1] - data.center[1],
-            vertex[2] - data.center[2],
-          ],
-        })
+        const pointPositions = pointPositionsByFeature.get(feature.id) ?? []
+        pointPositions.push(
+          vertex[0] - data.center[0],
+          vertex[1] - data.center[1],
+          vertex[2] - data.center[2],
+        )
+        pointPositionsByFeature.set(feature.id, pointPositions)
       }
     }
   }
 
-  if (pointPositions.length > 0) {
-    const pointGeometry = new THREE.SphereGeometry(1, 12, 12)
-    const pointMaterial = new THREE.MeshBasicMaterial({
+  for (const [featureId, rawPositions] of pointPositionsByFeature.entries()) {
+    const positions = dedupePointPositions(rawPositions)
+    if (positions.length === 0) {
+      continue
+    }
+
+    const pointGeometry = new THREE.BufferGeometry()
+    pointGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+    const pointMaterial = new THREE.PointsMaterial({
       color: '#7f1d1d',
+      size: 5,
+      sizeAttenuation: false,
       depthTest: hideOccludedAnnotations,
       depthWrite: false,
       transparent: true,
       opacity: 0.95,
     })
-    const seen = new Set<string>()
-
-    for (const entry of pointPositions) {
-      const position = entry.position
-      const key = `${entry.featureId}:${position[0].toFixed(3)}:${position[1].toFixed(3)}:${position[2].toFixed(3)}`
-      if (seen.has(key)) {
-        continue
-      }
-
-      seen.add(key)
-      const pointMesh = new THREE.Mesh(pointGeometry.clone(), pointMaterial.clone())
-      pointMesh.userData.featureId = entry.featureId
-      pointMesh.userData.annotationLayer = 'point'
-      pointMesh.position.set(position[0], position[1], position[2])
-      pointMesh.renderOrder = 11
-      runtime.annotationGroup.add(pointMesh)
-      runtime.annotationVertexMarkers.push(pointMesh)
-    }
+    const pointCloud = new THREE.Points(pointGeometry, pointMaterial)
+    pointCloud.userData.featureId = featureId
+    pointCloud.userData.annotationLayer = 'point'
+    pointCloud.renderOrder = 11
+    runtime.annotationGroup.add(pointCloud)
+    runtime.annotationVertexMarkers.push(pointCloud)
   }
 
   syncAnnotationDepthCulling(runtime, hideOccludedAnnotations)
@@ -712,13 +722,7 @@ function rebuildHandles(
   hideOccludedEditEdges: boolean,
 ) {
   hideEditWireframe(runtime)
-
-  for (const handle of runtime.handlesByVertexIndex.values()) {
-    handle.geometry.dispose()
-    ;(handle.material as THREE.Material).dispose()
-    runtime.handleGroup.remove(handle)
-  }
-  runtime.handlesByVertexIndex.clear()
+  clearEditPointOverlays(runtime)
   runtime.transform.detach()
   runtime.transform.enabled = false
 
@@ -737,44 +741,41 @@ function rebuildHandles(
   }
 
   rebuildEditWireframe(runtime, data, selection, hideOccludedEditEdges)
-
-  const handleGeometry = new THREE.SphereGeometry(1, 16, 16)
-
-  for (const vertexIndex of object.vertexIndices) {
-    const vertex = draftVertices[vertexIndex]
-    if (!vertex) {
-      continue
-    }
-
-    const material = new THREE.MeshStandardMaterial({
-      color: vertexIndex === selection.selectedVertexIndex ? '#f59e0b' : '#f8fafc',
-      emissive: vertexIndex === selection.selectedVertexIndex ? '#92400e' : '#164e63',
-      roughness: 0.25,
-      metalness: 0.12,
-    })
-    const handle = new THREE.Mesh(handleGeometry.clone(), material)
-    handle.position.set(
-      vertex[0] - data.center[0],
-      vertex[1] - data.center[1],
-      vertex[2] - data.center[2],
-    )
-    handle.userData.vertexIndex = vertexIndex
-    runtime.handlesByVertexIndex.set(vertexIndex, handle)
-    runtime.handleGroup.add(handle)
-  }
-
-  updateHandleScreenSize(runtime, selection.selectedVertexIndex)
+  runtime.editPoints = buildEditPoints(
+    object.vertexIndices,
+    draftVertices,
+    data.center,
+    '#f8fafc',
+    5.5,
+    hideOccludedEditEdges,
+  )
+  runtime.handleGroup.add(runtime.editPoints)
 
   if (selection.selectedVertexIndex != null) {
-    const selectedHandle = runtime.handlesByVertexIndex.get(selection.selectedVertexIndex)
-    if (selectedHandle) {
-      runtime.transform.attach(selectedHandle)
+    const selectedVertex = draftVertices[selection.selectedVertexIndex]
+    if (selectedVertex) {
+      runtime.selectedEditPoint = buildEditPoints(
+        [selection.selectedVertexIndex],
+        draftVertices,
+        data.center,
+        '#f59e0b',
+        7,
+        hideOccludedEditEdges,
+      )
+      runtime.handleGroup.add(runtime.selectedEditPoint)
+
+      runtime.transformProxy = new THREE.Object3D()
+      runtime.transformProxy.position.set(
+        selectedVertex[0] - data.center[0],
+        selectedVertex[1] - data.center[1],
+        selectedVertex[2] - data.center[2],
+      )
+      runtime.handleGroup.add(runtime.transformProxy)
+      runtime.transform.attach(runtime.transformProxy)
       runtime.transform.enabled = true
       runtime.transform.setSize(0.8)
     }
   }
-
-  handleGeometry.dispose()
 }
 
 function rebuildEditWireframe(
@@ -939,39 +940,191 @@ function buildObjectGeometry(polygons: PolygonRings[], vertices: Vec3[], center:
   return geometry
 }
 
-function updateHandleScreenSize(runtime: Runtime, selectedVertexIndex: number | null) {
-  const viewportHeight = runtime.renderer.domElement.clientHeight
-  if (viewportHeight <= 0) {
+function buildEditPoints(
+  vertexIndices: number[],
+  vertices: Vec3[],
+  center: Vec3,
+  color: string,
+  size: number,
+  depthTest: boolean,
+) {
+  const positions: number[] = []
+
+  for (const vertexIndex of vertexIndices) {
+    const vertex = vertices[vertexIndex]
+    if (!vertex) {
+      continue
+    }
+
+    positions.push(
+      vertex[0] - center[0],
+      vertex[1] - center[1],
+      vertex[2] - center[2],
+    )
+  }
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  const material = new THREE.PointsMaterial({
+    color,
+    size,
+    sizeAttenuation: false,
+    depthTest,
+    depthWrite: false,
+    transparent: true,
+    opacity: 0.96,
+  })
+  const points = new THREE.Points(geometry, material)
+  points.userData.vertexIndices = vertexIndices.slice()
+  points.renderOrder = 30
+  return points
+}
+
+function syncEditPointGeometry(
+  runtime: Runtime,
+  data: ViewerDataset,
+  selection: {
+    selectedFeatureId: string | null
+    activeObjectId: string | null
+    editMode: boolean
+    selectedVertexIndex: number | null
+  },
+) {
+  if (!selection.selectedFeatureId || !selection.activeObjectId) {
     return
   }
 
-  const fovRadians = THREE.MathUtils.degToRad(runtime.camera.fov)
-
-  for (const [vertexIndex, handle] of runtime.handlesByVertexIndex.entries()) {
-    const distance = runtime.camera.position.distanceTo(handle.position)
-    const worldUnitsPerPixel = (2 * Math.tan(fovRadians / 2) * distance) / viewportHeight
-    const radiusPixels = vertexIndex === selectedVertexIndex ? 3.5 : 2.75
-    const radiusWorld = Math.max(worldUnitsPerPixel * radiusPixels, 0.01)
-    handle.scale.setScalar(radiusWorld)
+  const feature = data.features.find((candidate) => candidate.id === selection.selectedFeatureId)
+  const object = feature?.objects.find((candidate) => candidate.id === selection.activeObjectId)
+  const draftVertices = runtime.featureDrafts.get(selection.selectedFeatureId)
+  if (!feature || !object || !draftVertices) {
+    return
   }
 
-  for (const marker of runtime.annotationVertexMarkers) {
-    const distance = runtime.camera.position.distanceTo(marker.position)
-    const worldUnitsPerPixel = (2 * Math.tan(fovRadians / 2) * distance) / viewportHeight
-    const radiusWorld = Math.max(worldUnitsPerPixel * 1.875, 0.01)
-    marker.scale.setScalar(radiusWorld)
+  updatePointPositions(runtime.editPoints, object.vertexIndices, draftVertices, data.center)
+  updatePointPositions(
+    runtime.selectedEditPoint,
+    selection.selectedVertexIndex != null ? [selection.selectedVertexIndex] : [],
+    draftVertices,
+    data.center,
+  )
+}
+
+function updatePointPositions(
+  points: THREE.Points | null,
+  vertexIndices: number[],
+  vertices: Vec3[],
+  center: Vec3,
+) {
+  if (!points) {
+    return
+  }
+
+  const positions = points.geometry.getAttribute('position')
+  if (!(positions instanceof THREE.BufferAttribute)) {
+    return
+  }
+
+  for (let index = 0; index < vertexIndices.length; index += 1) {
+    const vertex = vertices[vertexIndices[index]]
+    if (!vertex) {
+      continue
+    }
+
+    positions.setXYZ(
+      index,
+      vertex[0] - center[0],
+      vertex[1] - center[1],
+      vertex[2] - center[2],
+    )
+  }
+
+  positions.needsUpdate = true
+  points.geometry.computeBoundingSphere()
+}
+
+function updateEditPointRaycastThreshold(
+  runtime: Runtime,
+  data: ViewerDataset,
+  selection: {
+    selectedFeatureId: string | null
+    activeObjectId: string | null
+    editMode: boolean
+    selectedVertexIndex: number | null
+  },
+) {
+  const feature = selection.selectedFeatureId
+    ? data.features.find((candidate) => candidate.id === selection.selectedFeatureId)
+    : null
+  const object = feature?.objects.find((candidate) => candidate.id === selection.activeObjectId) ?? null
+  if (!feature || !object) {
+    runtime.raycaster.params.Points.threshold = 1
+    return
+  }
+
+  const objectExtent = extentFromVertexIndices(object.vertexIndices, feature.vertices)
+  const viewportHeight = runtime.renderer.domElement.clientHeight
+  if (!objectExtent || viewportHeight <= 0) {
+    runtime.raycaster.params.Points.threshold = 1
+    return
+  }
+
+  const center = localCenterFromExtent(objectExtent, data.center)
+  const distance = runtime.camera.position.distanceTo(center)
+  const fovRadians = THREE.MathUtils.degToRad(runtime.camera.fov)
+  const worldUnitsPerPixel = (2 * Math.tan(fovRadians / 2) * distance) / viewportHeight
+  runtime.raycaster.params.Points.threshold = Math.max(worldUnitsPerPixel * 8, 0.05)
+}
+
+function dedupePointPositions(positions: number[]) {
+  const deduped: number[] = []
+  const seen = new Set<string>()
+
+  for (let index = 0; index < positions.length; index += 3) {
+    const x = positions[index]
+    const y = positions[index + 1]
+    const z = positions[index + 2]
+    const key = `${x.toFixed(3)}:${y.toFixed(3)}:${z.toFixed(3)}`
+    if (seen.has(key)) {
+      continue
+    }
+
+    seen.add(key)
+    deduped.push(x, y, z)
+  }
+
+  return deduped
+}
+
+function clearEditPointOverlays(runtime: Runtime) {
+  if (runtime.editPoints) {
+    runtime.editPoints.geometry.dispose()
+    ;(runtime.editPoints.material as THREE.Material).dispose()
+    runtime.handleGroup.remove(runtime.editPoints)
+    runtime.editPoints = null
+  }
+
+  if (runtime.selectedEditPoint) {
+    runtime.selectedEditPoint.geometry.dispose()
+    ;(runtime.selectedEditPoint.material as THREE.Material).dispose()
+    runtime.handleGroup.remove(runtime.selectedEditPoint)
+    runtime.selectedEditPoint = null
+  }
+
+  if (runtime.transformProxy) {
+    runtime.handleGroup.remove(runtime.transformProxy)
+    runtime.transformProxy = null
   }
 }
 
-function renderViewport(runtime: Runtime, selectedVertexIndex: number | null) {
-  updateHandleScreenSize(runtime, selectedVertexIndex)
+function renderViewport(runtime: Runtime) {
   runtime.renderer.clear(true, true, true)
   runtime.renderer.render(runtime.scene, runtime.camera)
 }
 
 function syncAnnotationDepthCulling(runtime: Runtime, hideOccludedAnnotations: boolean) {
   for (const child of runtime.annotationGroup.children) {
-    if (!(child instanceof THREE.Mesh)) {
+    if (!(child instanceof THREE.Mesh) && !(child instanceof THREE.Points)) {
       continue
     }
 
@@ -1340,7 +1493,10 @@ function clearTransientGroup(group: THREE.Group) {
     }
 
     const material =
-      child instanceof THREE.Mesh || child instanceof THREE.LineSegments || child instanceof LineSegments2
+      child instanceof THREE.Mesh ||
+      child instanceof THREE.Points ||
+      child instanceof THREE.LineSegments ||
+      child instanceof LineSegments2
         ? child.material
         : null
     if (Array.isArray(material)) {
@@ -1363,12 +1519,9 @@ function disposeSceneContents(runtime: Runtime) {
   }
   runtime.meshesByObjectKey.clear()
 
-  for (const handle of runtime.handlesByVertexIndex.values()) {
-    handle.geometry.dispose()
-    ;(handle.material as THREE.Material).dispose()
-    runtime.handleGroup.remove(handle)
-  }
-  runtime.handlesByVertexIndex.clear()
+  clearEditPointOverlays(runtime)
+  clearTransientGroup(runtime.annotationGroup)
+  runtime.annotationVertexMarkers = []
 
   clearTransientGroup(runtime.edgeGroup)
   runtime.editBaseEdges = null

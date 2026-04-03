@@ -785,7 +785,7 @@ function App() {
                     onClick={() => setHideOccludedEditEdges((current) => !current)}
                     disabled={!editMode || !activeObject}
                   >
-                    {hideOccludedEditEdges ? 'Xray edges' : 'Cull edges'}
+                    {hideOccludedEditEdges ? 'Xray edit' : 'Cull edit'}
                   </Button>
                 </>
               )}
