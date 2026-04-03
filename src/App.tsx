@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
 
 import { Badge } from '@/components/ui/badge'
+import { errorColor } from '@/lib/error-palette'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -57,7 +58,6 @@ function App() {
   const [annotationSourceName, setAnnotationSourceName] = useState<string | null>(null)
   const [cameraFocalLength, setCameraFocalLength] = useState(50)
   const [hideOccludedEditEdges, setHideOccludedEditEdges] = useState(true)
-  const [hideOccludedAnnotations, setHideOccludedAnnotations] = useState(true)
   const [showOnlyInvalidFeatures, setShowOnlyInvalidFeatures] = useState(false)
   const [isolateSelectedFeature, setIsolateSelectedFeature] = useState(false)
   const [detailTab, setDetailTab] = useState('errors')
@@ -77,7 +77,6 @@ function App() {
     selectedFeature && selectedVertexIndex != null
       ? selectedFeature.vertices[selectedVertexIndex] ?? null
       : null
-  const hasValidationAnnotations = dataset?.features.some((feature) => feature.errors.length > 0) ?? false
 
   const filteredFeatures = useMemo(() => {
     if (!dataset) {
@@ -640,32 +639,51 @@ function App() {
 
                                 {selectedFeature.errors.length > 0 ? (
                                   <div className="grid gap-2">
-                                    {selectedFeature.errors.map((error) => (
-                                      <button
-                                        key={`${error.id}-${error.code}`}
-                                        type="button"
-                                        onClick={() => centerValidationError(error)}
-                                        className="w-full rounded-lg border border-red-400/15 bg-red-500/8 px-3 py-2.5 text-left transition hover:border-red-300/28 hover:bg-red-500/12 focus-visible:border-red-300/32 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300/30"
-                                      >
-                                        <div className="flex items-start justify-between gap-3">
-                                          <div className="min-w-0">
-                                            <p className="truncate text-sm font-semibold text-red-50">{error.description}</p>
-                                            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-red-200/65">
-                                              code {error.code}
-                                            </p>
+                                    {selectedFeature.errors.map((error) => {
+                                      const color = errorColor(error.code)
+                                      return (
+                                        <button
+                                          key={`${error.id}-${error.code}`}
+                                          type="button"
+                                          onClick={() => centerValidationError(error)}
+                                          className="w-full rounded-lg border px-3 py-2.5 text-left transition hover:brightness-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+                                          style={{
+                                            borderColor: `${color}30`,
+                                            backgroundColor: `${color}18`,
+                                          }}
+                                        >
+                                          <div className="flex items-start justify-between gap-3">
+                                            <div className="flex min-w-0 items-start gap-2.5">
+                                              <span
+                                                className="mt-1 h-3 w-3 shrink-0 rounded-sm"
+                                                style={{ backgroundColor: color }}
+                                              />
+                                              <div className="min-w-0">
+                                                <p className="truncate text-sm font-semibold text-white/90">{error.description}</p>
+                                                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/50">
+                                                  code {error.code}
+                                                </p>
+                                              </div>
+                                            </div>
+                                            {error.faceIndex != null && (
+                                              <Badge
+                                                variant="outline"
+                                                className="shrink-0 text-white/70"
+                                                style={{ borderColor: `${color}50`, backgroundColor: `${color}20` }}
+                                              >
+                                                face {error.faceIndex}
+                                              </Badge>
+                                            )}
                                           </div>
-                                          <Badge variant="outline" className="border-red-300/30 bg-red-400/10 text-red-50">
-                                            face {error.faceIndex ?? '—'}
-                                          </Badge>
-                                        </div>
-                                        <p className="mt-1.5 break-words font-mono text-[10px] text-red-100/70">
-                                          {error.id}
-                                        </p>
-                                        {error.info && (
-                                          <p className="mt-1.5 text-sm text-red-50/85">{error.info}</p>
-                                        )}
-                                      </button>
-                                    ))}
+                                          <p className="mt-1.5 break-words font-mono text-[10px] text-white/45">
+                                            {error.id}
+                                          </p>
+                                          {error.info && (
+                                            <p className="mt-1.5 text-sm text-white/65">{error.info}</p>
+                                          )}
+                                        </button>
+                                      )
+                                    })}
                                   </div>
                                 ) : null}
                               </div>
@@ -715,7 +733,6 @@ function App() {
           data={dataset}
           cameraFocalLength={cameraFocalLength}
           hideOccludedEditEdges={hideOccludedEditEdges}
-          hideOccludedAnnotations={hideOccludedAnnotations}
           isolateSelectedFeature={isolateSelectedFeature}
           geometryRevision={geometryRevision}
           focusRevision={focusRevision}
@@ -788,16 +805,6 @@ function App() {
                     {hideOccludedEditEdges ? 'Xray edit' : 'Cull edit'}
                   </Button>
                 </>
-              )}
-              {hasValidationAnnotations && (
-                <Button
-                  variant={hideOccludedAnnotations ? 'secondary' : 'outline'}
-                  size="sm"
-                  className="h-8 px-2.5"
-                  onClick={() => setHideOccludedAnnotations((current) => !current)}
-                >
-                  {hideOccludedAnnotations ? 'Xray anno' : 'Cull anno'}
-                </Button>
               )}
               <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/4 px-2.5 py-1.5">
                 <span className="font-mono text-[11px] text-white/65">{cameraFocalLength}mm</span>

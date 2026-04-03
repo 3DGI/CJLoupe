@@ -12,13 +12,14 @@ import type {
   ViewerDataset,
   ViewerFeature,
   ViewerFocusTarget,
+  ViewerValidationError,
 } from '@/types/cityjson'
+import { errorColor } from '@/lib/error-palette'
 
 type CityViewportProps = {
   data: ViewerDataset | null
   cameraFocalLength: number
   hideOccludedEditEdges: boolean
-  hideOccludedAnnotations: boolean
   isolateSelectedFeature: boolean
   geometryRevision: number
   focusRevision: number
@@ -60,7 +61,6 @@ function CityViewport({
   data,
   cameraFocalLength,
   hideOccludedEditEdges,
-  hideOccludedAnnotations,
   isolateSelectedFeature,
   geometryRevision,
   focusRevision,
@@ -79,7 +79,6 @@ function CityViewport({
   const dataRef = useRef<ViewerDataset | null>(data)
   const initialCameraFocalLengthRef = useRef(cameraFocalLength)
   const hideOccludedEditEdgesRef = useRef(hideOccludedEditEdges)
-  const hideOccludedAnnotationsRef = useRef(hideOccludedAnnotations)
   const isolateSelectedFeatureRef = useRef(isolateSelectedFeature)
   const selectionRef = useRef({
     selectedFeatureId,
@@ -98,10 +97,6 @@ function CityViewport({
   useEffect(() => {
     hideOccludedEditEdgesRef.current = hideOccludedEditEdges
   }, [hideOccludedEditEdges])
-
-  useEffect(() => {
-    hideOccludedAnnotationsRef.current = hideOccludedAnnotations
-  }, [hideOccludedAnnotations])
 
   useEffect(() => {
     isolateSelectedFeatureRef.current = isolateSelectedFeature
@@ -414,7 +409,7 @@ function CityViewport({
       fitCameraToDataset(runtime, data)
       fittedDatasetKeyRef.current = datasetKey
     }
-    rebuildAnnotations(runtime, data, hideOccludedAnnotationsRef.current)
+    rebuildAnnotations(runtime)
     syncSelection(
       runtime,
       data,
@@ -433,7 +428,7 @@ function CityViewport({
     }
 
     rebuildScene(runtime, currentData)
-    rebuildAnnotations(runtime, currentData, hideOccludedAnnotationsRef.current)
+    rebuildAnnotations(runtime)
     syncSelection(
       runtime,
       currentData,
@@ -443,16 +438,6 @@ function CityViewport({
     )
     renderViewport(runtime)
   }, [geometryRevision])
-
-  useEffect(() => {
-    const runtime = runtimeRef.current
-    if (!runtime) {
-      return
-    }
-
-    syncAnnotationDepthCulling(runtime, hideOccludedAnnotations)
-    renderViewport(runtime)
-  }, [hideOccludedAnnotations])
 
   useEffect(() => {
     const runtime = runtimeRef.current
@@ -551,9 +536,11 @@ function rebuildScene(runtime: Runtime, data: ViewerDataset) {
         continue
       }
 
-      const geometry = buildObjectGeometry(object.polygons, draftVertices, featureCenter)
-      const material = createMaterial(object.type)
-      const mesh = new THREE.Mesh(geometry, material)
+      const { faceGroups, groupColors } = computeFaceErrorGroups(feature.errors, object.id)
+      const geometry = buildObjectGeometry(object.polygons, draftVertices, featureCenter, faceGroups)
+      const baseMaterial = createMaterial(object.type)
+      const materials = buildMaterialArray(baseMaterial, groupColors)
+      const mesh = new THREE.Mesh(geometry, materials.length > 1 ? materials : baseMaterial)
       mesh.position.set(
         featureCenter[0] - data.center[0],
         featureCenter[1] - data.center[1],
@@ -585,110 +572,16 @@ function rebuildFeatureGeometry(runtime: Runtime, data: ViewerDataset, featureId
     }
 
     const center = (mesh.userData.featureCenter as Vec3) ?? data.center
-    const nextGeometry = buildObjectGeometry(object.polygons, vertices, center)
+    const { faceGroups } = computeFaceErrorGroups(feature.errors, object.id)
+    const nextGeometry = buildObjectGeometry(object.polygons, vertices, center, faceGroups)
     mesh.geometry.dispose()
     mesh.geometry = nextGeometry
   }
 }
 
-function rebuildAnnotations(
-  runtime: Runtime,
-  data: ViewerDataset,
-  hideOccludedAnnotations: boolean,
-) {
+function rebuildAnnotations(runtime: Runtime) {
   clearTransientGroup(runtime.annotationGroup)
   runtime.annotationVertexMarkers = []
-
-  const pointPositionsByFeature = new Map<string, number[]>()
-
-  for (const feature of data.features) {
-    if (feature.errors.length === 0) {
-      continue
-    }
-
-    for (const error of feature.errors) {
-      if (!error.cityObjectId || error.faceIndex == null) {
-        continue
-      }
-
-      const object = feature.objects.find((candidate) => candidate.id === error.cityObjectId)
-      if (!object) {
-        continue
-      }
-
-      const face = object.polygons[error.faceIndex]
-      if (!face) {
-        continue
-      }
-
-      const faceGeometry = buildObjectGeometry([face], feature.vertices, data.center)
-      const faceMaterial = new THREE.MeshBasicMaterial({
-        color: '#991b1b',
-        transparent: true,
-        opacity: 0.58,
-        depthTest: hideOccludedAnnotations,
-        depthWrite: false,
-        polygonOffset: true,
-        polygonOffsetFactor: -1,
-        polygonOffsetUnits: -1,
-        side: THREE.DoubleSide,
-      })
-      const faceMesh = new THREE.Mesh(faceGeometry, faceMaterial)
-      faceMesh.userData.featureId = feature.id
-      faceMesh.userData.annotationLayer = 'face'
-      faceMesh.renderOrder = 10
-      runtime.annotationGroup.add(faceMesh)
-
-      const uniqueVertexIndices = new Set<number>()
-      for (const ring of face) {
-        for (const vertexIndex of ring) {
-          uniqueVertexIndices.add(vertexIndex)
-        }
-      }
-
-      for (const vertexIndex of uniqueVertexIndices) {
-        const vertex = feature.vertices[vertexIndex]
-        if (!vertex) {
-          continue
-        }
-
-        const pointPositions = pointPositionsByFeature.get(feature.id) ?? []
-        pointPositions.push(
-          vertex[0] - data.center[0],
-          vertex[1] - data.center[1],
-          vertex[2] - data.center[2],
-        )
-        pointPositionsByFeature.set(feature.id, pointPositions)
-      }
-    }
-  }
-
-  for (const [featureId, rawPositions] of pointPositionsByFeature.entries()) {
-    const positions = dedupePointPositions(rawPositions)
-    if (positions.length === 0) {
-      continue
-    }
-
-    const pointGeometry = new THREE.BufferGeometry()
-    pointGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
-    const pointMaterial = new THREE.PointsMaterial({
-      color: '#7f1d1d',
-      size: 5,
-      sizeAttenuation: false,
-      depthTest: hideOccludedAnnotations,
-      depthWrite: false,
-      transparent: true,
-      opacity: 0.95,
-    })
-    const pointCloud = new THREE.Points(pointGeometry, pointMaterial)
-    pointCloud.userData.featureId = featureId
-    pointCloud.userData.annotationLayer = 'point'
-    pointCloud.renderOrder = 11
-    runtime.annotationGroup.add(pointCloud)
-    runtime.annotationVertexMarkers.push(pointCloud)
-  }
-
-  syncAnnotationDepthCulling(runtime, hideOccludedAnnotations)
 }
 
 function syncSelection(
@@ -706,7 +599,6 @@ function syncSelection(
   const isolateActive = isolateSelectedFeature && selection.selectedFeatureId != null
 
   for (const mesh of runtime.meshesByObjectKey.values()) {
-    const material = mesh.material as THREE.MeshStandardMaterial
     const featureId = mesh.userData.featureId as string
     const objectId = mesh.userData.objectId as string
     const objectType = mesh.userData.objectType as string
@@ -714,18 +606,22 @@ function syncSelection(
     const isSelectedFeature = featureId === selection.selectedFeatureId
     const isActiveObject = isSelectedFeature && objectId === selection.activeObjectId
 
-    material.color.set(isActiveObject ? '#f59e0b' : isSelectedFeature ? '#7dd3fc' : baseColor)
-    material.emissive.set(isActiveObject ? '#78350f' : isSelectedFeature ? '#082f49' : '#020617')
-    material.opacity = 1
-    material.roughness = isActiveObject ? 0.38 : 0.72
-    material.transparent = false
-    material.depthWrite = true
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+    for (const material of materials) {
+      const mat = material as THREE.MeshStandardMaterial
+      if (mat.userData.isError) {
+        mat.emissive.set(isSelectedFeature ? '#082f49' : '#000000')
+        mat.emissiveIntensity = isSelectedFeature ? 0.12 : 0.18
+      } else {
+        mat.color.set(isActiveObject ? '#f59e0b' : isSelectedFeature ? '#7dd3fc' : baseColor)
+        mat.emissive.set(isActiveObject ? '#78350f' : isSelectedFeature ? '#082f49' : '#020617')
+        mat.roughness = isActiveObject ? 0.38 : 0.72
+      }
+      mat.opacity = 1
+      mat.transparent = false
+      mat.depthWrite = true
+    }
     mesh.visible = !isolateActive || isSelectedFeature
-  }
-
-  for (const child of runtime.annotationGroup.children) {
-    const featureId = child.userData.featureId as string | undefined
-    child.visible = !isolateActive || featureId == null || featureId === selection.selectedFeatureId
   }
 
   rebuildHandles(runtime, data, selection, hideOccludedEditEdges)
@@ -945,12 +841,18 @@ function hideEditWireframe(runtime: Runtime) {
   }
 }
 
-function buildObjectGeometry(polygons: PolygonRings[], vertices: Vec3[], center: Vec3) {
+function buildObjectGeometry(
+  polygons: PolygonRings[],
+  vertices: Vec3[],
+  center: Vec3,
+  faceGroups?: Map<number, number>,
+) {
   const positions: number[] = []
-  const indices: number[] = []
+  const groupedIndices = new Map<number, number[]>()
   let offset = 0
 
-  for (const polygon of polygons) {
+  for (let polyIndex = 0; polyIndex < polygons.length; polyIndex++) {
+    const polygon = polygons[polyIndex]
     const projectedPolygon = polygon
       .map((ring) =>
         ring
@@ -968,17 +870,30 @@ function buildObjectGeometry(polygons: PolygonRings[], vertices: Vec3[], center:
       positions.push(vertex[0] - center[0], vertex[1] - center[1], vertex[2] - center[2])
     }
 
+    const groupIndex = faceGroups?.get(polyIndex) ?? 0
+    const bucket = groupedIndices.get(groupIndex) ?? []
     const triangles = triangulatePolygon(projectedPolygon)
     for (const triangle of triangles) {
-      indices.push(offset + triangle[0], offset + triangle[1], offset + triangle[2])
+      bucket.push(offset + triangle[0], offset + triangle[1], offset + triangle[2])
     }
+    groupedIndices.set(groupIndex, bucket)
 
     offset += flatVertices.length
   }
 
+  const allIndices: number[] = []
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
-  geometry.setIndex(indices)
+
+  const sortedKeys = [...groupedIndices.keys()].sort((a, b) => a - b)
+  for (const key of sortedKeys) {
+    const bucket = groupedIndices.get(key)!
+    const start = allIndices.length
+    allIndices.push(...bucket)
+    geometry.addGroup(start, bucket.length, key)
+  }
+
+  geometry.setIndex(allIndices)
   geometry.computeVertexNormals()
   geometry.computeBoundingSphere()
   return geometry
@@ -1121,26 +1036,6 @@ function updateEditPointRaycastThreshold(
   runtime.raycaster.params.Points.threshold = Math.max(worldUnitsPerPixel * 8, 0.05)
 }
 
-function dedupePointPositions(positions: number[]) {
-  const deduped: number[] = []
-  const seen = new Set<string>()
-
-  for (let index = 0; index < positions.length; index += 3) {
-    const x = positions[index]
-    const y = positions[index + 1]
-    const z = positions[index + 2]
-    const key = `${x.toFixed(3)}:${y.toFixed(3)}:${z.toFixed(3)}`
-    if (seen.has(key)) {
-      continue
-    }
-
-    seen.add(key)
-    deduped.push(x, y, z)
-  }
-
-  return deduped
-}
-
 function clearEditPointOverlays(runtime: Runtime) {
   if (runtime.editPoints) {
     runtime.editPoints.geometry.dispose()
@@ -1166,27 +1061,6 @@ function renderViewport(runtime: Runtime) {
   updateCameraClipping(runtime)
   runtime.renderer.clear(true, true, true)
   runtime.renderer.render(runtime.scene, runtime.camera)
-}
-
-function syncAnnotationDepthCulling(runtime: Runtime, hideOccludedAnnotations: boolean) {
-  for (const child of runtime.annotationGroup.children) {
-    if (!(child instanceof THREE.Mesh) && !(child instanceof THREE.Points)) {
-      continue
-    }
-
-    const material = child.material
-    if (Array.isArray(material)) {
-      for (const entry of material) {
-        entry.depthTest = hideOccludedAnnotations
-        entry.needsUpdate = true
-      }
-    } else {
-      material.depthTest = hideOccludedAnnotations
-      material.needsUpdate = true
-    }
-
-    child.renderOrder = child.userData.annotationLayer === 'point' ? 11 : 10
-  }
 }
 
 function buildEdgeSegments(
@@ -1417,6 +1291,67 @@ function baseColorForType(objectType: string) {
   return palette[hash % palette.length]
 }
 
+function createErrorMaterial(color: string) {
+  const mat = new THREE.MeshStandardMaterial({
+    color,
+    emissive: color,
+    emissiveIntensity: 0.18,
+    roughness: 0.5,
+    metalness: 0.05,
+    transparent: false,
+    opacity: 1,
+    depthWrite: true,
+    side: THREE.DoubleSide,
+  })
+  mat.userData.isError = true
+  return mat
+}
+
+function computeFaceErrorGroups(
+  errors: ViewerValidationError[],
+  objectId: string,
+): { faceGroups: Map<number, number>; groupColors: Map<number, string> } {
+  const codeToGroup = new Map<number, number>()
+  let nextGroup = 1
+  const faceGroups = new Map<number, number>()
+  const groupColors = new Map<number, string>()
+
+  for (const error of errors) {
+    if (error.cityObjectId !== objectId || error.faceIndex == null) {
+      continue
+    }
+    if (faceGroups.has(error.faceIndex)) {
+      continue
+    }
+
+    let group = codeToGroup.get(error.code)
+    if (group == null) {
+      group = nextGroup++
+      codeToGroup.set(error.code, group)
+      groupColors.set(group, errorColor(error.code))
+    }
+    faceGroups.set(error.faceIndex, group)
+  }
+
+  return { faceGroups, groupColors }
+}
+
+function buildMaterialArray(
+  baseMaterial: THREE.MeshStandardMaterial,
+  groupColors: Map<number, string>,
+): THREE.MeshStandardMaterial[] {
+  if (groupColors.size === 0) {
+    return [baseMaterial]
+  }
+  const maxGroup = Math.max(...groupColors.keys())
+  const materials: THREE.MeshStandardMaterial[] = [baseMaterial]
+  for (let i = 1; i <= maxGroup; i++) {
+    const color = groupColors.get(i)
+    materials.push(color ? createErrorMaterial(color) : baseMaterial)
+  }
+  return materials
+}
+
 function objectKey(featureId: string, objectId: string) {
   return `${featureId}::${objectId}`
 }
@@ -1576,7 +1511,8 @@ function clearTransientGroup(group: THREE.Group) {
 function disposeSceneContents(runtime: Runtime) {
   for (const mesh of runtime.meshesByObjectKey.values()) {
     mesh.geometry.dispose()
-    ;(mesh.material as THREE.Material).dispose()
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+    for (const mat of materials) mat.dispose()
     runtime.rootGroup.remove(mesh)
   }
   runtime.meshesByObjectKey.clear()
