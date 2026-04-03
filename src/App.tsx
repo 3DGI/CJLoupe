@@ -1,6 +1,7 @@
 import {
   ChevronLeft,
   ChevronRight,
+  Crosshair,
   FileWarning,
   FolderOpen,
   LocateFixed,
@@ -320,19 +321,22 @@ function App() {
       return
     }
 
-    if (
+    const matchingObjectId =
       error.cityObjectId &&
       selectedFeature.objects.some((object) => object.id === error.cityObjectId)
-    ) {
-      setActiveObjectId(error.cityObjectId)
-    }
+        ? error.cityObjectId
+        : null
+    const inferredObjectId =
+      matchingObjectId ??
+      (selectedFeature.objects.length === 1 ? selectedFeature.objects[0]?.id ?? null : activeObjectId)
 
     setSelectedFaceIndex(error.faceIndex)
+    setActiveObjectId(inferredObjectId)
     setSelectedVertexIndex(null)
     setFocusTarget({
       kind: 'error',
       featureId: selectedFeature.id,
-      objectId: error.cityObjectId,
+      objectId: inferredObjectId,
       faceIndex: error.faceIndex,
       location: error.location,
     })
@@ -620,17 +624,10 @@ function App() {
                       const errorCount = feature.errors.length
                       const isInvalid = feature.validity === false
                       return (
-                        <button
+                        <div
                           key={feature.id}
-                          type="button"
-                          onClick={(event) => {
-                            handleSelectFeature(feature.id)
-                            if (event.shiftKey) {
-                              centerFeatureById(feature.id)
-                            }
-                          }}
                           className={cn(
-                            'w-full rounded-lg border px-2.5 py-2 text-left transition',
+                            'flex items-center gap-2 rounded-lg border px-2.5 py-2 transition',
                             isSelected
                               ? 'border-cyan-300/40 bg-cyan-400/10 text-white shadow-[0_0_0_1px_rgba(56,189,248,0.25)]'
                               : isInvalid
@@ -638,39 +635,61 @@ function App() {
                                 : 'border-white/8 bg-white/3 text-white/78 hover:border-white/16 hover:bg-white/6',
                           )}
                         >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-medium">{feature.label}</p>
-                              <p className="truncate font-mono text-[10px] uppercase tracking-[0.14em] text-white/42">
-                                {feature.id}
-                              </p>
+                          <button
+                            type="button"
+                            onClick={() => handleSelectFeature(feature.id)}
+                            className="min-w-0 flex-1 text-left"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium">{feature.label}</p>
+                                <div className="mt-0.5 flex items-center gap-1.5">
+                                  <p className="truncate font-mono text-[10px] uppercase tracking-[0.14em] text-white/42">
+                                    {feature.id}
+                                  </p>
+                                  <Badge
+                                    variant="outline"
+                                    className={cn(
+                                      'shrink-0 px-1.5 py-0 text-[10px]',
+                                      isSelected
+                                        ? 'border-cyan-300/30 bg-cyan-300/10 text-cyan-50'
+                                        : isInvalid
+                                          ? 'border-red-300/30 bg-red-400/12 text-red-50'
+                                          : 'border-white/10 bg-white/5 text-white/60',
+                                    )}
+                                  >
+                                    {feature.type}
+                                  </Badge>
+                                </div>
+                              </div>
                             </div>
-                            <Badge
-                              variant="outline"
-                              className={cn(
-                                'shrink-0 px-1.5 py-0 text-[10px]',
-                                isSelected
-                                  ? 'border-cyan-300/30 bg-cyan-300/10 text-cyan-50'
-                                  : isInvalid
-                                    ? 'border-red-300/30 bg-red-400/12 text-red-50'
-                                    : 'border-white/10 bg-white/5 text-white/60',
+                            <div className="mt-1.5 flex items-center gap-2 text-[10px] text-white/52">
+                              <span>{feature.objects.length} obj</span>
+                              <span>{feature.vertices.length} vtx</span>
+                              {errorCount > 0 && (
+                                <span className="text-red-200">
+                                  {errorCount} err
+                                  {' '}({[...new Set(feature.errors.map((e) => e.code))].join(', ')})
+                                </span>
                               )}
-                            >
-                              {feature.type}
-                            </Badge>
-                          </div>
+                            </div>
+                          </button>
 
-                          <div className="mt-1.5 flex items-center gap-2 text-[10px] text-white/52">
-                            <span>{feature.objects.length} obj</span>
-                            <span>{feature.vertices.length} vtx</span>
-                            {errorCount > 0 && (
-                              <span className="text-red-200">
-                                {errorCount} err
-                                {' '}({[...new Set(feature.errors.map((e) => e.code))].join(', ')})
-                              </span>
-                            )}
-                          </div>
-                        </button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 shrink-0 self-center rounded-full"
+                            aria-label={`Center ${feature.label}`}
+                            title={`Center ${feature.label}`}
+                            onClick={() => {
+                              handleSelectFeature(feature.id)
+                              centerFeatureById(feature.id)
+                            }}
+                          >
+                            <Crosshair className="size-4" />
+                          </Button>
+                        </div>
                       )
                     })}
 
@@ -765,46 +784,57 @@ function App() {
                                     {selectedFeature.errors.map((error) => {
                                       const color = errorColor(error.code)
                                       return (
-                                        <button
+                                        <div
                                           key={`${error.id}-${error.code}`}
-                                          type="button"
-                                          onClick={() => centerValidationError(error)}
-                                          className="w-full rounded-lg border px-3 py-2.5 text-left transition hover:brightness-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+                                          className="flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left transition"
                                           style={{
                                             borderColor: `${color}30`,
                                             backgroundColor: `${color}18`,
                                           }}
                                         >
-                                          <div className="flex items-start justify-between gap-3">
-                                            <div className="flex min-w-0 items-start gap-2.5">
-                                              <span
-                                                className="mt-1 h-3 w-3 shrink-0 rounded-sm"
-                                                style={{ backgroundColor: color }}
-                                              />
-                                              <div className="min-w-0">
-                                                <p className="truncate text-sm font-semibold text-white/90">{error.description}</p>
-                                                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/50">
-                                                  code {error.code}
-                                                </p>
+                                          <div className="min-w-0 flex-1">
+                                            <div className="flex items-start justify-between gap-3">
+                                              <div className="flex min-w-0 items-start gap-2.5">
+                                                <span
+                                                  className="mt-1 h-3 w-3 shrink-0 rounded-sm"
+                                                  style={{ backgroundColor: color }}
+                                                />
+                                                <div className="min-w-0">
+                                                  <p className="truncate text-sm font-semibold text-white/90">{error.description}</p>
+                                                  <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/50">
+                                                    code {error.code}
+                                                  </p>
+                                                </div>
                                               </div>
+                                              {error.faceIndex != null && (
+                                                <Badge
+                                                  variant="outline"
+                                                  className="shrink-0 text-white/70"
+                                                  style={{ borderColor: `${color}50`, backgroundColor: `${color}20` }}
+                                                >
+                                                  face {error.faceIndex}
+                                                </Badge>
+                                              )}
                                             </div>
-                                            {error.faceIndex != null && (
-                                              <Badge
-                                                variant="outline"
-                                                className="shrink-0 text-white/70"
-                                                style={{ borderColor: `${color}50`, backgroundColor: `${color}20` }}
-                                              >
-                                                face {error.faceIndex}
-                                              </Badge>
+                                            <p className="mt-1.5 break-words font-mono text-[10px] text-white/45">
+                                              {error.id}
+                                            </p>
+                                            {error.info && (
+                                              <p className="mt-1.5 text-sm text-white/65">{error.info}</p>
                                             )}
                                           </div>
-                                          <p className="mt-1.5 break-words font-mono text-[10px] text-white/45">
-                                            {error.id}
-                                          </p>
-                                          {error.info && (
-                                            <p className="mt-1.5 text-sm text-white/65">{error.info}</p>
-                                          )}
-                                        </button>
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8 shrink-0 self-center rounded-full"
+                                            aria-label={`Center ${error.description}`}
+                                            title={`Center ${error.description}`}
+                                            onClick={() => centerValidationError(error)}
+                                          >
+                                            <Crosshair className="size-4" />
+                                          </Button>
+                                        </div>
                                       )
                                     })}
                                   </div>
