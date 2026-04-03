@@ -802,7 +802,7 @@ function App() {
                     )}
                   </div>
 
-                  <ScrollArea className="min-h-0 min-w-0 flex-1">
+                  <ScrollArea key={selectedFeatureId} className="min-h-0 min-w-0 flex-1">
                     <div className="min-w-0 space-y-4 p-4 pt-0">
                       {selectedFeature ? (
                         <>
@@ -824,7 +824,14 @@ function App() {
 
                                 {selectedFeature.errors.length > 0 ? (
                                   <div className="grid gap-2">
-                                    {selectedFeature.errors.map((error) => {
+                                    {selectedFeature.errors
+                                      .filter((error) => {
+                                        if (!activeObjectId || selectedFeature.objects.length <= 1) {
+                                          return true
+                                        }
+                                        return !error.cityObjectId || error.cityObjectId === activeObjectId
+                                      })
+                                      .map((error) => {
                                       const color = errorColor(error.code)
                                       return (
                                         <div
