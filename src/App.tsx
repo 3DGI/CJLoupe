@@ -527,7 +527,12 @@ function App() {
                           <div className="mt-1.5 flex items-center gap-2 text-[10px] text-white/52">
                             <span>{feature.objects.length} obj</span>
                             <span>{feature.vertices.length} vtx</span>
-                            {errorCount > 0 && <span className="text-red-200">{errorCount} err</span>}
+                            {errorCount > 0 && (
+                              <span className="text-red-200">
+                                {errorCount} err
+                                {' '}({[...new Set(feature.errors.map((e) => e.code))].join(', ')})
+                              </span>
+                            )}
                           </div>
                         </button>
                       )
