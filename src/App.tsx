@@ -1,6 +1,8 @@
 import {
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Crosshair,
   FileWarning,
   FolderOpen,
@@ -67,6 +69,7 @@ function App() {
   const [isolateSelectedFeature, setIsolateSelectedFeature] = useState(false)
   const [detailTab, setDetailTab] = useState('errors')
   const [isDragging, setIsDragging] = useState(false)
+  const [isHelpCollapsed, setIsHelpCollapsed] = useState(false)
   const dragCountRef = useRef(0)
   const { theme, toggleTheme } = useTheme()
 
@@ -538,6 +541,16 @@ function App() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [applyFeatureVertices, centerCurrentSelection, cycleSelectedFaceRing, cycleSelectedFaceVertex, editMode, selectedFeatureId, toggleEditMode])
+
+  const viewportHelpText = error
+    ? error
+    : isLoading
+      ? 'Loading CityJSON feature sequence…'
+      : `Hold Shift and click geometry to select. Double-click to recenter navigation. ${
+          editMode
+            ? 'Tab exits edit mode, Shift-click selects a face, Ctrl-click selects a vertex, C centers the current selection, X toggles xray, R cycles face rings, J/K cycle the active ring, and U resets the selected feature geometry.'
+            : 'Tab enters edit mode for the current cityobject. C centers the active mesh.'
+        }`
 
   return (
     <div
@@ -1090,16 +1103,46 @@ function App() {
           </div>
         </div>
 
-        <div className="floating-panel pointer-events-none absolute right-4 top-4 z-10 max-w-md rounded-2xl border px-4 py-3 text-sm">
-          {error ? (
-            <span>{error}</span>
-          ) : isLoading ? (
-            <span>Loading CityJSON feature sequence…</span>
-          ) : (
-            <span>
-              Hold Shift and click geometry to select. Double-click to recenter navigation. {editMode ? 'Tab exits edit mode, Shift-click selects a face, Ctrl-click selects a vertex, C centers the current selection, X toggles xray, R cycles face rings, J/K cycle the active ring, and U resets the selected feature geometry.' : 'Tab enters edit mode for the current cityobject. C centers the active mesh.'}
-            </span>
-          )}
+        <div className="pointer-events-none absolute right-4 top-4 z-10 max-w-md">
+          <div
+            className={cn(
+              'floating-panel pointer-events-auto rounded-2xl border text-sm',
+              isHelpCollapsed ? 'px-2.5 py-2' : 'px-4 py-3',
+            )}
+          >
+            <div className="flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <button
+                  type="button"
+                  className="flex items-center gap-2 text-left"
+                  onClick={() => setIsHelpCollapsed((current) => !current)}
+                  aria-expanded={!isHelpCollapsed}
+                  aria-controls="viewport-help-panel"
+                >
+                  <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                    Help
+                  </span>
+                </button>
+                {!isHelpCollapsed && (
+                  <p id="viewport-help-panel" className="mt-2 leading-5 text-foreground/78">
+                    {viewportHelpText}
+                  </p>
+                )}
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-8 shrink-0 rounded-full"
+                onClick={() => setIsHelpCollapsed((current) => !current)}
+                aria-label={isHelpCollapsed ? 'Expand help panel' : 'Collapse help panel'}
+                aria-expanded={!isHelpCollapsed}
+                aria-controls="viewport-help-panel"
+              >
+                {isHelpCollapsed ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
 
