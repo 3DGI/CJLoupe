@@ -16,6 +16,8 @@ import type {
 } from '@/types/cityjson'
 import { errorColor } from '@/lib/error-palette'
 
+type Theme = 'light' | 'dark'
+
 type CityViewportProps = {
   data: ViewerDataset | null
   cameraFocalLength: number
@@ -33,6 +35,7 @@ type CityViewportProps = {
   onSelectFace: (faceIndex: number | null) => void
   onSelectVertex: (vertexIndex: number | null) => void
   onVertexCommit: (featureId: string, vertices: Vec3[]) => void
+  theme: Theme
 }
 
 type Runtime = {
@@ -57,6 +60,11 @@ type Runtime = {
   featureDrafts: Map<string, Vec3[]>
   sceneScale: number
   editPivot: Vec3 | null
+  theme: Theme
+  ambientLight: THREE.AmbientLight
+  hemisphereLight: THREE.HemisphereLight
+  keyLight: THREE.DirectionalLight
+  fillLight: THREE.DirectionalLight
 }
 
 function CityViewport({
@@ -76,6 +84,7 @@ function CityViewport({
   onSelectFace,
   onSelectVertex,
   onVertexCommit,
+  theme,
 }: CityViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const runtimeRef = useRef<Runtime | null>(null)
@@ -95,6 +104,7 @@ function CityViewport({
   const onSelectFaceRef = useRef(onSelectFace)
   const onSelectVertexRef = useRef(onSelectVertex)
   const onVertexCommitRef = useRef(onVertexCommit)
+  const themeRef = useRef(theme)
 
   useEffect(() => {
     dataRef.current = data
@@ -122,6 +132,7 @@ function CityViewport({
   useEffect(() => { onSelectFaceRef.current = onSelectFace }, [onSelectFace])
   useEffect(() => { onSelectVertexRef.current = onSelectVertex }, [onSelectVertex])
   useEffect(() => { onVertexCommitRef.current = onVertexCommit }, [onVertexCommit])
+  useEffect(() => { themeRef.current = theme }, [theme])
 
   useEffect(() => {
     const container = containerRef.current
@@ -166,9 +177,9 @@ function CityViewport({
     const ambientLight = new THREE.AmbientLight('#f6f8ff', 1.6)
     scene.add(ambientLight)
 
-    const hemisphere = new THREE.HemisphereLight('#b9e4ff', '#09111c', 1.1)
-    hemisphere.position.set(0, 0, 1)
-    scene.add(hemisphere)
+    const hemisphereLight = new THREE.HemisphereLight('#b9e4ff', '#09111c', 1.1)
+    hemisphereLight.position.set(0, 0, 1)
+    scene.add(hemisphereLight)
 
     const keyLight = new THREE.DirectionalLight('#fff2d7', 1.8)
     keyLight.position.set(1, -1, 2)
@@ -212,8 +223,14 @@ function CityViewport({
       featureDrafts: new Map(),
       sceneScale: 1,
       editPivot: null,
+      theme: themeRef.current,
+      ambientLight,
+      hemisphereLight,
+      keyLight,
+      fillLight,
     }
     runtime.raycaster.params.Points.threshold = 1
+    applyViewportTheme(runtime, themeRef.current)
 
     runtimeRef.current = runtime
     let pendingRenderFrame: number | null = null
@@ -557,6 +574,28 @@ function CityViewport({
       return
     }
 
+    runtime.theme = theme
+    applyViewportTheme(runtime, theme)
+
+    const currentData = dataRef.current
+    if (currentData) {
+      syncSelection(
+        runtime,
+        currentData,
+        selectionRef.current,
+        hideOccludedEditEdgesRef.current,
+        isolateSelectedFeatureRef.current,
+      )
+    }
+    renderViewport(runtime)
+  }, [theme])
+
+  useEffect(() => {
+    const runtime = runtimeRef.current
+    if (!runtime) {
+      return
+    }
+
     const center = getArcballCenter(runtime.arcball).clone()
     const distanceVector = new THREE.Vector3().subVectors(runtime.camera.position, center)
     const currentDistance = distanceVector.length()
@@ -612,7 +651,7 @@ function rebuildScene(runtime: Runtime, data: ViewerDataset) {
 
       const { faceGroups, groupColors } = computeFaceErrorGroups(feature.errors, object.id)
       const geometry = buildObjectGeometry(object.polygons, draftVertices, featureCenter, faceGroups)
-      const baseMaterial = createMaterial(object.type)
+      const baseMaterial = createMaterial(object.type, runtime.theme)
       const materials = buildMaterialArray(baseMaterial, groupColors)
       const mesh = new THREE.Mesh(geometry, materials.length > 1 ? materials : baseMaterial)
       mesh.position.set(
@@ -674,12 +713,13 @@ function syncSelection(
   isolateSelectedFeature: boolean,
 ) {
   const isolateActive = isolateSelectedFeature && selection.selectedFeatureId != null
+  const palette = getViewportPalette(runtime.theme)
 
   for (const mesh of runtime.meshesByObjectKey.values()) {
     const featureId = mesh.userData.featureId as string
     const objectId = mesh.userData.objectId as string
     const objectType = mesh.userData.objectType as string
-    const baseColor = baseColorForType(objectType)
+    const baseColor = baseColorForType(objectType, runtime.theme)
     const isSelectedFeature = featureId === selection.selectedFeatureId
     const isActiveObject = isSelectedFeature && objectId === selection.activeObjectId
 
@@ -687,11 +727,22 @@ function syncSelection(
     for (const material of materials) {
       const mat = material as THREE.MeshStandardMaterial
       if (mat.userData.isError) {
-        mat.emissive.set(isSelectedFeature ? '#082f49' : '#000000')
-        mat.emissiveIntensity = isSelectedFeature ? 0.12 : 0.18
+        mat.emissive.set(isSelectedFeature ? palette.selectionEmissive : palette.errorEmissive)
+        mat.emissiveIntensity = isSelectedFeature ? palette.errorSelectedIntensity : palette.errorIntensity
       } else {
-        mat.color.set(isActiveObject ? '#f59e0b' : isSelectedFeature ? '#7dd3fc' : baseColor)
-        mat.emissive.set(isActiveObject ? '#78350f' : isSelectedFeature ? '#082f49' : '#020617')
+        mat.color.set(isActiveObject ? palette.activeObject : isSelectedFeature ? palette.selectedFeature : baseColor)
+        mat.emissive.set(
+          isActiveObject
+            ? palette.activeEmissive
+            : isSelectedFeature
+              ? palette.selectionEmissive
+              : palette.baseEmissive,
+        )
+        mat.emissiveIntensity = isActiveObject
+          ? palette.activeEmissiveIntensity
+          : isSelectedFeature
+            ? palette.selectionEmissiveIntensity
+            : palette.baseEmissiveIntensity
         mat.roughness = isActiveObject ? 0.38 : 0.72
       }
       mat.opacity = 1
@@ -762,7 +813,7 @@ function rebuildHandles(
     object.vertexIndices,
     draftVertices,
     editPivot,
-    '#f8fafc',
+    getViewportPalette(runtime.theme).editPoint,
     5.5,
     hideOccludedEditEdges,
   )
@@ -775,7 +826,7 @@ function rebuildHandles(
         [selection.selectedVertexIndex],
         draftVertices,
         editPivot,
-        '#f59e0b',
+        getViewportPalette(runtime.theme).selectedEditPoint,
         7,
         hideOccludedEditEdges,
       )
@@ -847,10 +898,11 @@ function rebuildEditWireframe(
 
 function ensureEditWireframeObjects(runtime: Runtime) {
   if (!runtime.editBaseEdges) {
+    const palette = getViewportPalette(runtime.theme)
     const edgeMaterial = new LineMaterial({
-      color: '#f8fafc',
+      color: palette.editBaseEdge,
       transparent: true,
-      opacity: 0.45,
+      opacity: palette.editBaseOpacity,
       depthTest: true,
       depthWrite: false,
       linewidth: 3.2,
@@ -863,10 +915,11 @@ function ensureEditWireframeObjects(runtime: Runtime) {
   }
 
   if (!runtime.editHighlightEdges) {
+    const palette = getViewportPalette(runtime.theme)
     const highlightMaterial = new LineMaterial({
-      color: '#38bdf8',
+      color: palette.editHighlightEdge,
       transparent: true,
-      opacity: 0.95,
+      opacity: palette.editHighlightOpacity,
       depthTest: true,
       depthWrite: false,
       linewidth: 4.8,
@@ -1423,9 +1476,9 @@ function centerViewOnExtentPreservingOffset(
   setArcballPose(runtime, center, nextPosition)
 }
 
-function createMaterial(objectType: string) {
+function createMaterial(objectType: string, theme: Theme) {
   return new THREE.MeshStandardMaterial({
-    color: baseColorForType(objectType),
+    color: baseColorForType(objectType, theme),
     roughness: 0.72,
     metalness: 0.08,
     transparent: false,
@@ -1435,8 +1488,11 @@ function createMaterial(objectType: string) {
   })
 }
 
-function baseColorForType(objectType: string) {
-  const palette = ['#577590', '#5b7c99', '#516f88', '#617f98', '#64748b']
+function baseColorForType(objectType: string, theme: Theme) {
+  const palette =
+    theme === 'light'
+      ? ['#5f7690', '#58708b', '#506884', '#697f98', '#61768f']
+      : ['#577590', '#5b7c99', '#516f88', '#617f98', '#64748b']
   const hash = [...objectType].reduce((sum, character) => sum + character.charCodeAt(0), 0)
   return palette[hash % palette.length]
 }
@@ -1455,6 +1511,105 @@ function createErrorMaterial(color: string) {
   })
   mat.userData.isError = true
   return mat
+}
+
+function applyViewportTheme(runtime: Runtime, theme: Theme) {
+  const palette = getViewportPalette(theme)
+
+  if (runtime.scene.fog instanceof THREE.FogExp2) {
+    runtime.scene.fog.color.set(palette.fog)
+    runtime.scene.fog.density = palette.fogDensity
+  }
+
+  runtime.ambientLight.color.set(palette.ambient)
+  runtime.ambientLight.intensity = palette.ambientIntensity
+  runtime.hemisphereLight.color.set(palette.hemisphereSky)
+  runtime.hemisphereLight.groundColor.set(palette.hemisphereGround)
+  runtime.hemisphereLight.intensity = palette.hemisphereIntensity
+  runtime.keyLight.color.set(palette.keyLight)
+  runtime.keyLight.intensity = palette.keyIntensity
+  runtime.fillLight.color.set(palette.fillLight)
+  runtime.fillLight.intensity = palette.fillIntensity
+
+  const edgeMaterial = runtime.editBaseEdges?.material as LineMaterial | undefined
+  if (edgeMaterial) {
+    edgeMaterial.color.set(palette.editBaseEdge)
+    edgeMaterial.opacity = palette.editBaseOpacity
+    edgeMaterial.needsUpdate = true
+  }
+
+  const highlightMaterial = runtime.editHighlightEdges?.material as LineMaterial | undefined
+  if (highlightMaterial) {
+    highlightMaterial.color.set(palette.editHighlightEdge)
+    highlightMaterial.opacity = palette.editHighlightOpacity
+    highlightMaterial.needsUpdate = true
+  }
+}
+
+function getViewportPalette(theme: Theme) {
+  if (theme === 'light') {
+    return {
+      fog: '#c7d4e5',
+      fogDensity: 0.00048,
+      ambient: '#f6f9fd',
+      ambientIntensity: 1.35,
+      hemisphereSky: '#edf5ff',
+      hemisphereGround: '#a8bccf',
+      hemisphereIntensity: 0.92,
+      keyLight: '#fff0d2',
+      keyIntensity: 1.45,
+      fillLight: '#5aa7cc',
+      fillIntensity: 0.68,
+      selectedFeature: '#006d96',
+      selectionEmissive: '#69c8eb',
+      selectionEmissiveIntensity: 0.18,
+      activeObject: '#a85a00',
+      activeEmissive: '#f0b86e',
+      activeEmissiveIntensity: 0.2,
+      baseEmissive: '#aebfd2',
+      baseEmissiveIntensity: 0.035,
+      errorEmissive: '#f5f8fb',
+      errorIntensity: 0.07,
+      errorSelectedIntensity: 0.14,
+      editPoint: '#fffdf7',
+      selectedEditPoint: '#a85a00',
+      editBaseEdge: '#f8fbff',
+      editBaseOpacity: 0.62,
+      editHighlightEdge: '#007fa8',
+      editHighlightOpacity: 0.96,
+    }
+  }
+
+  return {
+    fog: '#061120',
+    fogDensity: 0.0007,
+    ambient: '#f6f8ff',
+    ambientIntensity: 1.6,
+    hemisphereSky: '#b9e4ff',
+    hemisphereGround: '#09111c',
+    hemisphereIntensity: 1.1,
+    keyLight: '#fff2d7',
+    keyIntensity: 1.8,
+    fillLight: '#78d6ff',
+    fillIntensity: 0.9,
+    selectedFeature: '#7dd3fc',
+    selectionEmissive: '#082f49',
+    selectionEmissiveIntensity: 0.18,
+    activeObject: '#f59e0b',
+    activeEmissive: '#78350f',
+    activeEmissiveIntensity: 0.22,
+    baseEmissive: '#020617',
+    baseEmissiveIntensity: 0.18,
+    errorEmissive: '#000000',
+    errorIntensity: 0.18,
+    errorSelectedIntensity: 0.12,
+    editPoint: '#f8fafc',
+    selectedEditPoint: '#f59e0b',
+    editBaseEdge: '#f8fafc',
+    editBaseOpacity: 0.45,
+    editHighlightEdge: '#38bdf8',
+    editHighlightOpacity: 0.95,
+  }
 }
 
 function computeFaceErrorGroups(

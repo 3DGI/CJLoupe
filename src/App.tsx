@@ -5,9 +5,11 @@ import {
   FileWarning,
   FolderOpen,
   LocateFixed,
+  Moon,
   Move3D,
   Search,
   SquareMousePointer,
+  Sun,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
@@ -19,6 +21,7 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useTheme } from '@/components/use-theme'
 import { CityViewport } from '@/components/viewer/city-viewport'
 import {
   loadCityJsonSequenceFromFile,
@@ -65,6 +68,7 @@ function App() {
   const [detailTab, setDetailTab] = useState('errors')
   const [isDragging, setIsDragging] = useState(false)
   const dragCountRef = useRef(0)
+  const { theme, toggleTheme } = useTheme()
 
   const featureMap = useMemo(() => {
     return new Map(dataset?.features.map((feature) => [feature.id, feature]) ?? [])
@@ -284,7 +288,7 @@ function App() {
     setAnnotationSourceName(null)
   }
 
-  function centerFeatureById(featureId: string) {
+  const centerFeatureById = useCallback((featureId: string) => {
     const feature = featureMap.get(featureId)
     if (!feature) {
       return
@@ -295,7 +299,7 @@ function App() {
       featureId: feature.id,
     })
     setFocusRevision((current) => current + 1)
-  }
+  }, [featureMap])
 
   const centerCurrentSelection = useCallback(() => {
     if (!selectedFeature) {
@@ -327,7 +331,7 @@ function App() {
     }
 
     centerFeatureById(selectedFeature.id)
-  }, [activeObjectId, editMode, selectedFaceIndex, selectedFeature, selectedVertexIndex])
+  }, [activeObjectId, centerFeatureById, editMode, selectedFaceIndex, selectedFeature, selectedVertexIndex])
 
   function centerValidationError(error: ViewerValidationError) {
     if (!selectedFeature) {
@@ -545,12 +549,12 @@ function App() {
     >
       <aside
         className={cn(
-          'panel-shell relative z-20 flex h-full shrink-0 border-r border-white/10 transition-[width] duration-300',
+          'panel-shell relative z-20 flex h-full shrink-0 border-r border-border transition-[width] duration-300',
           isPaneCollapsed ? 'w-16' : 'w-[min(29rem,34vw)]',
         )}
       >
         <div className="pointer-events-auto flex h-full w-full">
-          <div className="flex h-full w-16 shrink-0 flex-col items-center justify-between border-r border-white/10 bg-black/20 py-3">
+          <div className="flex h-full w-16 shrink-0 flex-col items-center justify-between border-r border-border bg-background/40 py-3">
             <div className="flex flex-col items-center gap-2">
               <Button
                 size="icon"
@@ -587,10 +591,20 @@ function App() {
             </div>
 
             <div className="flex flex-col items-center gap-2">
-              <Badge variant="outline" className="border-cyan-400/30 bg-cyan-500/10 text-cyan-100">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="rounded-full"
+                onClick={toggleTheme}
+                aria-label="Toggle theme"
+                title="Toggle theme"
+              >
+                {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
+              </Button>
+              <Badge variant="outline" className="border-accent/30 bg-accent/10 text-accent">
                 {dataset?.features.length ?? 0}
               </Badge>
-              <Badge variant="outline" className="border-red-400/30 bg-red-500/10 text-red-100">
+              <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive">
                 {dataset?.features.filter((feature) => feature.errors.length > 0).length ?? 0}
               </Badge>
             </div>
@@ -598,29 +612,29 @@ function App() {
 
           {!isPaneCollapsed && (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-              <section className="flex min-h-0 flex-[1.05] flex-col border-b border-white/10">
+              <section className="flex min-h-0 flex-[1.05] flex-col border-b border-border">
                 <div className="space-y-3 p-4 pb-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-[11px] uppercase tracking-[0.22em] text-cyan-200/75">
+                      <p className="text-[11px] uppercase tracking-[0.22em] text-accent/75">
                         CityJSON Webviewer
                       </p>
-                      <h1 className="mt-1 text-lg font-semibold tracking-tight text-white">
+                      <h1 className="mt-1 text-lg font-semibold tracking-tight text-foreground">
                         Features
                       </h1>
                     </div>
-                    <Badge className="max-w-[12rem] truncate bg-white/10 text-white hover:bg-white/10">
+                    <Badge className="max-w-[12rem] truncate bg-foreground/10 text-foreground hover:bg-foreground/10">
                       {dataset?.sourceName ?? 'No file'}
                     </Badge>
                   </div>
 
-                  <div className="flex items-center justify-between gap-2 text-xs text-white/65">
+                  <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
                     <Badge
                       variant="outline"
                       className={cn(
                         annotationSourceName
-                          ? 'border-red-300/30 bg-red-400/10 text-red-50'
-                          : 'border-white/10 bg-white/5 text-white/55',
+                          ? 'border-destructive/30 bg-destructive/10 text-destructive'
+                          : 'border-foreground/10 bg-foreground/5 text-foreground/55',
                       )}
                     >
                       {annotationSourceName ?? 'No annotations'}
@@ -633,7 +647,7 @@ function App() {
                   </div>
 
                   <div className="relative">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-white/45" />
+                    <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       value={searchQuery}
                       onChange={(event) => setSearchQuery(event.target.value)}
@@ -642,10 +656,10 @@ function App() {
                     />
                   </div>
 
-                  <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/4 px-3 py-2">
+                  <div className="flex items-center justify-between rounded-xl border border-border bg-foreground/4 px-3 py-2">
                     <div>
-                      <p className="text-[11px] uppercase tracking-[0.16em] text-white/45">Errors only</p>
-                      <p className="text-xs text-white/60">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Errors only</p>
+                      <p className="text-xs text-foreground/60">
                         {filteredFeatures.length} of {dataset?.features.length ?? 0}
                       </p>
                     </div>
@@ -670,10 +684,10 @@ function App() {
                           className={cn(
                             'flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-lg border px-2.5 py-2 transition',
                             isSelected
-                              ? 'border-cyan-300/40 bg-cyan-400/10 text-white shadow-[0_0_0_1px_rgba(56,189,248,0.25)]'
+                              ? 'border-accent/40 bg-accent/10 text-foreground shadow-[0_0_0_1px] shadow-accent/25'
                               : isInvalid
-                                ? 'border-red-400/20 bg-red-500/8 text-white/88 hover:border-red-300/28 hover:bg-red-500/12'
-                                : 'border-white/8 bg-white/3 text-white/78 hover:border-white/16 hover:bg-white/6',
+                                ? 'border-destructive/20 bg-destructive/8 text-foreground/88 hover:border-destructive/28 hover:bg-destructive/12'
+                                : 'border-foreground/8 bg-foreground/3 text-foreground/78 hover:border-foreground/16 hover:bg-foreground/6',
                           )}
                         >
                           <button
@@ -690,10 +704,10 @@ function App() {
                                     className={cn(
                                       'shrink-0 px-1.5 py-0 text-[10px]',
                                       isSelected
-                                        ? 'border-cyan-300/30 bg-cyan-300/10 text-cyan-50'
+                                        ? 'border-accent/30 bg-accent/10 text-accent'
                                         : isInvalid
-                                          ? 'border-red-300/30 bg-red-400/12 text-red-50'
-                                          : 'border-white/10 bg-white/5 text-white/60',
+                                          ? 'border-destructive/30 bg-destructive/12 text-destructive'
+                                          : 'border-foreground/10 bg-foreground/5 text-foreground/60',
                                     )}
                                   >
                                     {feature.type}
@@ -701,11 +715,11 @@ function App() {
                                 </div>
                               </div>
                             </div>
-                            <div className="mt-1 flex items-center gap-2 text-[10px] text-white/52">
+                            <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
                               <span>{feature.objects.length} obj</span>
                               <span>{feature.vertices.length} vtx</span>
                               {errorCount > 0 && (
-                                <span className="text-red-200">
+                                <span className="text-destructive">
                                   {errorCount} err ({[...new Set(feature.errors.map((e) => e.code))].join(', ')})
                                 </span>
                               )}
@@ -731,7 +745,7 @@ function App() {
                     })}
 
                     {!isLoading && filteredFeatures.length === 0 && (
-                      <div className="rounded-xl border border-dashed border-white/12 bg-white/3 px-4 py-6 text-sm text-white/55">
+                      <div className="rounded-xl border border-dashed border-border bg-foreground/3 px-4 py-6 text-sm text-muted-foreground">
                         No features matched the current filter.
                       </div>
                     )}
@@ -743,11 +757,11 @@ function App() {
                 <section className="flex min-h-0 min-w-0 flex-1 flex-col">
                   <div className="space-y-3 p-4 pb-3">
                     <div className="flex items-center gap-2">
-                      <p className="min-w-0 truncate text-sm font-semibold text-white">
+                      <p className="min-w-0 truncate text-sm font-semibold text-foreground">
                         {selectedFeature?.label ?? 'No feature selected'}
                       </p>
                       {selectedFeature && (
-                        <Badge variant="outline" className="shrink-0 border-amber-300/30 bg-amber-400/10 text-amber-50">
+                        <Badge variant="outline" className="shrink-0 border-primary/30 bg-primary/10 text-primary">
                           {selectedFeature.type}
                         </Badge>
                       )}
@@ -769,12 +783,12 @@ function App() {
                               className={cn(
                                 'flex items-center gap-1.5 rounded-md border px-2 py-1 text-left text-xs transition',
                                 object.id === activeObjectId
-                                  ? 'border-amber-300/40 bg-amber-400/10 text-white'
-                                  : 'border-white/8 bg-white/3 text-white/70 hover:border-white/16 hover:bg-white/6',
+                                  ? 'border-primary/40 bg-primary/10 text-foreground'
+                                  : 'border-foreground/8 bg-foreground/3 text-foreground/70 hover:border-foreground/16 hover:bg-foreground/6',
                               )}
                             >
                               <span className="truncate font-medium">{object.id}</span>
-                              <span className="shrink-0 text-[10px] text-white/45">{object.type}</span>
+                              <span className="shrink-0 text-[10px] text-muted-foreground">{object.type}</span>
                             </button>
                           ))}
                         </div>
@@ -826,8 +840,8 @@ function App() {
                                                   style={{ backgroundColor: color }}
                                                 />
                                                 <div className="min-w-0 overflow-hidden">
-                                                  <p className="truncate text-sm font-semibold text-white/90">{error.description}</p>
-                                                  <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/50">
+                                                  <p className="truncate text-sm font-semibold text-foreground/90">{error.description}</p>
+                                                  <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
                                                     code {error.code}
                                                   </p>
                                                 </div>
@@ -835,18 +849,18 @@ function App() {
                                               {error.faceIndex != null && (
                                                 <Badge
                                                   variant="outline"
-                                                  className="shrink-0 text-white/70"
+                                                  className="shrink-0 text-foreground/70"
                                                   style={{ borderColor: `${color}50`, backgroundColor: `${color}20` }}
                                                 >
                                                   face {error.faceIndex}
                                                 </Badge>
                                               )}
                                             </div>
-                                            <p className="mt-1.5 break-words font-mono text-[10px] text-white/45">
+                                            <p className="mt-1.5 break-words font-mono text-[10px] text-muted-foreground">
                                               {error.id}
                                             </p>
                                             {error.info && (
-                                              <p className="mt-1.5 text-sm text-white/65">{error.info}</p>
+                                              <p className="mt-1.5 text-sm text-foreground/65">{error.info}</p>
                                             )}
                                           </div>
                                           <Button
@@ -875,14 +889,14 @@ function App() {
                                 {Object.entries(selectedFeature.attributes).map(([key, value]) => (
                                   <div
                                     key={key}
-                                    className="min-w-0 w-full overflow-hidden rounded-lg border border-white/8 bg-white/3 px-2.5 py-1.5"
+                                    className="min-w-0 w-full overflow-hidden rounded-lg border border-foreground/8 bg-foreground/3 px-2.5 py-1.5"
                                   >
-                                    <dt className="m-0 min-w-0 font-mono text-[10px] uppercase tracking-[0.16em] text-white/38">
+                                    <dt className="m-0 min-w-0 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
                                       {key}
                                     </dt>
                                     <dd className="m-0 mt-1 min-w-0 max-w-full">
                                       <div className="min-w-0 max-w-full overflow-x-auto overflow-y-hidden">
-                                        <div className="w-fit min-w-full pr-2 whitespace-nowrap text-[13px] leading-5 text-white/80">
+                                        <div className="w-fit min-w-full pr-2 whitespace-nowrap text-[13px] leading-5 text-foreground/80">
                                           {formatValue(value)}
                                         </div>
                                       </div>
@@ -894,7 +908,7 @@ function App() {
                           </TabsContent>
                         </>
                       ) : (
-                        <div className="rounded-xl border border-dashed border-white/12 bg-white/3 px-4 py-6 text-sm text-white/55">
+                        <div className="rounded-xl border border-dashed border-border bg-foreground/3 px-4 py-6 text-sm text-muted-foreground">
                           Click a building in the scene or choose a feature from the left column.
                         </div>
                       )}
@@ -925,39 +939,40 @@ function App() {
           onSelectFace={handleSelectFace}
           onSelectVertex={handleSelectVertex}
           onVertexCommit={applyFeatureVertices}
+          theme={theme}
         />
 
         <div className="pointer-events-none absolute inset-0 canvas-fade" />
         <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2">
           <div className="relative size-7 opacity-80">
-            <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-white/65" />
-            <div className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-white/65" />
-            <div className="absolute left-1/2 top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/75 bg-black/35" />
+            <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-foreground/65" />
+            <div className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-foreground/65" />
+            <div className="absolute left-1/2 top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-foreground/75 bg-background/35" />
           </div>
         </div>
 
         {editMode && activeObject && (
           <div className="pointer-events-none absolute bottom-24 left-4 z-10 max-w-md">
-            <div className="pointer-events-auto space-y-2 rounded-2xl border border-amber-400/15 bg-black/45 p-3 backdrop-blur-md">
-              <p className="text-sm leading-5 text-white/78">
-                Editing <span className="font-semibold text-white">{activeObject.id}</span>. Shift-click the active
-                object to select a face, press <span className="font-semibold text-white">J</span>
+            <div className="floating-panel pointer-events-auto space-y-2 rounded-2xl border p-3">
+              <p className="text-sm leading-5 text-foreground/78">
+                Editing <span className="font-semibold text-foreground">{activeObject.id}</span>. Shift-click the active
+                object to select a face, press <span className="font-semibold text-foreground">J</span>
                 {' / '}
-                <span className="font-semibold text-white">K</span> to step through the current ring, press
-                <span className="font-semibold text-white"> R</span> to cycle rings, or Cmd/Ctrl-click a vertex and
+                <span className="font-semibold text-foreground">K</span> to step through the current ring, press
+                <span className="font-semibold text-foreground"> R</span> to cycle rings, or Cmd/Ctrl-click a vertex and
                 drag the gizmo.
               </p>
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className="border-amber-300/30 bg-amber-400/10 text-amber-50">
+                <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
                   {selectedFaceIndex != null ? `Face ${selectedFaceIndex}` : 'No face selected'}
                 </Badge>
                 {selectedFaceRingCount > 0 && (
-                  <Badge variant="outline" className="border-white/10 bg-white/5 text-white/65">
+                  <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
                     {selectedFaceRingLabel}
                   </Badge>
                 )}
                 {selectedFaceVertexIndices.length > 0 && (
-                  <Badge variant="outline" className="border-white/10 bg-white/5 text-white/65">
+                  <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
                     {selectedFaceVertexIndices.length} vertices
                   </Badge>
                 )}
@@ -999,23 +1014,23 @@ function App() {
         )}
 
         <div className="pointer-events-none absolute bottom-4 left-4 right-4 z-10">
-          <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-black/40 px-3 py-2.5 backdrop-blur-md">
+          <div className="floating-panel pointer-events-auto flex flex-wrap items-center gap-2 rounded-2xl border px-3 py-2.5">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               {isPaneCollapsed && (
                 <>
-                  <Badge variant="outline" className="border-white/10 bg-white/5 text-white/70">
+                  <Badge variant="outline" className="border-border bg-background/60 text-foreground/75">
                     {selectedFeature?.label ?? 'No feature'}
                   </Badge>
-                  <Badge variant="outline" className="border-amber-300/25 bg-amber-400/10 text-amber-50">
+                  <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">
                     <SquareMousePointer className="mr-1 size-3.5" />
                     {activeObject?.id ?? 'No object'}
                   </Badge>
                 </>
               )}
               {selectedVertex && (
-                <span className="font-mono text-[11px] text-white/65">
+                <span className="font-mono text-[11px] text-muted-foreground">
                   vtx {selectedVertexIndex}
-                  <span className="mx-1 text-white/30">|</span>
+                  <span className="mx-1 text-border">|</span>
                   {selectedVertex[0].toFixed(3)}, {selectedVertex[1].toFixed(3)}, {selectedVertex[2].toFixed(3)}
                 </span>
               )}
@@ -1028,16 +1043,16 @@ function App() {
               </Button>
               {selectedFeature && (
                 <>
-                  <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/4 px-2.5 py-1.5">
-                    <span className="text-xs text-white/70">Isolate</span>
+                  <div className="floating-chip flex items-center gap-2 rounded-xl border px-2.5 py-1.5">
+                    <span className="text-xs text-muted-foreground">Isolate</span>
                     <Switch
                       checked={isolateSelectedFeature}
                       onCheckedChange={setIsolateSelectedFeature}
                       aria-label="Toggle isolate selected feature"
                     />
                   </div>
-                  <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/4 px-2.5 py-1.5">
-                    <span className={cn('text-xs', editMode && activeObject ? 'text-white/70' : 'text-white/40')}>
+                  <div className="floating-chip flex items-center gap-2 rounded-xl border px-2.5 py-1.5">
+                    <span className={cn('text-xs', editMode && activeObject ? 'text-muted-foreground' : 'text-muted-foreground/55')}>
                       Xray
                     </span>
                     <Switch
@@ -1058,8 +1073,8 @@ function App() {
                   </Button>
                 </>
               )}
-              <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/4 px-2.5 py-1.5">
-                <span className="font-mono text-[11px] text-white/65">{cameraFocalLength}mm</span>
+              <div className="floating-chip flex items-center gap-2 rounded-xl border px-2.5 py-1.5">
+                <span className="font-mono text-[11px] text-muted-foreground">{cameraFocalLength}mm</span>
                 <input
                   type="range"
                   min={12}
@@ -1067,7 +1082,7 @@ function App() {
                   step={1}
                   value={cameraFocalLength}
                   onChange={(event) => setCameraFocalLength(Number(event.target.value))}
-                  className="h-2 w-32 cursor-pointer appearance-none rounded-full bg-white/12 accent-cyan-300"
+                  className="slider-accent h-2 w-32 cursor-pointer appearance-none rounded-full bg-input"
                   aria-label="Camera focal length"
                 />
               </div>
@@ -1075,7 +1090,7 @@ function App() {
           </div>
         </div>
 
-        <div className="pointer-events-none absolute right-4 top-4 z-10 max-w-md rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white/70 backdrop-blur-md">
+        <div className="floating-panel pointer-events-none absolute right-4 top-4 z-10 max-w-md rounded-2xl border px-4 py-3 text-sm">
           {error ? (
             <span>{error}</span>
           ) : isLoading ? (
@@ -1104,10 +1119,10 @@ function App() {
       />
 
       {isDragging && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="rounded-2xl border-2 border-dashed border-cyan-300/50 bg-cyan-400/10 px-10 py-8 text-center">
-            <p className="text-lg font-semibold text-white">Drop file to open</p>
-            <p className="mt-1 text-sm text-white/60">
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm">
+          <div className="rounded-2xl border-2 border-dashed border-accent/35 bg-card/85 px-10 py-8 text-center shadow-2xl">
+            <p className="text-lg font-semibold text-foreground">Drop file to open</p>
+            <p className="mt-1 text-sm text-muted-foreground">
               .city.jsonl / .city.json for features, .json for val3dity report
             </p>
           </div>
@@ -1127,8 +1142,8 @@ function DetailSection({
   return (
     <section className="min-w-0 space-y-3">
       <div className="flex items-center gap-2">
-        <div className="h-px flex-1 bg-white/10" />
-        <p className="text-xs uppercase tracking-[0.18em] text-white/45">{title}</p>
+        <div className="detail-rule h-px flex-1" />
+        <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{title}</p>
       </div>
       {children}
     </section>

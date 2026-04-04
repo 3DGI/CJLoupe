@@ -326,7 +326,14 @@ function uniqueVertexIndices(polygons: PolygonRings[]) {
   return [...indices].sort((left, right) => left - right)
 }
 
-function deriveFeatureLabel(featureId: string, _attributes: Record<string, unknown>) {
+function deriveFeatureLabel(featureId: string, attributes: Record<string, unknown>) {
+  for (const key of ['name', 'naam', 'title', 'label', 'identificatie']) {
+    const value = attributes[key]
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim()
+    }
+  }
+
   return featureId
 }
 

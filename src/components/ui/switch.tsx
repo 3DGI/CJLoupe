@@ -25,7 +25,7 @@ function Switch({
       disabled={disabled}
       data-state={checked ? 'checked' : 'unchecked'}
       className={cn(
-        'peer inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-white/12 bg-white/8 p-0.5 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:pointer-events-none disabled:opacity-50 data-[state=checked]:border-cyan-300/30 data-[state=checked]:bg-cyan-400/20',
+        'peer inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-input bg-muted p-0.5 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-not-allowed disabled:border-border disabled:bg-muted/80 disabled:opacity-100 data-[state=checked]:border-primary/30 data-[state=checked]:bg-primary/20 disabled:data-[state=checked]:border-primary/20 disabled:data-[state=checked]:bg-primary/12',
         className,
       )}
       onClick={(event) => {
@@ -38,8 +38,12 @@ function Switch({
     >
       <span
         className={cn(
-          'block size-4 rounded-full bg-white shadow-sm transition-transform',
-          checked ? 'translate-x-5 bg-cyan-100' : 'translate-x-0',
+          'block size-4 rounded-full border border-border bg-background shadow-sm transition-transform',
+          checked
+            ? 'translate-x-5 border-primary/35 bg-primary'
+            : 'translate-x-0 bg-background',
+          disabled && checked && 'border-primary/30 bg-primary/75',
+          disabled && !checked && 'border-foreground/20 bg-background/95',
         )}
       />
     </button>
