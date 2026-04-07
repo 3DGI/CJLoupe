@@ -1311,8 +1311,19 @@ function App() {
         {!editMode && showSemanticSurfaces && selectedSemanticSurface?.surface && (
           <div className="pointer-events-none absolute bottom-24 left-4 z-10 max-w-md">
             <div className="floating-panel pointer-events-auto space-y-3 rounded-sm border p-3">
+              {(() => {
+                const surfaceColor = semanticSurfaceColor(selectedSemanticSurface.surface.type)
+                return (
               <div className="flex items-center gap-2">
-                <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
+                <Badge
+                  variant="outline"
+                  className="text-foreground"
+                  style={{
+                    borderColor: `${surfaceColor}66`,
+                    backgroundColor: `${surfaceColor}22`,
+                    color: surfaceColor,
+                  }}
+                >
                   {selectedSemanticSurface.surface.type}
                 </Badge>
                 <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
@@ -1322,6 +1333,8 @@ function App() {
                   face {selectedSemanticSurface.faceIndex}
                 </Badge>
               </div>
+                )
+              })()}
 
               {Object.keys(selectedSemanticSurface.surface.attributes).length > 0 ? (
                 <dl className="m-0 space-y-2">
@@ -1604,6 +1617,30 @@ function formatValue(value: unknown) {
   }
 
   return String(value)
+}
+
+function semanticSurfaceColor(surfaceType: string) {
+  const paletteByType: Record<string, string> = {
+    groundsurface: '#65a30d',
+    wallsurface: '#94a3b8',
+    roofsurface: '#ef4444',
+    closuresurface: '#a855f7',
+    outerceilingsurface: '#ec4899',
+    outerfloorsurface: '#14b8a6',
+    interiorwallsurface: '#60a5fa',
+    interiorceilingsurface: '#f472b6',
+    interiorfloorsurface: '#10b981',
+  }
+
+  const key = surfaceType.trim().toLowerCase()
+  const matched = paletteByType[key]
+  if (matched) {
+    return matched
+  }
+
+  const fallbackPalette = ['#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#8b5cf6', '#f97316', '#ec4899']
+  const hash = [...key].reduce((sum, character) => sum + character.charCodeAt(0), 0)
+  return fallbackPalette[hash % fallbackPalette.length]
 }
 
 function getVal3dityErrorUrl(error: ViewerValidationError) {

@@ -511,7 +511,7 @@ function CityViewport({
         handle.position.y + pivot[1],
         handle.position.z + pivot[2],
       ]
-      rebuildFeatureGeometry(activeRuntime, currentData, featureId)
+      rebuildFeatureGeometry(activeRuntime, currentData, featureId, selectionRef.current)
       rebuildEditWireframe(
         activeRuntime,
         currentData,
@@ -553,7 +553,7 @@ function CityViewport({
       return
     }
 
-    rebuildScene(runtime, data)
+    rebuildScene(runtime, data, selectionRef.current)
     const datasetKey = getDatasetViewKey(data)
     if (fittedDatasetKeyRef.current !== datasetKey) {
       fitCameraToDataset(runtime, data)
@@ -577,7 +577,7 @@ function CityViewport({
       return
     }
 
-    rebuildScene(runtime, currentData)
+    rebuildScene(runtime, currentData, selectionRef.current)
     rebuildAnnotations(runtime)
     syncSelection(
       runtime,
@@ -594,6 +594,11 @@ function CityViewport({
     const currentData = dataRef.current
     if (!runtime || !currentData) {
       return
+    }
+
+    if (runtime.showSemanticSurfaces && !editMode) {
+      rebuildScene(runtime, currentData, selectionRef.current)
+      rebuildAnnotations(runtime)
     }
 
     syncSelection(
@@ -661,7 +666,7 @@ function CityViewport({
     runtime.showSemanticSurfaces = showSemanticSurfaces
 
     if (currentData) {
-      rebuildScene(runtime, currentData)
+      rebuildScene(runtime, currentData, selectionRef.current)
       rebuildAnnotations(runtime)
       syncSelection(
         runtime,
@@ -704,7 +709,17 @@ function CityViewport({
   return <div ref={containerRef} className="absolute inset-0" />
 }
 
-function rebuildScene(runtime: Runtime, data: ViewerDataset) {
+function rebuildScene(
+  runtime: Runtime,
+  data: ViewerDataset,
+  selection: {
+    selectedFeatureId: string | null
+    activeObjectId: string | null
+    editMode: boolean
+    selectedFaceIndex: number | null
+    selectedVertexIndex: number | null
+  },
+) {
   disposeSceneContents(runtime)
   runtime.featureDrafts = new Map(
     data.features.map((feature) => [feature.id, feature.vertices.map((vertex) => [...vertex] as Vec3)]),
@@ -734,8 +749,15 @@ function rebuildScene(runtime: Runtime, data: ViewerDataset) {
         continue
       }
 
+      const selectedSemanticFaceIndex =
+        runtime.showSemanticSurfaces &&
+        !selection.editMode &&
+        selection.selectedFeatureId === feature.id &&
+        selection.activeObjectId === object.id
+          ? selection.selectedFaceIndex
+          : null
       const { faceGroups, groupColors } = runtime.showSemanticSurfaces
-        ? computeFaceSemanticGroups(object.semanticSurfaces)
+        ? computeFaceSemanticGroups(object.semanticSurfaces, selectedSemanticFaceIndex)
         : computeFaceErrorGroups(feature.errors, object.id)
       const geometry = buildObjectGeometry(object.polygons, draftVertices, featureCenter, faceGroups)
       const baseMaterial = createMaterial(object.type, runtime.theme, runtime.showSemanticSurfaces)
@@ -763,7 +785,18 @@ function rebuildScene(runtime: Runtime, data: ViewerDataset) {
   }
 }
 
-function rebuildFeatureGeometry(runtime: Runtime, data: ViewerDataset, featureId: string) {
+function rebuildFeatureGeometry(
+  runtime: Runtime,
+  data: ViewerDataset,
+  featureId: string,
+  selection: {
+    selectedFeatureId: string | null
+    activeObjectId: string | null
+    editMode: boolean
+    selectedFaceIndex: number | null
+    selectedVertexIndex: number | null
+  },
+) {
   const feature = data.features.find((candidate) => candidate.id === featureId)
   const vertices = runtime.featureDrafts.get(featureId)
   if (!feature || !vertices) {
@@ -777,8 +810,15 @@ function rebuildFeatureGeometry(runtime: Runtime, data: ViewerDataset, featureId
     }
 
     const center = (mesh.userData.featureCenter as Vec3) ?? data.center
+    const selectedSemanticFaceIndex =
+      runtime.showSemanticSurfaces &&
+      !selection.editMode &&
+      selection.selectedFeatureId === featureId &&
+      selection.activeObjectId === object.id
+        ? selection.selectedFaceIndex
+        : null
     const { faceGroups } = runtime.showSemanticSurfaces
-      ? computeFaceSemanticGroups(object.semanticSurfaces)
+      ? computeFaceSemanticGroups(object.semanticSurfaces, selectedSemanticFaceIndex)
       : computeFaceErrorGroups(feature.errors, object.id)
     const nextGeometry = buildObjectGeometry(object.polygons, vertices, center, faceGroups)
     mesh.geometry.dispose()
@@ -885,13 +925,7 @@ function rebuildHandles(
   runtime.handleGroup.position.set(0, 0, 0)
   runtime.edgeGroup.position.set(0, 0, 0)
 
-  const shouldShowFaceOutline =
-    selection.selectedFeatureId != null &&
-    selection.activeObjectId != null &&
-    selection.selectedFaceIndex != null &&
-    (selection.editMode || runtime.showSemanticSurfaces)
-
-  if (!shouldShowFaceOutline) {
+  if (!selection.editMode || !selection.selectedFeatureId || !selection.activeObjectId) {
     return
   }
 
@@ -928,12 +962,8 @@ function rebuildHandles(
     runtime,
     data,
     selection,
-    selection.editMode ? hideOccludedEditEdges : true,
+    hideOccludedEditEdges,
   )
-
-  if (!selection.editMode) {
-    return
-  }
 
   runtime.editPoints = buildEditPoints(
     object.vertexIndices,
@@ -984,12 +1014,7 @@ function rebuildEditWireframe(
   },
   hideOccludedEditEdges: boolean,
 ) {
-  if (
-    selection.selectedFeatureId == null ||
-    selection.activeObjectId == null ||
-    selection.selectedFaceIndex == null ||
-    (!selection.editMode && !runtime.showSemanticSurfaces)
-  ) {
+  if (!selection.editMode || !selection.selectedFeatureId || !selection.activeObjectId) {
     return
   }
 
@@ -1795,6 +1820,7 @@ function computeFaceErrorGroups(
 
 function computeFaceSemanticGroups(
   semanticSurfaces: Array<ViewerSemanticSurface | null>,
+  selectedFaceIndex: number | null,
 ): { faceGroups: Map<number, number>; groupColors: Map<number, string> } {
   const typeToGroup = new Map<string, number>()
   const faceGroups = new Map<number, number>()
@@ -1815,6 +1841,12 @@ function computeFaceSemanticGroups(
 
     faceGroups.set(faceIndex, group)
   })
+
+  if (selectedFaceIndex != null && selectedFaceIndex >= 0 && selectedFaceIndex < semanticSurfaces.length) {
+    const selectedGroup = nextGroup++
+    faceGroups.set(selectedFaceIndex, selectedGroup)
+    groupColors.set(selectedGroup, '#f59e0b')
+  }
 
   return { faceGroups, groupColors }
 }
