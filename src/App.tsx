@@ -1260,6 +1260,7 @@ function App() {
           activeObjectId={activeObjectId}
           editMode={editMode}
           selectedFaceIndex={selectedFaceIndex}
+          selectedFaceRingIndex={activeFaceRingIndex}
           selectedVertexIndex={selectedVertexIndex}
           showSemanticSurfaces={showSemanticSurfaces}
           onSelectFeature={handleSelectFeature}

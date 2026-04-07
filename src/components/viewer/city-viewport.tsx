@@ -37,6 +37,7 @@ type CityViewportProps = {
   activeObjectId: string | null
   editMode: boolean
   selectedFaceIndex: number | null
+  selectedFaceRingIndex: number
   selectedVertexIndex: number | null
   showSemanticSurfaces: boolean
   onSelectFeature: (featureId: string, objectId?: string | null) => void
@@ -70,6 +71,7 @@ type Runtime = {
   transformProxy: THREE.Object3D | null
   editBaseEdges: LineSegments2 | null
   editHighlightEdges: LineSegments2 | null
+  editActiveRingEdges: LineSegments2 | null
   annotationVertexMarkers: THREE.Points[]
   featureDrafts: Map<string, Vec3[]>
   sceneScale: number
@@ -95,6 +97,7 @@ function CityViewport({
   activeObjectId,
   editMode,
   selectedFaceIndex,
+  selectedFaceRingIndex,
   selectedVertexIndex,
   showSemanticSurfaces,
   onSelectFeature,
@@ -116,6 +119,7 @@ function CityViewport({
     activeObjectId,
     editMode,
     selectedFaceIndex,
+    selectedFaceRingIndex,
     selectedVertexIndex,
   })
   const onSelectFeatureRef = useRef(onSelectFeature)
@@ -144,9 +148,10 @@ function CityViewport({
       activeObjectId,
       editMode,
       selectedFaceIndex,
+      selectedFaceRingIndex,
       selectedVertexIndex,
     }
-  }, [selectedFeatureId, activeObjectId, editMode, selectedFaceIndex, selectedVertexIndex])
+  }, [selectedFeatureId, activeObjectId, editMode, selectedFaceIndex, selectedFaceRingIndex, selectedVertexIndex])
 
   useEffect(() => { onSelectFeatureRef.current = onSelectFeature }, [onSelectFeature])
   useEffect(() => { onSelectFaceRef.current = onSelectFace }, [onSelectFace])
@@ -241,6 +246,7 @@ function CityViewport({
       transformProxy: null,
       editBaseEdges: null,
       editHighlightEdges: null,
+      editActiveRingEdges: null,
       annotationVertexMarkers: [],
       featureDrafts: new Map(),
       sceneScale: 1,
@@ -611,7 +617,7 @@ function CityViewport({
       isolateSelectedFeatureRef.current,
     )
     renderViewport(runtime)
-  }, [selectedFeatureId, activeObjectId, editMode, selectedFaceIndex, selectedVertexIndex, hideOccludedEditEdges, isolateSelectedFeature])
+  }, [selectedFeatureId, activeObjectId, editMode, selectedFaceIndex, selectedFaceRingIndex, selectedVertexIndex, hideOccludedEditEdges, isolateSelectedFeature])
 
   useEffect(() => {
     const runtime = runtimeRef.current
@@ -731,6 +737,7 @@ function rebuildScene(
     activeObjectId: string | null
     editMode: boolean
     selectedFaceIndex: number | null
+    selectedFaceRingIndex: number
     selectedVertexIndex: number | null
   },
 ) {
@@ -808,6 +815,7 @@ function rebuildFeatureGeometry(
     activeObjectId: string | null
     editMode: boolean
     selectedFaceIndex: number | null
+    selectedFaceRingIndex: number
     selectedVertexIndex: number | null
   },
 ) {
@@ -854,6 +862,7 @@ function syncSelection(
     activeObjectId: string | null
     editMode: boolean
     selectedFaceIndex: number | null
+    selectedFaceRingIndex: number
     selectedVertexIndex: number | null
   },
   hideOccludedEditEdges: boolean,
@@ -944,6 +953,7 @@ function rebuildHandles(
     activeObjectId: string | null
     editMode: boolean
     selectedFaceIndex: number | null
+    selectedFaceRingIndex: number
     selectedVertexIndex: number | null
   },
   hideOccludedEditEdges: boolean,
@@ -1041,6 +1051,7 @@ function rebuildEditWireframe(
     activeObjectId: string | null
     editMode: boolean
     selectedFaceIndex: number | null
+    selectedFaceRingIndex: number
     selectedVertexIndex: number | null
   },
   hideOccludedEditEdges: boolean,
@@ -1063,6 +1074,7 @@ function rebuildEditWireframe(
     draftVertices,
     edgeCenter,
     selection.selectedFaceIndex,
+    selection.selectedFaceRingIndex,
     selection.selectedVertexIndex,
   )
   ensureEditWireframeObjects(runtime)
@@ -1075,12 +1087,19 @@ function rebuildEditWireframe(
 
   const highlightMaterial = runtime.editHighlightEdges?.material as LineMaterial | undefined
   if (highlightMaterial) {
-    highlightMaterial.depthTest = hideOccludedEditEdges
+    highlightMaterial.depthTest = selection.selectedFaceIndex == null ? hideOccludedEditEdges : false
     highlightMaterial.needsUpdate = true
+  }
+
+  const activeRingMaterial = runtime.editActiveRingEdges?.material as LineMaterial | undefined
+  if (activeRingMaterial) {
+    activeRingMaterial.depthTest = false
+    activeRingMaterial.needsUpdate = true
   }
 
   setEditWireframeGeometry(runtime.editBaseEdges, edgeSegments.base)
   setEditWireframeGeometry(runtime.editHighlightEdges, edgeSegments.highlight)
+  setEditWireframeGeometry(runtime.editActiveRingEdges, edgeSegments.activeRing)
 }
 
 function ensureEditWireframeObjects(runtime: Runtime) {
@@ -1118,6 +1137,23 @@ function ensureEditWireframeObjects(runtime: Runtime) {
     runtime.editHighlightEdges = highlightLines
   }
 
+  if (!runtime.editActiveRingEdges) {
+    const palette = getViewportPalette(runtime.theme)
+    const activeRingMaterial = new LineMaterial({
+      color: palette.editActiveRingEdge,
+      transparent: true,
+      opacity: palette.editActiveRingOpacity,
+      depthTest: false,
+      depthWrite: false,
+      linewidth: 5.2,
+    })
+    const activeRingLines = new LineSegments2(new LineSegmentsGeometry(), activeRingMaterial)
+    activeRingLines.renderOrder = 22
+    activeRingLines.visible = false
+    runtime.edgeGroup.add(activeRingLines)
+    runtime.editActiveRingEdges = activeRingLines
+  }
+
   updateEditWireframeResolution(runtime)
 }
 
@@ -1131,6 +1167,10 @@ function updateEditWireframeResolution(runtime: Runtime) {
 
   if (runtime.editHighlightEdges) {
     ;(runtime.editHighlightEdges.material as LineMaterial).resolution.set(width, height)
+  }
+
+  if (runtime.editActiveRingEdges) {
+    ;(runtime.editActiveRingEdges.material as LineMaterial).resolution.set(width, height)
   }
 }
 
@@ -1158,6 +1198,10 @@ function hideEditWireframe(runtime: Runtime) {
 
   if (runtime.editHighlightEdges) {
     runtime.editHighlightEdges.visible = false
+  }
+
+  if (runtime.editActiveRingEdges) {
+    runtime.editActiveRingEdges.visible = false
   }
 }
 
@@ -1398,15 +1442,18 @@ function buildEdgeSegments(
   vertices: Vec3[],
   center: Vec3,
   selectedFaceIndex: number | null,
+  selectedFaceRingIndex: number,
   selectedVertexIndex: number | null,
 ) {
   const base: number[] = []
   const highlight: number[] = []
-  const edgeMap = new Map<string, { positions: number[]; highlight: boolean }>()
+  const activeRing: number[] = []
+  const edgeMap = new Map<string, { positions: number[]; tier: 0 | 1 | 2 }>()
 
   for (let polyIndex = 0; polyIndex < polygons.length; polyIndex += 1) {
     const polygon = polygons[polyIndex]
-    for (const ring of polygon) {
+    for (let ringIndex = 0; ringIndex < polygon.length; ringIndex += 1) {
+      const ring = polygon[ringIndex]
       if (ring.length < 2) {
         continue
       }
@@ -1422,10 +1469,17 @@ function buildEdgeSegments(
 
         const edgeKey =
           startIndex < endIndex ? `${startIndex}:${endIndex}` : `${endIndex}:${startIndex}`
-        const shouldHighlight =
-          selectedFaceIndex === polyIndex ||
+        const isSelectedFace = selectedFaceIndex === polyIndex
+        const isActiveRing = isSelectedFace && ringIndex === selectedFaceRingIndex
+        const touchesSelectedVertex =
           selectedVertexIndex != null &&
           (startIndex === selectedVertexIndex || endIndex === selectedVertexIndex)
+        const edgeTier: 0 | 1 | 2 =
+          isActiveRing
+            ? 2
+            : isSelectedFace || touchesSelectedVertex
+              ? 1
+              : 0
         const edgePositions = [
           start[0] - center[0],
           start[1] - center[1],
@@ -1436,11 +1490,11 @@ function buildEdgeSegments(
         ]
         const existing = edgeMap.get(edgeKey)
         if (existing) {
-          existing.highlight = existing.highlight || shouldHighlight
+          existing.tier = Math.max(existing.tier, edgeTier) as 0 | 1 | 2
         } else {
           edgeMap.set(edgeKey, {
             positions: edgePositions,
-            highlight: shouldHighlight,
+            tier: edgeTier,
           })
         }
       }
@@ -1448,10 +1502,16 @@ function buildEdgeSegments(
   }
 
   for (const edge of edgeMap.values()) {
-    ;(edge.highlight ? highlight : base).push(...edge.positions)
+    if (edge.tier === 2) {
+      activeRing.push(...edge.positions)
+    } else if (edge.tier === 1) {
+      highlight.push(...edge.positions)
+    } else {
+      base.push(...edge.positions)
+    }
   }
 
-  return { base, highlight }
+  return { base, highlight, activeRing }
 }
 
 function triangulatePolygon(rings: Vec3[][]) {
@@ -1752,6 +1812,13 @@ function applyViewportTheme(runtime: Runtime, theme: Theme) {
     highlightMaterial.opacity = palette.editHighlightOpacity
     highlightMaterial.needsUpdate = true
   }
+
+  const activeRingMaterial = runtime.editActiveRingEdges?.material as LineMaterial | undefined
+  if (activeRingMaterial) {
+    activeRingMaterial.color.set(palette.editActiveRingEdge)
+    activeRingMaterial.opacity = palette.editActiveRingOpacity
+    activeRingMaterial.needsUpdate = true
+  }
 }
 
 function getViewportPalette(theme: Theme) {
@@ -1784,8 +1851,10 @@ function getViewportPalette(theme: Theme) {
       selectedEditPoint: '#f59e0b',
       editBaseEdge: '#e2e8f0',
       editBaseOpacity: 0.72,
-      editHighlightEdge: '#7dd3fc',
+      editHighlightEdge: '#d6d3c7',
       editHighlightOpacity: 0.96,
+      editActiveRingEdge: '#475569',
+      editActiveRingOpacity: 1,
     }
   }
 
@@ -1817,8 +1886,10 @@ function getViewportPalette(theme: Theme) {
     selectedEditPoint: '#f59e0b',
     editBaseEdge: '#f8fafc',
     editBaseOpacity: 0.45,
-    editHighlightEdge: '#38bdf8',
+    editHighlightEdge: '#d6d3c7',
     editHighlightOpacity: 0.95,
+    editActiveRingEdge: '#475569',
+    editActiveRingOpacity: 1,
   }
 }
 
@@ -2127,6 +2198,7 @@ function disposeSceneContents(runtime: Runtime) {
   clearTransientGroup(runtime.edgeGroup)
   runtime.editBaseEdges = null
   runtime.editHighlightEdges = null
+  runtime.editActiveRingEdges = null
 }
 
 export { CityViewport }
