@@ -682,7 +682,7 @@ function App() {
                 className="pointer-events-none select-none font-black uppercase tracking-[0.34em] text-foreground/86 [writing-mode:vertical-rl]"
                 style={{ textOrientation: 'mixed' }}
               >
-                Loupe
+                CJLoupe
               </span>
               <div ref={fileActionMenuRef} className="relative">
                 <Button
