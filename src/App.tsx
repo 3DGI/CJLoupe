@@ -54,6 +54,8 @@ const GITHUB_REPO_URL = 'https://github.com/3DGI/CJLoupe'
 const DEFAULT_CAMERA_FOCAL_LENGTH = 50
 
 type DetailPaneMode = 'split' | 'collapsed' | 'fullscreen'
+type MobileInspectMode = 'object' | 'surface'
+type MobilePanelView = 'features' | 'details'
 
 function App() {
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -87,6 +89,9 @@ function App() {
   const [isDragging, setIsDragging] = useState(false)
   const [isHelpCollapsed, setIsHelpCollapsed] = useState(false)
   const [isFileMenuOpen, setIsFileMenuOpen] = useState(false)
+  const [isMobileLayout, setIsMobileLayout] = useState(false)
+  const [mobileInspectMode, setMobileInspectMode] = useState<MobileInspectMode>('object')
+  const [mobilePanelView, setMobilePanelView] = useState<MobilePanelView>('features')
   const [dismissedErrorMessage, setDismissedErrorMessage] = useState<string | null>(null)
   const [selectedSemanticSurface, setSelectedSemanticSurface] = useState<{
     featureId: string
@@ -179,29 +184,41 @@ function App() {
     })
   }, [dataset, searchQuery, showOnlyInvalidFeatures])
 
-  const loadFromSample = useCallback(async () => {
-    setIsLoading(true)
-    setError(null)
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 900px)')
+    const updateLayout = () => setIsMobileLayout(mediaQuery.matches)
 
-    try {
-      const [nextDataset, annotations] = await Promise.all([
-        loadCityJsonSequenceFromUrl(SAMPLE_URL, 'rf-val3dity sample'),
-        loadValidationReportFromUrl(SAMPLE_REPORT_URL),
-      ])
-      const mergedDataset = mergeValidationAnnotations(nextDataset, annotations)
-      applyDataset(mergedDataset)
-      setAnnotationSourceName('val-report.json')
-    } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : 'Failed to load sample file.'
-      setError(message)
-    } finally {
-      setIsLoading(false)
-    }
+    updateLayout()
+    mediaQuery.addEventListener('change', updateLayout)
+    return () => mediaQuery.removeEventListener('change', updateLayout)
   }, [])
 
   useEffect(() => {
-    void loadFromSample()
-  }, [loadFromSample])
+    if (!isMobileLayout) {
+      return
+    }
+
+    setIsPaneCollapsed(true)
+    setIsHelpCollapsed(true)
+    setDetailPaneMode('split')
+    setEditMode(false)
+    setHideOccludedEditEdges(true)
+    setSelectedFaceIndex(null)
+    setSelectedFaceRingIndex(0)
+    setSelectedVertexIndex(null)
+  }, [isMobileLayout])
+
+  useEffect(() => {
+    if (!showSemanticSurfaces) {
+      setMobileInspectMode('object')
+    }
+  }, [showSemanticSurfaces])
+
+  useEffect(() => {
+    if (!selectedFeatureId) {
+      setMobilePanelView('features')
+    }
+  }, [selectedFeatureId])
 
   useEffect(() => {
     setDismissedErrorMessage(null)
@@ -378,7 +395,7 @@ function App() {
     }
   }
 
-  function resetViewerState() {
+  const resetViewerState = useCallback(() => {
     setCameraFocalLength(DEFAULT_CAMERA_FOCAL_LENGTH)
     setHideOccludedEditEdges(true)
     setShowOnlyInvalidFeatures(false)
@@ -390,9 +407,9 @@ function App() {
     setFocusTarget(null)
     setSelectedSemanticSurface(null)
     setViewportResetRevision((current) => current + 1)
-  }
+  }, [])
 
-  function applyDataset(nextDataset: ViewerDataset) {
+  const applyDataset = useCallback((nextDataset: ViewerDataset) => {
     originalVerticesRef.current = new Map(
       nextDataset.features.map((feature) => [feature.id, cloneVertices(feature.vertices)]),
     )
@@ -406,7 +423,31 @@ function App() {
     setSelectedFaceRingIndex(0)
     setSelectedVertexIndex(null)
     setEditMode(false)
-  }
+  }, [resetViewerState])
+
+  const loadFromSample = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const [nextDataset, annotations] = await Promise.all([
+        loadCityJsonSequenceFromUrl(SAMPLE_URL, 'rf-val3dity sample'),
+        loadValidationReportFromUrl(SAMPLE_REPORT_URL),
+      ])
+      const mergedDataset = mergeValidationAnnotations(nextDataset, annotations)
+      applyDataset(mergedDataset)
+      setAnnotationSourceName('val-report.json')
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : 'Failed to load sample file.'
+      setError(message)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [applyDataset])
+
+  useEffect(() => {
+    void loadFromSample()
+  }, [loadFromSample])
 
   function clearAnnotations() {
     setDataset((current) => (current ? mergeValidationAnnotations(current, new Map()) : current))
@@ -528,6 +569,10 @@ function App() {
   }
 
   const toggleEditMode = useCallback(() => {
+    if (isMobileLayout) {
+      return
+    }
+
     setEditMode((current) => {
       const next = !current
       if (next) {
@@ -544,7 +589,7 @@ function App() {
       }
       return next
     })
-  }, [])
+  }, [isMobileLayout])
 
   const handleSelectFeature = useCallback((featureId: string, objectId?: string | null) => {
     const feature = featureMap.get(featureId)
@@ -552,12 +597,15 @@ function App() {
       return
     }
 
+    if (isMobileLayout) {
+      setMobilePanelView('details')
+    }
     setSelectedFeatureId(featureId)
     setActiveObjectId(objectId ?? feature.objects[0]?.id ?? null)
     setSelectedFaceIndex(null)
     setSelectedFaceRingIndex(0)
     setSelectedVertexIndex(null)
-  }, [featureMap])
+  }, [featureMap, isMobileLayout])
 
   const handleSelectFace = useCallback((faceIndex: number | null) => {
     setSelectedFaceIndex(faceIndex)
@@ -718,29 +766,46 @@ function App() {
 
   const helpStatusText = isLoading ? 'Loading CityJSON feature sequence…' : null
   const isErrorDialogVisible = Boolean(error && dismissedErrorMessage !== error)
-  const hotkeys = editMode
+  const helpItems = isMobileLayout
     ? [
-        { keys: 'Tab', description: 'Exit edit mode' },
-        { keys: 'C', description: 'Center selection' },
-        { keys: 'S', description: 'Toggle semantic colors' },
-        { keys: 'Shift + Click', description: 'Select face' },
-        { keys: 'Ctrl/Cmd + Click', description: 'Select vertex' },
-        { keys: 'J / K', description: 'Step active ring' },
-        { keys: 'R', description: 'Cycle rings' },
-        { keys: 'X', description: 'Toggle xray' },
-        { keys: 'U', description: 'Reset feature geometry' },
+        {
+          keys: 'Tap',
+          description:
+            showSemanticSurfaces && mobileInspectMode === 'surface'
+              ? 'Inspect semantic surface'
+              : 'Select object',
+        },
+        { keys: 'Drag', description: 'Orbit the model' },
+        { keys: 'Pinch', description: 'Zoom' },
+        { keys: 'Panel', description: 'Browse features and details' },
+        { keys: 'Sem', description: 'Toggle semantic colors' },
       ]
-    : [
-        { keys: 'Shift + Click', description: 'Select geometry' },
-        { keys: 'Double Click', description: 'Recenter navigation' },
-        { keys: 'Tab', description: 'Enter edit mode' },
-        { keys: 'C', description: 'Center selection' },
-        { keys: 'S', description: 'Toggle semantic colors' },
-      ]
+    : editMode
+      ? [
+          { keys: 'Tab', description: 'Exit edit mode' },
+          { keys: 'C', description: 'Center selection' },
+          { keys: 'S', description: 'Toggle semantic colors' },
+          { keys: 'Shift + Click', description: 'Select face' },
+          { keys: 'Ctrl/Cmd + Click', description: 'Select vertex' },
+          { keys: 'J / K', description: 'Step active ring' },
+          { keys: 'R', description: 'Cycle rings' },
+          { keys: 'X', description: 'Toggle xray' },
+          { keys: 'U', description: 'Reset feature geometry' },
+        ]
+      : [
+          { keys: 'Shift + Click', description: 'Select geometry' },
+          { keys: 'Double Click', description: 'Recenter navigation' },
+          { keys: 'Tab', description: 'Enter edit mode' },
+          { keys: 'C', description: 'Center selection' },
+          { keys: 'S', description: 'Toggle semantic colors' },
+        ]
 
   return (
     <div
-      className="flex h-screen w-screen overflow-hidden bg-background text-foreground"
+      className={cn(
+        'relative h-screen w-screen overflow-hidden bg-background text-foreground',
+        isMobileLayout ? 'block' : 'flex',
+      )}
       onDragEnter={(event) => { event.preventDefault(); dragCountRef.current++; setIsDragging(true) }}
       onDragOver={(event) => event.preventDefault()}
       onDragLeave={() => { dragCountRef.current--; if (dragCountRef.current === 0) setIsDragging(false) }}
@@ -748,27 +813,50 @@ function App() {
     >
       <aside
         className={cn(
-          'panel-shell relative z-20 flex h-full shrink-0 border-r border-border',
-          isPaneCollapsed ? 'w-16' : 'w-[min(29rem,34vw)]',
+          'panel-shell z-20 flex shrink-0 border-border',
+          isMobileLayout
+            ? (
+                detailPaneMode === 'fullscreen'
+                  ? 'absolute inset-0 h-auto border-t-0'
+                  : isPaneCollapsed
+                    ? 'absolute inset-x-0 bottom-0 h-14 border-t'
+                    : 'absolute inset-x-0 bottom-0 h-[min(76vh,42rem)] border-t'
+              )
+            : (isPaneCollapsed ? 'relative h-full w-16 border-r' : 'relative h-full w-[min(29rem,34vw)] border-r'),
         )}
       >
-        <div className="pointer-events-auto flex h-full w-full">
-          <div className="flex h-full w-16 shrink-0 flex-col items-center justify-between border-r border-border bg-background/40 py-3">
-            <div className="flex flex-col items-center gap-2">
+        <div className={cn('pointer-events-auto flex h-full w-full', isMobileLayout && 'flex-col')}>
+          <div
+            className={cn(
+              'bg-background/40',
+              isMobileLayout
+                ? 'flex h-14 w-full items-center justify-between gap-3 border-b border-border px-3'
+                : 'flex h-full w-16 shrink-0 flex-col items-center justify-between border-r border-border py-3',
+            )}
+          >
+            <div className={cn('flex items-center gap-2', isMobileLayout ? 'min-w-0 flex-1' : 'flex-col')}>
               <Button
                 size="icon"
                 variant="ghost"
                 onClick={() => setIsPaneCollapsed((current) => !current)}
                 aria-label={isPaneCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
               >
-                {isPaneCollapsed ? <ChevronRight /> : <ChevronLeft />}
+                {isMobileLayout
+                  ? (isPaneCollapsed ? <ChevronUp /> : <ChevronDown />)
+                  : (isPaneCollapsed ? <ChevronRight /> : <ChevronLeft />)}
               </Button>
-              <span
-                className="pointer-events-none select-none font-black uppercase tracking-[0.34em] text-foreground/86 [writing-mode:vertical-rl]"
-                style={{ textOrientation: 'mixed' }}
-              >
-                CJLoupe
-              </span>
+              {isMobileLayout ? (
+                <span className="truncate text-sm font-black uppercase tracking-[0.28em] text-foreground/86">
+                  CJLoupe
+                </span>
+              ) : (
+                <span
+                  className="pointer-events-none select-none font-black uppercase tracking-[0.34em] text-foreground/86 [writing-mode:vertical-rl]"
+                  style={{ textOrientation: 'mixed' }}
+                >
+                  CJLoupe
+                </span>
+              )}
               <div ref={fileActionMenuRef} className="relative">
                 <Button
                   size="icon"
@@ -783,7 +871,12 @@ function App() {
                 </Button>
 
                 {dataset && isFileMenuOpen && (
-                  <div className="floating-panel absolute left-full top-0 z-30 ml-3 w-60 border p-1.5">
+                  <div
+                    className={cn(
+                      'floating-panel absolute z-30 w-60 border p-1.5',
+                      isMobileLayout ? 'bottom-full left-0 mb-2' : 'left-full top-0 ml-3',
+                    )}
+                  >
                     <button
                       type="button"
                       className="flex w-full flex-col items-start gap-0.5 border border-transparent px-3 py-2 text-left transition hover:border-border hover:bg-accent/8"
@@ -829,7 +922,7 @@ function App() {
               </Button>
             </div>
 
-            <div className="flex flex-col items-center gap-2">
+            <div className={cn('flex items-center gap-2', isMobileLayout ? 'shrink-0' : 'flex-col')}>
               <Badge variant="outline" className="border-accent/30 bg-accent/10 text-accent">
                 {dataset?.features.length ?? 0}
               </Badge>
@@ -841,10 +934,52 @@ function App() {
 
           {!isPaneCollapsed && (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-              {detailPaneMode !== 'fullscreen' && (
-                <section className="flex min-h-0 flex-[1.05] flex-col border-b border-border">
+              {isMobileLayout && (
+                <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+                  <div className="floating-chip flex items-center gap-1 rounded-sm border p-1">
+                    <Button
+                      type="button"
+                      variant={mobilePanelView === 'features' ? 'secondary' : 'ghost'}
+                      size="sm"
+                      className="h-8 px-2.5"
+                      onClick={() => setMobilePanelView('features')}
+                    >
+                      Features
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={mobilePanelView === 'details' ? 'secondary' : 'ghost'}
+                      size="sm"
+                      className="h-8 px-2.5"
+                      onClick={() => setMobilePanelView('details')}
+                      disabled={!selectedFeature}
+                    >
+                      Details
+                    </Button>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="ml-auto size-8"
+                    onClick={toggleDetailPaneFullscreen}
+                    aria-label={detailPaneMode === 'fullscreen' ? 'Exit full panel view' : 'Expand panel to fullscreen'}
+                    title={detailPaneMode === 'fullscreen' ? 'Exit full panel view' : 'Expand panel to fullscreen'}
+                  >
+                    {detailPaneMode === 'fullscreen' ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+                  </Button>
+                </div>
+              )}
+
+              {(isMobileLayout ? mobilePanelView === 'features' : detailPaneMode !== 'fullscreen') && (
+                <section
+                  className={cn(
+                    'flex min-h-0 flex-col border-b border-border',
+                    isMobileLayout ? 'flex-1' : 'flex-[1.05]',
+                  )}
+                >
                   <div className="space-y-3 p-4 pb-3">
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2">
                     <div className="min-w-0 rounded-sm border border-foreground/10 bg-foreground/5 px-2.5 py-2">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
@@ -1038,11 +1173,14 @@ function App() {
                 </section>
               )}
 
+              {(!isMobileLayout || mobilePanelView === 'details') && (
               <Tabs value={detailTab} onValueChange={setDetailTab} asChild>
                 <section
                   className={cn(
                     'flex min-w-0 flex-col border-t border-border',
-                    detailPaneMode === 'collapsed'
+                    isMobileLayout
+                      ? 'min-h-0 flex-1 border-t-0'
+                      : detailPaneMode === 'collapsed'
                       ? 'shrink-0'
                       : detailPaneMode === 'fullscreen'
                         ? 'min-h-0 flex-1 border-t-0'
@@ -1073,6 +1211,7 @@ function App() {
                         </div>
                       </div>
 
+                      {!isMobileLayout && (
                       <div className="flex shrink-0 items-center gap-1">
                         <Button
                           type="button"
@@ -1097,6 +1236,7 @@ function App() {
                           {detailPaneMode === 'fullscreen' ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
                         </Button>
                       </div>
+                      )}
                     </div>
 
                     {detailPaneMode !== 'collapsed' && selectedFeature && (
@@ -1240,12 +1380,13 @@ function App() {
                   )}
                 </section>
               </Tabs>
+              )}
             </div>
           )}
         </div>
       </aside>
 
-      <div className="relative min-w-0 flex-1">
+      <div className="relative h-full min-w-0 flex-1">
         <CityViewport
           key={viewportResetRevision}
           data={dataset}
@@ -1263,6 +1404,8 @@ function App() {
           selectedFaceRingIndex={activeFaceRingIndex}
           selectedVertexIndex={selectedVertexIndex}
           showSemanticSurfaces={showSemanticSurfaces}
+          mobileInteraction={isMobileLayout}
+          mobileSelectionMode={mobileInspectMode}
           onSelectFeature={handleSelectFeature}
           onSelectFace={handleSelectFace}
           onSelectVertex={handleSelectVertex}
@@ -1281,7 +1424,10 @@ function App() {
         </div>
 
         {editMode && activeObject && (
-          <div className="pointer-events-none absolute bottom-24 left-4 z-10 max-w-md">
+          <div className={cn(
+            'pointer-events-none absolute z-10',
+            isMobileLayout ? 'bottom-20 left-3 right-3' : 'bottom-24 left-4 max-w-md',
+          )}>
             <div className="floating-panel pointer-events-auto space-y-2 rounded-sm border p-3">
               <p className="text-sm leading-5 text-foreground/78">
                 Editing <span className="font-semibold text-foreground">{activeObject.id}</span>. Shift-click the active
@@ -1343,7 +1489,10 @@ function App() {
         )}
 
         {!editMode && showSemanticSurfaces && selectedSemanticSurface?.surface && (
-          <div className="pointer-events-none absolute bottom-24 left-4 z-10 max-w-md">
+          <div className={cn(
+            'pointer-events-none absolute z-10',
+            isMobileLayout ? 'bottom-20 left-3 right-3' : 'bottom-24 left-4 max-w-md',
+          )}>
             <div className="floating-panel pointer-events-auto space-y-3 rounded-sm border p-3">
               {(() => {
                 const surfaceColor = semanticSurfaceColor(selectedSemanticSurface.surface.type)
@@ -1391,95 +1540,175 @@ function App() {
           </div>
         )}
 
-        <div className="pointer-events-none absolute bottom-4 left-4 right-4 z-10">
-          <div className="floating-panel pointer-events-auto flex flex-wrap items-center gap-2 rounded-sm border px-3 py-2.5">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              {isPaneCollapsed && (
-                <>
-                  <Badge variant="outline" className="border-border bg-background/60 text-foreground/75">
-                    {selectedFeature?.label ?? 'No feature'}
-                  </Badge>
-                  <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">
-                    <SquareMousePointer className="mr-1 size-3.5" />
-                    {activeObject?.id ?? 'No object'}
-                  </Badge>
-                </>
-              )}
-              {selectedVertex && (
-                <span className="font-mono text-[11px] text-muted-foreground">
-                  vtx {selectedVertexIndex}
-                  <span className="mx-1 text-border">|</span>
-                  {selectedVertex[0].toFixed(3)}, {selectedVertex[1].toFixed(3)}, {selectedVertex[2].toFixed(3)}
-                </span>
-              )}
-            </div>
-
-            <div className="ml-auto flex flex-wrap items-center gap-2">
-              <div className="floating-chip flex items-center gap-1 rounded-sm border p-1">
-                <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2.5" onClick={toggleEditMode}>
-                  <Move3D className="size-3.5" />
-                  {editMode ? 'Exit edit' : 'Edit'}
-                </Button>
-                <div className="flex items-center gap-2 rounded-sm px-2 py-1.5">
-                  <span className={cn('text-xs', editMode && activeObject ? 'text-muted-foreground' : 'text-muted-foreground/55')}>
-                    Xray
-                  </span>
-                  <Switch
-                    checked={!hideOccludedEditEdges}
-                    onCheckedChange={(checked) => setHideOccludedEditEdges(!checked)}
-                    disabled={!editMode || !activeObject}
-                    aria-label="Toggle xray view for edit mode"
-                  />
-                </div>
-              </div>
-              {selectedFeature && (
-                <>
-                  <div className="floating-chip flex items-center gap-2 rounded-sm border px-2.5 py-1.5">
-                    <span className="text-xs text-muted-foreground">Semantics</span>
-                    <Switch
-                      checked={showSemanticSurfaces}
-                      onCheckedChange={setShowSemanticSurfaces}
-                      aria-label="Toggle semantic surface colors"
-                    />
-                  </div>
-                  <div className="floating-chip flex items-center gap-2 rounded-sm border px-2.5 py-1.5">
-                    <span className="text-xs text-muted-foreground">Isolate</span>
-                    <Switch
-                      checked={isolateSelectedFeature}
-                      onCheckedChange={setIsolateSelectedFeature}
-                      aria-label="Toggle isolate selected feature"
-                    />
-                  </div>
+        <div
+          className={cn(
+            'pointer-events-none absolute z-10',
+            isMobileLayout ? 'left-3 right-3 top-4' : 'bottom-4 left-4 right-4',
+          )}
+        >
+          {isMobileLayout ? (
+            <div className="floating-panel pointer-events-auto space-y-2 rounded-sm border px-2 py-2">
+              <div className="flex items-center gap-2">
+                {selectedFeature && (
+                  <Button
+                    variant={showSemanticSurfaces ? 'secondary' : 'ghost'}
+                    size="sm"
+                    className="h-8 px-2.5"
+                    onClick={() => setShowSemanticSurfaces((current) => !current)}
+                  >
+                    Sem
+                  </Button>
+                )}
+                {selectedFeature && showSemanticSurfaces && (
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-8 gap-1.5 px-2.5"
+                    className="h-8 px-2.5"
+                    onClick={() =>
+                      setMobileInspectMode((current) => (current === 'object' ? 'surface' : 'object'))
+                    }
+                  >
+                    {mobileInspectMode === 'surface' ? 'Surface' : 'Object'}
+                  </Button>
+                )}
+                {selectedFeature && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="ml-auto h-8 gap-1.5 px-2.5"
                     onClick={centerCurrentSelection}
                   >
                     <LocateFixed className="size-3.5" />
                     Center
                   </Button>
-                </>
+                )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-8 shrink-0 gap-1 px-2"
+                  onClick={() => setIsHelpCollapsed((current) => !current)}
+                  aria-label={isHelpCollapsed ? 'Expand mobile help' : 'Collapse mobile help'}
+                  aria-expanded={!isHelpCollapsed}
+                  aria-controls="viewport-help-panel"
+                >
+                  <CircleHelp className="size-4" />
+                  {isHelpCollapsed ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
+                </Button>
+              </div>
+
+              {!isHelpCollapsed && (
+                <div id="viewport-help-panel" className="grid gap-1.5 border-t border-border pt-2">
+                  {helpItems.map((hotkey) => (
+                    <div key={hotkey.keys} className="flex items-center justify-between gap-3">
+                      <Badge variant="outline" className="shrink-0 font-mono text-[10px] text-foreground/80">
+                        {hotkey.keys}
+                      </Badge>
+                      <span className="text-right text-xs leading-5 text-foreground/76">
+                        {hotkey.description}
+                      </span>
+                    </div>
+                  ))}
+                  {helpStatusText && (
+                    <p className="border-t border-border pt-2 text-xs leading-5 text-muted-foreground">
+                      {helpStatusText}
+                    </p>
+                  )}
+                </div>
               )}
-              <div className="floating-chip flex items-center gap-2 rounded-sm border px-2.5 py-1.5">
-                <Camera className="size-3.5 text-muted-foreground" />
-                <span className="font-mono text-[11px] text-muted-foreground">{cameraFocalLength}mm</span>
-                <input
-                  type="range"
-                  min={12}
-                  max={120}
-                  step={1}
-                  value={cameraFocalLength}
-                  onChange={(event) => setCameraFocalLength(Number(event.target.value))}
-                  className="slider-accent h-2 w-32 cursor-pointer appearance-none rounded-none bg-input"
-                  aria-label="Camera focal length"
-                />
+            </div>
+          ) : (
+            <div className="floating-panel pointer-events-auto flex flex-wrap items-center gap-2 rounded-sm border px-3 py-2.5">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                {isPaneCollapsed && (
+                  <>
+                    <Badge variant="outline" className="border-border bg-background/60 text-foreground/75">
+                      {selectedFeature?.label ?? 'No feature'}
+                    </Badge>
+                    <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">
+                      <SquareMousePointer className="mr-1 size-3.5" />
+                      {activeObject?.id ?? 'No object'}
+                    </Badge>
+                  </>
+                )}
+                {selectedVertex && (
+                  <span className="font-mono text-[11px] text-muted-foreground">
+                    vtx {selectedVertexIndex}
+                    <span className="mx-1 text-border">|</span>
+                    {selectedVertex[0].toFixed(3)}, {selectedVertex[1].toFixed(3)}, {selectedVertex[2].toFixed(3)}
+                  </span>
+                )}
+              </div>
+
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <div className="floating-chip flex items-center gap-1 rounded-sm border p-1">
+                  <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2.5" onClick={toggleEditMode}>
+                    <Move3D className="size-3.5" />
+                    {editMode ? 'Exit edit' : 'Edit'}
+                  </Button>
+                  <div className="flex items-center gap-2 rounded-sm px-2 py-1.5">
+                    <span className={cn('text-xs', editMode && activeObject ? 'text-muted-foreground' : 'text-muted-foreground/55')}>
+                      Xray
+                    </span>
+                    <Switch
+                      checked={!hideOccludedEditEdges}
+                      onCheckedChange={(checked) => setHideOccludedEditEdges(!checked)}
+                      disabled={!editMode || !activeObject}
+                      aria-label="Toggle xray view for edit mode"
+                    />
+                  </div>
+                </div>
+                {selectedFeature && (
+                  <>
+                    <div className="floating-chip flex items-center gap-2 rounded-sm border px-2.5 py-1.5">
+                      <span className="text-xs text-muted-foreground">Semantics</span>
+                      <Switch
+                        checked={showSemanticSurfaces}
+                        onCheckedChange={setShowSemanticSurfaces}
+                        aria-label="Toggle semantic surface colors"
+                      />
+                    </div>
+                    <div className="floating-chip flex items-center gap-2 rounded-sm border px-2.5 py-1.5">
+                      <span className="text-xs text-muted-foreground">Isolate</span>
+                      <Switch
+                        checked={isolateSelectedFeature}
+                        onCheckedChange={setIsolateSelectedFeature}
+                        aria-label="Toggle isolate selected feature"
+                      />
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 gap-1.5 px-2.5"
+                      onClick={centerCurrentSelection}
+                    >
+                      <LocateFixed className="size-3.5" />
+                      Center
+                    </Button>
+                  </>
+                )}
+                <div className="floating-chip flex items-center gap-2 rounded-sm border px-2.5 py-1.5">
+                  <Camera className="size-3.5 text-muted-foreground" />
+                  <span className="font-mono text-[11px] text-muted-foreground">{cameraFocalLength}mm</span>
+                  <input
+                    type="range"
+                    min={12}
+                    max={120}
+                    step={1}
+                    value={cameraFocalLength}
+                    onChange={(event) => setCameraFocalLength(Number(event.target.value))}
+                    className="slider-accent h-2 w-32 cursor-pointer appearance-none rounded-none bg-input"
+                    aria-label="Camera focal length"
+                  />
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
 
-        <div className="pointer-events-none absolute right-4 top-4 z-10 max-w-md">
+        {!isMobileLayout && (
+        <div
+          className="pointer-events-none absolute right-4 top-4 z-10 max-w-md"
+        >
           <div
             className={cn(
               'floating-panel pointer-events-auto flex items-start gap-3 rounded-sm border text-sm',
@@ -1490,15 +1719,15 @@ function App() {
               <div id="viewport-help-panel" className="min-w-0 flex-1 space-y-3">
                 <div>
                   <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                    Hotkeys
+                    {isMobileLayout ? 'Mobile' : 'Hotkeys'}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {editMode ? 'Edit mode controls' : 'Navigation and selection'}
+                    {isMobileLayout ? 'Touch inspection' : (editMode ? 'Edit mode controls' : 'Navigation and selection')}
                   </p>
                 </div>
 
                 <div className="grid gap-1.5">
-                  {hotkeys.map((hotkey) => (
+                  {helpItems.map((hotkey) => (
                     <div key={hotkey.keys} className="flex items-center justify-between gap-3">
                       <Badge variant="outline" className="shrink-0 font-mono text-[10px] text-foreground/80">
                         {hotkey.keys}
@@ -1534,6 +1763,7 @@ function App() {
             </div>
           </div>
         </div>
+        )}
       </div>
 
       <input

@@ -40,6 +40,8 @@ type CityViewportProps = {
   selectedFaceRingIndex: number
   selectedVertexIndex: number | null
   showSemanticSurfaces: boolean
+  mobileInteraction: boolean
+  mobileSelectionMode: 'object' | 'surface'
   onSelectFeature: (featureId: string, objectId?: string | null) => void
   onSelectFace: (faceIndex: number | null) => void
   onSelectVertex: (vertexIndex: number | null) => void
@@ -100,6 +102,8 @@ function CityViewport({
   selectedFaceRingIndex,
   selectedVertexIndex,
   showSemanticSurfaces,
+  mobileInteraction,
+  mobileSelectionMode,
   onSelectFeature,
   onSelectFace,
   onSelectVertex,
@@ -129,6 +133,8 @@ function CityViewport({
   const onVertexCommitRef = useRef(onVertexCommit)
   const themeRef = useRef(theme)
   const showSemanticSurfacesRef = useRef(showSemanticSurfaces)
+  const mobileInteractionRef = useRef(mobileInteraction)
+  const mobileSelectionModeRef = useRef(mobileSelectionMode)
 
   useEffect(() => {
     dataRef.current = data
@@ -160,6 +166,8 @@ function CityViewport({
   useEffect(() => { onVertexCommitRef.current = onVertexCommit }, [onVertexCommit])
   useEffect(() => { themeRef.current = theme }, [theme])
   useEffect(() => { showSemanticSurfacesRef.current = showSemanticSurfaces }, [showSemanticSurfaces])
+  useEffect(() => { mobileInteractionRef.current = mobileInteraction }, [mobileInteraction])
+  useEffect(() => { mobileSelectionModeRef.current = mobileSelectionMode }, [mobileSelectionMode])
 
   useEffect(() => {
     const container = containerRef.current
@@ -369,6 +377,12 @@ function CityViewport({
         return
       }
 
+      const usesMobileTapSelection = mobileInteractionRef.current
+      const mobileSurfaceSelection =
+        usesMobileTapSelection &&
+        showSemanticSurfacesRef.current &&
+        mobileSelectionModeRef.current === 'surface'
+
       if (selection.editMode) {
         if (!event.shiftKey) {
           return
@@ -397,8 +411,8 @@ function CityViewport({
         return
       }
 
-      if (showSemanticSurfacesRef.current) {
-        if (!event.shiftKey) {
+      if (showSemanticSurfacesRef.current && (mobileSurfaceSelection || event.shiftKey)) {
+        if (!usesMobileTapSelection && !event.shiftKey) {
           return
         }
 
@@ -437,7 +451,7 @@ function CityViewport({
         return
       }
 
-      if (!event.shiftKey) {
+      if (!usesMobileTapSelection && !event.shiftKey) {
         return
       }
 
@@ -449,10 +463,14 @@ function CityViewport({
       if (meshHit) {
         const featureId = meshHit.object.userData.featureId as string
         const objectId = meshHit.object.userData.objectId as string
+        onSelectSemanticSurfaceRef.current(null)
         onSelectFeatureRef.current(featureId, objectId)
         return
       }
 
+      if (usesMobileTapSelection) {
+        onSelectSemanticSurfaceRef.current(null)
+      }
       onSelectVertexRef.current(null)
     }
 
