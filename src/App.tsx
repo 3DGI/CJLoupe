@@ -644,6 +644,18 @@ function App() {
         return
       }
 
+      if (
+        event.key.toLowerCase() === 's' &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        dataset
+      ) {
+        event.preventDefault()
+        setShowSemanticSurfaces((current) => !current)
+        return
+      }
+
       if (editMode && event.key.toLowerCase() === 'j') {
         event.preventDefault()
         cycleSelectedFaceVertex(-1)
@@ -686,7 +698,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [applyFeatureVertices, centerCurrentSelection, cycleSelectedFaceRing, cycleSelectedFaceVertex, editMode, selectedFeatureId, toggleEditMode])
+  }, [applyFeatureVertices, centerCurrentSelection, cycleSelectedFaceRing, cycleSelectedFaceVertex, dataset, editMode, selectedFeatureId, toggleEditMode])
 
   const helpStatusText = isLoading ? 'Loading CityJSON feature sequence…' : null
   const isErrorDialogVisible = Boolean(error && dismissedErrorMessage !== error)
@@ -694,6 +706,7 @@ function App() {
     ? [
         { keys: 'Tab', description: 'Exit edit mode' },
         { keys: 'C', description: 'Center selection' },
+        { keys: 'S', description: 'Toggle semantic colors' },
         { keys: 'Shift + Click', description: 'Select face' },
         { keys: 'Ctrl/Cmd + Click', description: 'Select vertex' },
         { keys: 'J / K', description: 'Step active ring' },
@@ -706,6 +719,7 @@ function App() {
         { keys: 'Double Click', description: 'Recenter navigation' },
         { keys: 'Tab', description: 'Enter edit mode' },
         { keys: 'C', description: 'Center selection' },
+        { keys: 'S', description: 'Toggle semantic colors' },
       ]
 
   return (
