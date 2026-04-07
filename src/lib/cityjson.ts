@@ -4,6 +4,7 @@ import type {
   ViewerCityObject,
   ViewerDataset,
   ViewerFeature,
+  ViewerSemanticSurface,
   ViewerValidationError,
 } from '@/types/cityjson'
 
@@ -16,6 +17,16 @@ type CityJsonGeometry = {
   type?: string
   lod?: string
   boundaries?: unknown
+  semantics?: CityJsonSemantics
+}
+
+type CityJsonSemanticSurface = {
+  type?: string
+} & Record<string, unknown>
+
+type CityJsonSemantics = {
+  surfaces?: CityJsonSemanticSurface[]
+  values?: unknown
 }
 
 type CityJsonObject = {
@@ -210,6 +221,9 @@ function createRenderableObjects(cityObjects: Record<string, CityJsonObject>) {
   const objects = Object.entries(cityObjects).map(([id, object]) => {
     const geometry = pickBestGeometry(object.geometry ?? [])
     const polygons = geometry ? extractPolygons(geometry.type ?? '', geometry.boundaries) : []
+    const semanticSurfaces = geometry
+      ? extractSemanticSurfaces(geometry.type ?? '', geometry.semantics, polygons.length)
+      : []
 
     return {
       id,
@@ -221,6 +235,7 @@ function createRenderableObjects(cityObjects: Record<string, CityJsonObject>) {
         geometryType: geometry?.type ?? null,
         lod: geometry?.lod ?? null,
         polygons,
+        semanticSurfaces,
         vertexIndices: uniqueVertexIndices(polygons),
       } satisfies ViewerCityObject,
     }
@@ -304,6 +319,64 @@ function extractPolygons(geometryType: string, boundaries: unknown): PolygonRing
   }
 
   return []
+}
+
+function extractSemanticSurfaces(
+  geometryType: string,
+  semantics: CityJsonSemantics | undefined,
+  polygonCount: number,
+): Array<ViewerSemanticSurface | null> {
+  const surfaceRefs = extractSemanticSurfaceRefs(geometryType, semantics?.values)
+  const surfaces = semantics?.surfaces ?? []
+
+  return Array.from({ length: polygonCount }, (_, polygonIndex) => {
+    const surfaceRef = surfaceRefs[polygonIndex]
+    if (surfaceRef == null || surfaceRef < 0) {
+      return null
+    }
+
+    const surface = surfaces[surfaceRef]
+    if (!surface) {
+      return null
+    }
+
+    const { type, ...attributes } = surface
+    return {
+      surfaceIndex: surfaceRef,
+      type: typeof type === 'string' && type.trim().length > 0 ? type : 'UnknownSurface',
+      attributes,
+    }
+  })
+}
+
+function extractSemanticSurfaceRefs(geometryType: string, values: unknown): Array<number | null> {
+  if (!values || !Array.isArray(values)) {
+    return []
+  }
+
+  if (geometryType === 'MultiSurface' || geometryType === 'CompositeSurface') {
+    return values.map(parseSemanticSurfaceRef)
+  }
+
+  if (geometryType === 'Solid') {
+    return values.flatMap((shell) =>
+      Array.isArray(shell) ? shell.map(parseSemanticSurfaceRef) : [],
+    )
+  }
+
+  if (geometryType === 'MultiSolid' || geometryType === 'CompositeSolid') {
+    return values.flatMap((solid) =>
+      Array.isArray(solid)
+        ? solid.flatMap((shell) => (Array.isArray(shell) ? shell.map(parseSemanticSurfaceRef) : []))
+        : [],
+    )
+  }
+
+  return []
+}
+
+function parseSemanticSurfaceRef(value: unknown) {
+  return typeof value === 'number' && Number.isInteger(value) ? value : null
 }
 
 function isPolygonRings(value: unknown): value is PolygonRings {

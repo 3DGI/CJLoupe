@@ -1,6 +1,12 @@
 export type Vec3 = [number, number, number]
 export type PolygonRings = number[][]
 
+export interface ViewerSemanticSurface {
+  surfaceIndex: number
+  type: string
+  attributes: Record<string, unknown>
+}
+
 export interface ViewerValidationError {
   code: number
   description: string
@@ -62,5 +68,6 @@ export interface ViewerCityObject {
   geometryType: string | null
   lod: string | null
   polygons: PolygonRings[]
+  semanticSurfaces: Array<ViewerSemanticSurface | null>
   vertexIndices: number[]
 }

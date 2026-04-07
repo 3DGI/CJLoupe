@@ -3,6 +3,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  Camera,
   CircleHelp,
   Crosshair,
   FolderOpen,
@@ -41,6 +42,7 @@ import type {
   Vec3,
   ViewerDataset,
   ViewerFocusTarget,
+  ViewerSemanticSurface,
   ViewerValidationError,
 } from '@/types/cityjson'
 
@@ -74,6 +76,7 @@ function App() {
   const [cameraFocalLength, setCameraFocalLength] = useState(50)
   const [hideOccludedEditEdges, setHideOccludedEditEdges] = useState(true)
   const [showOnlyInvalidFeatures, setShowOnlyInvalidFeatures] = useState(false)
+  const [showSemanticSurfaces, setShowSemanticSurfaces] = useState(false)
   const [isolateSelectedFeature, setIsolateSelectedFeature] = useState(false)
   const [detailTab, setDetailTab] = useState('errors')
   const [detailPaneMode, setDetailPaneMode] = useState<DetailPaneMode>('split')
@@ -81,6 +84,12 @@ function App() {
   const [isHelpCollapsed, setIsHelpCollapsed] = useState(false)
   const [isFileMenuOpen, setIsFileMenuOpen] = useState(false)
   const [dismissedErrorMessage, setDismissedErrorMessage] = useState<string | null>(null)
+  const [selectedSemanticSurface, setSelectedSemanticSurface] = useState<{
+    featureId: string
+    objectId: string
+    faceIndex: number
+    surface: ViewerSemanticSurface | null
+  } | null>(null)
   const dragCountRef = useRef(0)
   const { theme, toggleTheme } = useTheme()
 
@@ -194,6 +203,40 @@ function App() {
   useEffect(() => {
     setDismissedErrorMessage(null)
   }, [error])
+
+  useEffect(() => {
+    if (!showSemanticSurfaces || editMode || !dataset) {
+      setSelectedSemanticSurface(null)
+      if (!editMode) {
+        setSelectedFaceIndex(null)
+        setSelectedFaceRingIndex(0)
+        setSelectedVertexIndex(null)
+      }
+      return
+    }
+
+    setSelectedSemanticSurface((current) => {
+      if (!current) {
+        return current
+      }
+
+      if (current.featureId !== selectedFeatureId || current.objectId !== activeObjectId) {
+        return null
+      }
+
+      const feature = dataset.features.find((candidate) => candidate.id === current.featureId)
+      const object = feature?.objects.find((candidate) => candidate.id === current.objectId)
+      const surface = object?.semanticSurfaces[current.faceIndex] ?? null
+      if (!surface) {
+        return null
+      }
+
+      return {
+        ...current,
+        surface,
+      }
+    })
+  }, [activeObjectId, dataset, editMode, selectedFeatureId, showSemanticSurfaces])
 
   useEffect(() => {
     if (!isFileMenuOpen) {
@@ -381,6 +424,18 @@ function App() {
   function toggleDetailPaneFullscreen() {
     setDetailPaneMode((current) => (current === 'fullscreen' ? 'split' : 'fullscreen'))
   }
+
+  const handleSelectSemanticSurface = useCallback((surface: {
+    featureId: string
+    objectId: string
+    faceIndex: number
+    surface: ViewerSemanticSurface | null
+  } | null) => {
+    setSelectedFaceIndex(surface?.faceIndex ?? null)
+    setSelectedFaceRingIndex(0)
+    setSelectedVertexIndex(null)
+    setSelectedSemanticSurface(surface?.surface ? surface : null)
+  }, [])
 
   const centerFeatureById = useCallback((featureId: string) => {
     const feature = featureMap.get(featureId)
@@ -1159,9 +1214,11 @@ function App() {
           editMode={editMode}
           selectedFaceIndex={selectedFaceIndex}
           selectedVertexIndex={selectedVertexIndex}
+          showSemanticSurfaces={showSemanticSurfaces}
           onSelectFeature={handleSelectFeature}
           onSelectFace={handleSelectFace}
           onSelectVertex={handleSelectVertex}
+          onSelectSemanticSurface={handleSelectSemanticSurface}
           onVertexCommit={applyFeatureVertices}
           theme={theme}
         />
@@ -1237,6 +1294,42 @@ function App() {
           </div>
         )}
 
+        {!editMode && showSemanticSurfaces && selectedSemanticSurface?.surface && (
+          <div className="pointer-events-none absolute bottom-24 left-4 z-10 max-w-md">
+            <div className="floating-panel pointer-events-auto space-y-3 rounded-sm border p-3">
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
+                  {selectedSemanticSurface.surface.type}
+                </Badge>
+                <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
+                  {selectedSemanticSurface.objectId}
+                </Badge>
+                <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
+                  face {selectedSemanticSurface.faceIndex}
+                </Badge>
+              </div>
+
+              {Object.keys(selectedSemanticSurface.surface.attributes).length > 0 ? (
+                <dl className="m-0 space-y-2">
+                  {Object.entries(selectedSemanticSurface.surface.attributes).map(([key, value]) => (
+                    <div
+                      key={key}
+                      className="rounded-sm border border-foreground/8 bg-foreground/3 px-2.5 py-1.5"
+                    >
+                      <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
+                        {key}
+                      </dt>
+                      <dd className="mt-1 text-sm text-foreground/80">{formatValue(value)}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : (
+                <p className="text-sm text-muted-foreground">No semantic surface attributes.</p>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="pointer-events-none absolute bottom-4 left-4 right-4 z-10">
           <div className="floating-panel pointer-events-auto flex flex-wrap items-center gap-2 rounded-sm border px-3 py-2.5">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -1261,29 +1354,39 @@ function App() {
             </div>
 
             <div className="ml-auto flex flex-wrap items-center gap-2">
-              <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2.5" onClick={toggleEditMode}>
-                <Move3D className="size-3.5" />
-                {editMode ? 'Exit edit' : 'Edit'}
-              </Button>
+              <div className="floating-chip flex items-center gap-1 rounded-sm border p-1">
+                <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2.5" onClick={toggleEditMode}>
+                  <Move3D className="size-3.5" />
+                  {editMode ? 'Exit edit' : 'Edit'}
+                </Button>
+                <div className="flex items-center gap-2 rounded-sm px-2 py-1.5">
+                  <span className={cn('text-xs', editMode && activeObject ? 'text-muted-foreground' : 'text-muted-foreground/55')}>
+                    Xray
+                  </span>
+                  <Switch
+                    checked={!hideOccludedEditEdges}
+                    onCheckedChange={(checked) => setHideOccludedEditEdges(!checked)}
+                    disabled={!editMode || !activeObject}
+                    aria-label="Toggle xray view for edit mode"
+                  />
+                </div>
+              </div>
               {selectedFeature && (
                 <>
+                  <div className="floating-chip flex items-center gap-2 rounded-sm border px-2.5 py-1.5">
+                    <span className="text-xs text-muted-foreground">Semantics</span>
+                    <Switch
+                      checked={showSemanticSurfaces}
+                      onCheckedChange={setShowSemanticSurfaces}
+                      aria-label="Toggle semantic surface colors"
+                    />
+                  </div>
                   <div className="floating-chip flex items-center gap-2 rounded-sm border px-2.5 py-1.5">
                     <span className="text-xs text-muted-foreground">Isolate</span>
                     <Switch
                       checked={isolateSelectedFeature}
                       onCheckedChange={setIsolateSelectedFeature}
                       aria-label="Toggle isolate selected feature"
-                    />
-                  </div>
-                  <div className="floating-chip flex items-center gap-2 rounded-sm border px-2.5 py-1.5">
-                    <span className={cn('text-xs', editMode && activeObject ? 'text-muted-foreground' : 'text-muted-foreground/55')}>
-                      Xray
-                    </span>
-                    <Switch
-                      checked={!hideOccludedEditEdges}
-                      onCheckedChange={(checked) => setHideOccludedEditEdges(!checked)}
-                      disabled={!editMode || !activeObject}
-                      aria-label="Toggle xray view for edit mode"
                     />
                   </div>
                   <Button
@@ -1298,6 +1401,7 @@ function App() {
                 </>
               )}
               <div className="floating-chip flex items-center gap-2 rounded-sm border px-2.5 py-1.5">
+                <Camera className="size-3.5 text-muted-foreground" />
                 <span className="font-mono text-[11px] text-muted-foreground">{cameraFocalLength}mm</span>
                 <input
                   type="range"

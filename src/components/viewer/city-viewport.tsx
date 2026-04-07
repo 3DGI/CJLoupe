@@ -12,6 +12,7 @@ import type {
   ViewerDataset,
   ViewerFeature,
   ViewerFocusTarget,
+  ViewerSemanticSurface,
   ViewerValidationError,
 } from '@/types/cityjson'
 import { errorColor } from '@/lib/error-palette'
@@ -36,9 +37,16 @@ type CityViewportProps = {
   editMode: boolean
   selectedFaceIndex: number | null
   selectedVertexIndex: number | null
+  showSemanticSurfaces: boolean
   onSelectFeature: (featureId: string, objectId?: string | null) => void
   onSelectFace: (faceIndex: number | null) => void
   onSelectVertex: (vertexIndex: number | null) => void
+  onSelectSemanticSurface: (surface: {
+    featureId: string
+    objectId: string
+    faceIndex: number
+    surface: ViewerSemanticSurface | null
+  } | null) => void
   onVertexCommit: (featureId: string, vertices: Vec3[]) => void
   theme: Theme
 }
@@ -66,6 +74,7 @@ type Runtime = {
   sceneScale: number
   editPivot: Vec3 | null
   theme: Theme
+  showSemanticSurfaces: boolean
   ambientLight: THREE.AmbientLight
   hemisphereLight: THREE.HemisphereLight
   keyLight: THREE.DirectionalLight
@@ -85,9 +94,11 @@ function CityViewport({
   editMode,
   selectedFaceIndex,
   selectedVertexIndex,
+  showSemanticSurfaces,
   onSelectFeature,
   onSelectFace,
   onSelectVertex,
+  onSelectSemanticSurface,
   onVertexCommit,
   theme,
 }: CityViewportProps) {
@@ -108,8 +119,10 @@ function CityViewport({
   const onSelectFeatureRef = useRef(onSelectFeature)
   const onSelectFaceRef = useRef(onSelectFace)
   const onSelectVertexRef = useRef(onSelectVertex)
+  const onSelectSemanticSurfaceRef = useRef(onSelectSemanticSurface)
   const onVertexCommitRef = useRef(onVertexCommit)
   const themeRef = useRef(theme)
+  const showSemanticSurfacesRef = useRef(showSemanticSurfaces)
 
   useEffect(() => {
     dataRef.current = data
@@ -136,8 +149,10 @@ function CityViewport({
   useEffect(() => { onSelectFeatureRef.current = onSelectFeature }, [onSelectFeature])
   useEffect(() => { onSelectFaceRef.current = onSelectFace }, [onSelectFace])
   useEffect(() => { onSelectVertexRef.current = onSelectVertex }, [onSelectVertex])
+  useEffect(() => { onSelectSemanticSurfaceRef.current = onSelectSemanticSurface }, [onSelectSemanticSurface])
   useEffect(() => { onVertexCommitRef.current = onVertexCommit }, [onVertexCommit])
   useEffect(() => { themeRef.current = theme }, [theme])
+  useEffect(() => { showSemanticSurfacesRef.current = showSemanticSurfaces }, [showSemanticSurfaces])
 
   useEffect(() => {
     const container = containerRef.current
@@ -229,6 +244,7 @@ function CityViewport({
       sceneScale: 1,
       editPivot: null,
       theme: themeRef.current,
+      showSemanticSurfaces: showSemanticSurfacesRef.current,
       ambientLight,
       hemisphereLight,
       keyLight,
@@ -370,6 +386,46 @@ function CityViewport({
             : null
 
         onSelectFaceRef.current(faceIndex)
+        return
+      }
+
+      if (showSemanticSurfacesRef.current) {
+        if (!event.shiftKey) {
+          return
+        }
+
+        const meshHits = activeRuntime.raycaster.intersectObjects(
+          [...activeRuntime.meshesByObjectKey.values()],
+          false,
+        )
+        const meshHit = meshHits[0]
+        if (!meshHit) {
+          onSelectSemanticSurfaceRef.current(null)
+          return
+        }
+
+        const featureId = meshHit.object.userData.featureId as string
+        const objectId = meshHit.object.userData.objectId as string
+        const triangleFaceIndices = (meshHit.object.userData.triangleFaceIndices as number[] | undefined) ?? []
+        const faceIndex =
+          typeof meshHit.faceIndex === 'number'
+            ? triangleFaceIndices[meshHit.faceIndex] ?? null
+            : null
+        const feature = currentData.features.find((candidate) => candidate.id === featureId) ?? null
+        const object = feature?.objects.find((candidate) => candidate.id === objectId) ?? null
+        const surface = faceIndex != null ? object?.semanticSurfaces[faceIndex] ?? null : null
+
+        onSelectFeatureRef.current(featureId, objectId)
+        onSelectSemanticSurfaceRef.current(
+          faceIndex != null
+            ? {
+                featureId,
+                objectId,
+                faceIndex,
+                surface,
+              }
+            : null,
+        )
         return
       }
 
@@ -597,6 +653,30 @@ function CityViewport({
 
   useEffect(() => {
     const runtime = runtimeRef.current
+    const currentData = dataRef.current
+    if (!runtime) {
+      return
+    }
+
+    runtime.showSemanticSurfaces = showSemanticSurfaces
+
+    if (currentData) {
+      rebuildScene(runtime, currentData)
+      rebuildAnnotations(runtime)
+      syncSelection(
+        runtime,
+        currentData,
+        selectionRef.current,
+        hideOccludedEditEdgesRef.current,
+        isolateSelectedFeatureRef.current,
+      )
+    }
+
+    renderViewport(runtime)
+  }, [showSemanticSurfaces])
+
+  useEffect(() => {
+    const runtime = runtimeRef.current
     if (!runtime) {
       return
     }
@@ -654,10 +734,16 @@ function rebuildScene(runtime: Runtime, data: ViewerDataset) {
         continue
       }
 
-      const { faceGroups, groupColors } = computeFaceErrorGroups(feature.errors, object.id)
+      const { faceGroups, groupColors } = runtime.showSemanticSurfaces
+        ? computeFaceSemanticGroups(object.semanticSurfaces)
+        : computeFaceErrorGroups(feature.errors, object.id)
       const geometry = buildObjectGeometry(object.polygons, draftVertices, featureCenter, faceGroups)
-      const baseMaterial = createMaterial(object.type, runtime.theme)
-      const materials = buildMaterialArray(baseMaterial, groupColors)
+      const baseMaterial = createMaterial(object.type, runtime.theme, runtime.showSemanticSurfaces)
+      const materials = buildMaterialArray(
+        baseMaterial,
+        groupColors,
+        runtime.showSemanticSurfaces ? createSemanticMaterial : createErrorMaterial,
+      )
       const mesh = new THREE.Mesh(geometry, materials.length > 1 ? materials : baseMaterial)
       mesh.position.set(
         featureCenter[0] - data.center[0],
@@ -691,7 +777,9 @@ function rebuildFeatureGeometry(runtime: Runtime, data: ViewerDataset, featureId
     }
 
     const center = (mesh.userData.featureCenter as Vec3) ?? data.center
-    const { faceGroups } = computeFaceErrorGroups(feature.errors, object.id)
+    const { faceGroups } = runtime.showSemanticSurfaces
+      ? computeFaceSemanticGroups(object.semanticSurfaces)
+      : computeFaceErrorGroups(feature.errors, object.id)
     const nextGeometry = buildObjectGeometry(object.polygons, vertices, center, faceGroups)
     mesh.geometry.dispose()
     mesh.geometry = nextGeometry
@@ -734,6 +822,23 @@ function syncSelection(
       if (mat.userData.isError) {
         mat.emissive.set(isSelectedFeature ? palette.selectionEmissive : palette.errorEmissive)
         mat.emissiveIntensity = isSelectedFeature ? palette.errorSelectedIntensity : palette.errorIntensity
+      } else if (mat.userData.isSemantic || mat.userData.isSemanticBase) {
+        if (typeof mat.userData.semanticColor === 'string') {
+          mat.color.set(mat.userData.semanticColor)
+        }
+        mat.emissive.set(
+          isActiveObject
+            ? palette.activeEmissive
+            : isSelectedFeature
+              ? palette.selectionEmissive
+              : '#000000',
+        )
+        mat.emissiveIntensity = isActiveObject
+          ? palette.activeEmissiveIntensity
+          : isSelectedFeature
+            ? palette.selectionEmissiveIntensity
+            : 0
+        mat.roughness = 0.72
       } else {
         mat.color.set(isActiveObject ? palette.activeObject : isSelectedFeature ? palette.selectedFeature : baseColor)
         mat.emissive.set(
@@ -780,7 +885,13 @@ function rebuildHandles(
   runtime.handleGroup.position.set(0, 0, 0)
   runtime.edgeGroup.position.set(0, 0, 0)
 
-  if (!selection.editMode || !selection.selectedFeatureId || !selection.activeObjectId) {
+  const shouldShowFaceOutline =
+    selection.selectedFeatureId != null &&
+    selection.activeObjectId != null &&
+    selection.selectedFaceIndex != null &&
+    (selection.editMode || runtime.showSemanticSurfaces)
+
+  if (!shouldShowFaceOutline) {
     return
   }
 
@@ -813,7 +924,17 @@ function rebuildHandles(
     editPivot[2] - data.center[2],
   )
 
-  rebuildEditWireframe(runtime, data, selection, hideOccludedEditEdges)
+  rebuildEditWireframe(
+    runtime,
+    data,
+    selection,
+    selection.editMode ? hideOccludedEditEdges : true,
+  )
+
+  if (!selection.editMode) {
+    return
+  }
+
   runtime.editPoints = buildEditPoints(
     object.vertexIndices,
     draftVertices,
@@ -863,7 +984,12 @@ function rebuildEditWireframe(
   },
   hideOccludedEditEdges: boolean,
 ) {
-  if (!selection.editMode || !selection.selectedFeatureId || !selection.activeObjectId) {
+  if (
+    selection.selectedFeatureId == null ||
+    selection.activeObjectId == null ||
+    selection.selectedFaceIndex == null ||
+    (!selection.editMode && !runtime.showSemanticSurfaces)
+  ) {
     return
   }
 
@@ -1481,9 +1607,9 @@ function centerViewOnExtentPreservingOffset(
   setArcballPose(runtime, center, nextPosition)
 }
 
-function createMaterial(objectType: string, theme: Theme) {
-  return new THREE.MeshStandardMaterial({
-    color: baseColorForType(objectType, theme),
+function createMaterial(objectType: string, theme: Theme, semanticMode = false) {
+  const material = new THREE.MeshStandardMaterial({
+    color: semanticMode ? '#64748b' : baseColorForType(objectType, theme),
     roughness: 0.72,
     metalness: 0.08,
     transparent: false,
@@ -1491,6 +1617,12 @@ function createMaterial(objectType: string, theme: Theme) {
     depthWrite: true,
     side: THREE.DoubleSide,
   })
+
+  if (semanticMode) {
+    material.userData.isSemanticBase = true
+  }
+
+  return material
 }
 
 function baseColorForType(objectType: string, theme: Theme) {
@@ -1515,6 +1647,21 @@ function createErrorMaterial(color: string) {
     side: THREE.DoubleSide,
   })
   mat.userData.isError = true
+  return mat
+}
+
+function createSemanticMaterial(color: string) {
+  const mat = new THREE.MeshStandardMaterial({
+    color,
+    roughness: 0.72,
+    metalness: 0.08,
+    transparent: false,
+    opacity: 1,
+    depthWrite: true,
+    side: THREE.DoubleSide,
+  })
+  mat.userData.isSemantic = true
+  mat.userData.semanticColor = color
   return mat
 }
 
@@ -1646,9 +1793,36 @@ function computeFaceErrorGroups(
   return { faceGroups, groupColors }
 }
 
+function computeFaceSemanticGroups(
+  semanticSurfaces: Array<ViewerSemanticSurface | null>,
+): { faceGroups: Map<number, number>; groupColors: Map<number, string> } {
+  const typeToGroup = new Map<string, number>()
+  const faceGroups = new Map<number, number>()
+  const groupColors = new Map<number, string>()
+  let nextGroup = 1
+
+  semanticSurfaces.forEach((surface, faceIndex) => {
+    if (!surface) {
+      return
+    }
+
+    let group = typeToGroup.get(surface.type)
+    if (group == null) {
+      group = nextGroup++
+      typeToGroup.set(surface.type, group)
+      groupColors.set(group, semanticSurfaceColor(surface.type))
+    }
+
+    faceGroups.set(faceIndex, group)
+  })
+
+  return { faceGroups, groupColors }
+}
+
 function buildMaterialArray(
   baseMaterial: THREE.MeshStandardMaterial,
   groupColors: Map<number, string>,
+  createGroupMaterial: (color: string) => THREE.MeshStandardMaterial,
 ): THREE.MeshStandardMaterial[] {
   if (groupColors.size === 0) {
     return [baseMaterial]
@@ -1657,9 +1831,33 @@ function buildMaterialArray(
   const materials: THREE.MeshStandardMaterial[] = [baseMaterial]
   for (let i = 1; i <= maxGroup; i++) {
     const color = groupColors.get(i)
-    materials.push(color ? createErrorMaterial(color) : baseMaterial)
+    materials.push(color ? createGroupMaterial(color) : baseMaterial)
   }
   return materials
+}
+
+function semanticSurfaceColor(surfaceType: string) {
+  const paletteByType: Record<string, string> = {
+    groundsurface: '#65a30d',
+    wallsurface: '#94a3b8',
+    roofsurface: '#ef4444',
+    closuresurface: '#a855f7',
+    outerceilingsurface: '#ec4899',
+    outerfloorsurface: '#14b8a6',
+    interiorwallsurface: '#60a5fa',
+    interiorceilingsurface: '#f472b6',
+    interiorfloorsurface: '#10b981',
+  }
+
+  const key = surfaceType.trim().toLowerCase()
+  const matched = paletteByType[key]
+  if (matched) {
+    return matched
+  }
+
+  const fallbackPalette = ['#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#8b5cf6', '#f97316', '#ec4899']
+  const hash = [...key].reduce((sum, character) => sum + character.charCodeAt(0), 0)
+  return fallbackPalette[hash % fallbackPalette.length]
 }
 
 function objectKey(featureId: string, objectId: string) {
