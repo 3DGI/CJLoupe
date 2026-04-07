@@ -803,7 +803,7 @@ function App() {
   return (
     <div
       className={cn(
-        'relative h-screen w-screen overflow-hidden bg-background text-foreground',
+        'relative h-dvh w-screen overflow-hidden bg-background text-foreground',
         isMobileLayout ? 'block' : 'flex',
       )}
       onDragEnter={(event) => { event.preventDefault(); dragCountRef.current++; setIsDragging(true) }}
@@ -817,10 +817,10 @@ function App() {
           isMobileLayout
             ? (
                 detailPaneMode === 'fullscreen'
-                  ? 'absolute inset-0 h-auto border-t-0'
+                  ? 'absolute inset-0 h-auto border-t-0 pb-[env(safe-area-inset-bottom)]'
                   : isPaneCollapsed
-                    ? 'absolute inset-x-0 bottom-0 h-14 border-t'
-                    : 'absolute inset-x-0 bottom-0 h-[min(76vh,42rem)] border-t'
+                    ? 'absolute inset-x-0 bottom-0 h-[calc(3.5rem+env(safe-area-inset-bottom))] border-t pb-[env(safe-area-inset-bottom)]'
+                    : 'absolute inset-x-0 bottom-0 h-[min(76dvh,42rem)] border-t pb-[env(safe-area-inset-bottom)]'
               )
             : (isPaneCollapsed ? 'relative h-full w-16 border-r' : 'relative h-full w-[min(29rem,34vw)] border-r'),
         )}
@@ -979,89 +979,93 @@ function App() {
                   )}
                 >
                   <div className="space-y-3 p-4 pb-3">
-                  <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2">
-                    <div className="min-w-0 rounded-sm border border-foreground/10 bg-foreground/5 px-2.5 py-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                            CityJSONL
-                          </p>
-                          <p className="mt-0.5 break-all text-xs leading-4.5 text-foreground/85">
-                            {dataset?.sourceName ?? 'No file loaded'}
-                          </p>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-6 shrink-0"
-                          onClick={triggerCityJsonInput}
-                          aria-label="Open CityJSONL file"
-                          title="Open CityJSONL file"
-                        >
-                          <FolderOpen className="size-3.5" />
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div
-                      className={cn(
-                        'min-w-0 rounded-sm border px-2.5 py-2',
-                        annotationSourceName
-                          ? 'border-destructive/30 bg-destructive/10'
-                          : 'border-foreground/10 bg-foreground/5',
-                      )}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                            Val3dity Report
-                          </p>
-                          <p
-                            className={cn(
-                              'mt-0.5 break-all text-xs leading-4.5',
-                              annotationSourceName ? 'text-destructive' : 'text-foreground/55',
-                            )}
-                          >
-                            {annotationSourceName ?? 'No report loaded'}
-                          </p>
-                        </div>
-                        <div className="flex shrink-0 flex-col items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-6"
-                            onClick={triggerAnnotationInput}
-                            aria-label="Open val3dity report"
-                            title="Open val3dity report"
-                            disabled={!dataset}
-                          >
-                            <FolderOpen className="size-3.5" />
-                          </Button>
-                          {annotationSourceName && (
+                  {!isMobileLayout && (
+                    <>
+                      <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2">
+                        <div className="min-w-0 rounded-sm border border-foreground/10 bg-foreground/5 px-2.5 py-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                                CityJSONL
+                              </p>
+                              <p className="mt-0.5 break-all text-xs leading-4.5 text-foreground/85">
+                                {dataset?.sourceName ?? 'No file loaded'}
+                              </p>
+                            </div>
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="size-6"
-                              onClick={clearAnnotations}
-                              aria-label="Clear val3dity report"
-                              title="Clear val3dity report"
+                              className="size-6 shrink-0"
+                              onClick={triggerCityJsonInput}
+                              aria-label="Open CityJSONL file"
+                              title="Open CityJSONL file"
                             >
-                              <Trash2 className="size-3.5" />
+                              <FolderOpen className="size-3.5" />
                             </Button>
+                          </div>
+                        </div>
+
+                        <div
+                          className={cn(
+                            'min-w-0 rounded-sm border px-2.5 py-2',
+                            annotationSourceName
+                              ? 'border-destructive/30 bg-destructive/10'
+                              : 'border-foreground/10 bg-foreground/5',
                           )}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                                Val3dity Report
+                              </p>
+                              <p
+                                className={cn(
+                                  'mt-0.5 break-all text-xs leading-4.5',
+                                  annotationSourceName ? 'text-destructive' : 'text-foreground/55',
+                                )}
+                              >
+                                {annotationSourceName ?? 'No report loaded'}
+                              </p>
+                            </div>
+                            <div className="flex shrink-0 flex-col items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-6"
+                                onClick={triggerAnnotationInput}
+                                aria-label="Open val3dity report"
+                                title="Open val3dity report"
+                                disabled={!dataset}
+                              >
+                                <FolderOpen className="size-3.5" />
+                              </Button>
+                              {annotationSourceName && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-6"
+                                  onClick={clearAnnotations}
+                                  aria-label="Clear val3dity report"
+                                  title="Clear val3dity report"
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </Button>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </div>
 
-                  <div>
-                    <div>
-                      <h1 className="text-lg font-semibold tracking-tight text-foreground">Features</h1>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {dataset?.features.length ?? 0} features loaded
-                      </p>
-                    </div>
-                  </div>
+                      <div>
+                        <div>
+                          <h1 className="text-lg font-semibold tracking-tight text-foreground">Features</h1>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {dataset?.features.length ?? 0} features loaded
+                          </p>
+                        </div>
+                      </div>
+                    </>
+                  )}
 
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -1547,73 +1551,39 @@ function App() {
           )}
         >
           {isMobileLayout ? (
-            <div className="floating-panel pointer-events-auto space-y-2 rounded-sm border px-2 py-2">
-              <div className="flex items-center gap-2">
-                {selectedFeature && (
-                  <Button
-                    variant={showSemanticSurfaces ? 'secondary' : 'ghost'}
-                    size="sm"
-                    className="h-8 px-2.5"
-                    onClick={() => setShowSemanticSurfaces((current) => !current)}
-                  >
-                    Sem
-                  </Button>
-                )}
-                {selectedFeature && showSemanticSurfaces && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 px-2.5"
-                    onClick={() =>
-                      setMobileInspectMode((current) => (current === 'object' ? 'surface' : 'object'))
-                    }
-                  >
-                    {mobileInspectMode === 'surface' ? 'Surface' : 'Object'}
-                  </Button>
-                )}
-                {selectedFeature && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="ml-auto h-8 gap-1.5 px-2.5"
-                    onClick={centerCurrentSelection}
-                  >
-                    <LocateFixed className="size-3.5" />
-                    Center
-                  </Button>
-                )}
+            <div className="floating-panel pointer-events-auto flex items-center gap-2 rounded-sm border px-2 py-2">
+              {selectedFeature && (
                 <Button
-                  type="button"
-                  variant="ghost"
-                  className="h-8 shrink-0 gap-1 px-2"
-                  onClick={() => setIsHelpCollapsed((current) => !current)}
-                  aria-label={isHelpCollapsed ? 'Expand mobile help' : 'Collapse mobile help'}
-                  aria-expanded={!isHelpCollapsed}
-                  aria-controls="viewport-help-panel"
+                  variant={showSemanticSurfaces ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="h-8 px-2.5"
+                  onClick={() => setShowSemanticSurfaces((current) => !current)}
                 >
-                  <CircleHelp className="size-4" />
-                  {isHelpCollapsed ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
+                  Sem
                 </Button>
-              </div>
-
-              {!isHelpCollapsed && (
-                <div id="viewport-help-panel" className="grid gap-1.5 border-t border-border pt-2">
-                  {helpItems.map((hotkey) => (
-                    <div key={hotkey.keys} className="flex items-center justify-between gap-3">
-                      <Badge variant="outline" className="shrink-0 font-mono text-[10px] text-foreground/80">
-                        {hotkey.keys}
-                      </Badge>
-                      <span className="text-right text-xs leading-5 text-foreground/76">
-                        {hotkey.description}
-                      </span>
-                    </div>
-                  ))}
-                  {helpStatusText && (
-                    <p className="border-t border-border pt-2 text-xs leading-5 text-muted-foreground">
-                      {helpStatusText}
-                    </p>
-                  )}
-                </div>
+              )}
+              {selectedFeature && showSemanticSurfaces && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2.5"
+                  onClick={() =>
+                    setMobileInspectMode((current) => (current === 'object' ? 'surface' : 'object'))
+                  }
+                >
+                  {mobileInspectMode === 'surface' ? 'Surface' : 'Object'}
+                </Button>
+              )}
+              {selectedFeature && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto h-8 gap-1.5 px-2.5"
+                  onClick={centerCurrentSelection}
+                >
+                  <LocateFixed className="size-3.5" />
+                  Center
+                </Button>
               )}
             </div>
           ) : (
