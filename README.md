@@ -1,6 +1,6 @@
 # CJLoupe
 
-CJLoupe is a fullscreen CityJSON sequence viewer and inspection tool built with React, Three.js, Tailwind, and lightweight shadcn-style UI components. It is aimed at browsing CityJSON feature sequences, loading matching val3dity reports, and inspecting per-object validation issues in 3D.
+CityJSONL 3D viewer/inspection tool with support for val3dity annotations
 
 ## Development
 
@@ -35,12 +35,9 @@ When a dataset is already open, the file action lets you either replace the curr
 
 - Fullscreen 3D viewport for CityJSON feature sequences
 - Collapsible left sidebar with file controls, feature list, and feature details
-- Per-feature and per-cityobject inspection
+- Visualising semantic surfaces
 - val3dity report loading and error visualization
-- Direct links from validation error codes to the val3dity documentation
 - Edit mode with face selection, vertex selection, and vertex movement
-- Detail pane modes: split, collapsed, and fullscreen
-- Light and dark UI themes with a shared object-material palette in the viewport
 
 ## Geometry selection
 
