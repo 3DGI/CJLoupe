@@ -46,8 +46,8 @@ import type {
   ViewerValidationError,
 } from '@/types/cityjson'
 
-const SAMPLE_URL = '/samples/rf-val3dity.city.jsonl'
-const SAMPLE_REPORT_URL = '/samples/val-report.json'
+const SAMPLE_URL = `${import.meta.env.BASE_URL}samples/rf-val3dity.city.jsonl`
+const SAMPLE_REPORT_URL = `${import.meta.env.BASE_URL}samples/val-report.json`
 const VAL3DITY_ERRORS_URL = 'https://val3dity.readthedocs.io/2.6.0/errors/'
 
 type DetailPaneMode = 'split' | 'collapsed' | 'fullscreen'
