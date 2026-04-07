@@ -847,6 +847,10 @@ function syncSelection(
 ) {
   const isolateActive = isolateSelectedFeature && selection.selectedFeatureId != null
   const palette = getViewportPalette(runtime.theme)
+  const semanticHighlightLift = new THREE.Color('#f8fafc')
+  const semanticShadow = new THREE.Color('#020617')
+  const semanticObjectSelectionActive =
+    runtime.showSemanticSurfaces && !selection.editMode && selection.activeObjectId != null
 
   for (const mesh of runtime.meshesByObjectKey.values()) {
     const featureId = mesh.userData.featureId as string
@@ -866,19 +870,32 @@ function syncSelection(
         if (typeof mat.userData.semanticColor === 'string') {
           mat.color.set(mat.userData.semanticColor)
         }
-        mat.emissive.set(
-          isActiveObject
-            ? palette.activeEmissive
+        if (semanticObjectSelectionActive) {
+          if (isActiveObject) {
+            mat.color.lerp(semanticHighlightLift, 0.14)
+          } else if (isSelectedFeature) {
+            mat.color.lerp(semanticShadow, 0.14)
+          } else {
+            mat.color.lerp(semanticShadow, 0.28)
+          }
+          mat.emissive.set(isActiveObject ? palette.activeEmissive : '#000000')
+          mat.emissiveIntensity = isActiveObject ? palette.semanticActiveEmissiveIntensity : 0
+          mat.roughness = isActiveObject ? 0.58 : isSelectedFeature ? 0.8 : 0.86
+        } else {
+          mat.emissive.set(
+            isActiveObject
+              ? palette.activeEmissive
+              : isSelectedFeature
+                ? palette.selectionEmissive
+                : '#000000',
+          )
+          mat.emissiveIntensity = isActiveObject
+            ? palette.activeEmissiveIntensity
             : isSelectedFeature
-              ? palette.selectionEmissive
-              : '#000000',
-        )
-        mat.emissiveIntensity = isActiveObject
-          ? palette.activeEmissiveIntensity
-          : isSelectedFeature
-            ? palette.selectionEmissiveIntensity
-            : 0
-        mat.roughness = 0.72
+              ? palette.selectionEmissiveIntensity
+              : 0
+          mat.roughness = 0.72
+        }
       } else {
         mat.color.set(isActiveObject ? palette.activeObject : isSelectedFeature ? palette.selectedFeature : baseColor)
         mat.emissive.set(
@@ -1743,6 +1760,7 @@ function getViewportPalette(theme: Theme) {
       activeObject: '#f59e0b',
       activeEmissive: '#78350f',
       activeEmissiveIntensity: 0.22,
+      semanticActiveEmissiveIntensity: 0.46,
       baseEmissive: '#020617',
       baseEmissiveIntensity: 0.18,
       errorEmissive: '#000000',
@@ -1775,6 +1793,7 @@ function getViewportPalette(theme: Theme) {
     activeObject: '#f59e0b',
     activeEmissive: '#78350f',
     activeEmissiveIntensity: 0.22,
+    semanticActiveEmissiveIntensity: 0.46,
     baseEmissive: '#020617',
     baseEmissiveIntensity: 0.18,
     errorEmissive: '#000000',
