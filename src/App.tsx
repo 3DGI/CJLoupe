@@ -7,6 +7,7 @@ import {
   CircleHelp,
   Crosshair,
   FolderOpen,
+  Github,
   LocateFixed,
   Maximize2,
   Minimize2,
@@ -49,6 +50,7 @@ import type {
 const SAMPLE_URL = `${import.meta.env.BASE_URL}samples/rf-val3dity.city.jsonl`
 const SAMPLE_REPORT_URL = `${import.meta.env.BASE_URL}samples/val-report.json`
 const VAL3DITY_ERRORS_URL = 'https://val3dity.readthedocs.io/2.6.0/errors/'
+const GITHUB_REPO_URL = 'https://github.com/3DGI/CJLoupe'
 
 type DetailPaneMode = 'split' | 'collapsed' | 'fullscreen'
 
@@ -795,6 +797,21 @@ function App() {
                 title="Toggle theme"
               >
                 {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                asChild
+              >
+                <a
+                  href={GITHUB_REPO_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label="Open GitHub repository"
+                  title="Open GitHub repository"
+                >
+                  <Github className="size-4" />
+                </a>
               </Button>
             </div>
 
