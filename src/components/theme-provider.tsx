@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 
 import { ThemeContext, type Theme } from '@/components/theme-context'
 
-const STORAGE_KEY = 'cjvis-theme'
+const STORAGE_KEY = 'loupe-theme'
 const MEDIA_QUERY = '(prefers-color-scheme: dark)'
 
 function getStoredTheme(): Theme | null {

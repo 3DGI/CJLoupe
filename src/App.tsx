@@ -3,8 +3,8 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  CircleHelp,
   Crosshair,
-  FileWarning,
   FolderOpen,
   LocateFixed,
   Moon,
@@ -12,6 +12,7 @@ import {
   Search,
   SquareMousePointer,
   Sun,
+  Trash2,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
@@ -42,10 +43,12 @@ import type {
 
 const SAMPLE_URL = '/samples/rf-val3dity.city.jsonl'
 const SAMPLE_REPORT_URL = '/samples/val-report.json'
+const VAL3DITY_ERRORS_URL = 'https://val3dity.readthedocs.io/2.6.0/errors/'
 
 function App() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const annotationInputRef = useRef<HTMLInputElement>(null)
+  const fileActionMenuRef = useRef<HTMLDivElement>(null)
   const originalVerticesRef = useRef<Map<string, Vec3[]>>(new Map())
 
   const [dataset, setDataset] = useState<ViewerDataset | null>(null)
@@ -70,6 +73,7 @@ function App() {
   const [detailTab, setDetailTab] = useState('errors')
   const [isDragging, setIsDragging] = useState(false)
   const [isHelpCollapsed, setIsHelpCollapsed] = useState(false)
+  const [isFileMenuOpen, setIsFileMenuOpen] = useState(false)
   const dragCountRef = useRef(0)
   const { theme, toggleTheme } = useTheme()
 
@@ -162,9 +166,37 @@ function App() {
     void loadFromSample()
   }, [loadFromSample])
 
+  useEffect(() => {
+    if (!isFileMenuOpen) {
+      return
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (fileActionMenuRef.current?.contains(event.target as Node)) {
+        return
+      }
+
+      setIsFileMenuOpen(false)
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsFileMenuOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    window.addEventListener('keydown', handleEscape)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      window.removeEventListener('keydown', handleEscape)
+    }
+  }, [isFileMenuOpen])
+
   async function openCityJsonFile(file: File) {
     setIsLoading(true)
     setError(null)
+    setIsFileMenuOpen(false)
 
     try {
       const nextDataset = await loadCityJsonSequenceFromFile(file)
@@ -186,6 +218,7 @@ function App() {
 
     setIsLoading(true)
     setError(null)
+    setIsFileMenuOpen(false)
 
     try {
       const annotations = await loadValidationReportFromFile(file)
@@ -276,6 +309,7 @@ function App() {
       nextDataset.features.map((feature) => [feature.id, cloneVertices(feature.vertices)]),
     )
     setDataset(nextDataset)
+    setShowOnlyInvalidFeatures(nextDataset.features.some((feature) => feature.errors.length > 0))
 
     const firstFeature = nextDataset.features[0] ?? null
     setSelectedFeatureId(firstFeature?.id ?? null)
@@ -289,6 +323,25 @@ function App() {
   function clearAnnotations() {
     setDataset((current) => (current ? mergeValidationAnnotations(current, new Map()) : current))
     setAnnotationSourceName(null)
+  }
+
+  function triggerCityJsonInput() {
+    setIsFileMenuOpen(false)
+    fileInputRef.current?.click()
+  }
+
+  function triggerAnnotationInput() {
+    setIsFileMenuOpen(false)
+    annotationInputRef.current?.click()
+  }
+
+  function handleFileAction() {
+    if (!dataset) {
+      triggerCityJsonInput()
+      return
+    }
+
+    setIsFileMenuOpen((current) => !current)
   }
 
   const centerFeatureById = useCallback((featureId: string) => {
@@ -542,15 +595,28 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [applyFeatureVertices, centerCurrentSelection, cycleSelectedFaceRing, cycleSelectedFaceVertex, editMode, selectedFeatureId, toggleEditMode])
 
-  const viewportHelpText = error
+  const helpStatusText = error
     ? error
     : isLoading
       ? 'Loading CityJSON feature sequence…'
-      : `Hold Shift and click geometry to select. Double-click to recenter navigation. ${
-          editMode
-            ? 'Tab exits edit mode, Shift-click selects a face, Ctrl-click selects a vertex, C centers the current selection, X toggles xray, R cycles face rings, J/K cycle the active ring, and U resets the selected feature geometry.'
-            : 'Tab enters edit mode for the current cityobject. C centers the active mesh.'
-        }`
+      : null
+  const hotkeys = editMode
+    ? [
+        { keys: 'Tab', description: 'Exit edit mode' },
+        { keys: 'C', description: 'Center selection' },
+        { keys: 'Shift + Click', description: 'Select face' },
+        { keys: 'Ctrl/Cmd + Click', description: 'Select vertex' },
+        { keys: 'J / K', description: 'Step active ring' },
+        { keys: 'R', description: 'Cycle rings' },
+        { keys: 'X', description: 'Toggle xray' },
+        { keys: 'U', description: 'Reset feature geometry' },
+      ]
+    : [
+        { keys: 'Shift + Click', description: 'Select geometry' },
+        { keys: 'Double Click', description: 'Recenter navigation' },
+        { keys: 'Tab', description: 'Enter edit mode' },
+        { keys: 'C', description: 'Center selection' },
+      ]
 
   return (
     <div
@@ -572,48 +638,63 @@ function App() {
               <Button
                 size="icon"
                 variant="ghost"
-                className="rounded-full"
                 onClick={() => setIsPaneCollapsed((current) => !current)}
                 aria-label={isPaneCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
               >
                 {isPaneCollapsed ? <ChevronRight /> : <ChevronLeft />}
               </Button>
-              <Badge variant="secondary" className="rotate-90 rounded-full px-2 py-0.5 font-mono text-[10px]">
-                cjvis
-              </Badge>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="rounded-full"
-                onClick={() => fileInputRef.current?.click()}
-                aria-label="Open CityJSON file"
-                title="Open CityJSON file"
+              <span
+                className="pointer-events-none select-none font-black uppercase tracking-[0.34em] text-foreground/86 [writing-mode:vertical-rl]"
+                style={{ textOrientation: 'mixed' }}
               >
-                <FolderOpen className="size-4" />
-              </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="rounded-full"
-                onClick={() => annotationInputRef.current?.click()}
-                aria-label="Open annotation file"
-                title="Open annotation file"
-              >
-                <FileWarning className="size-4" />
-              </Button>
-            </div>
+                Loupe
+              </span>
+              <div ref={fileActionMenuRef} className="relative">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={handleFileAction}
+                  aria-label={dataset ? 'Open file actions' : 'Open CityJSONL file'}
+                  title={dataset ? 'Open file actions' : 'Open CityJSONL file'}
+                  aria-expanded={dataset ? isFileMenuOpen : undefined}
+                  aria-haspopup={dataset ? 'menu' : undefined}
+                >
+                  <FolderOpen className="size-4" />
+                </Button>
 
-            <div className="flex flex-col items-center gap-2">
+                {dataset && isFileMenuOpen && (
+                  <div className="floating-panel absolute left-full top-0 z-30 ml-3 w-60 border p-1.5">
+                    <button
+                      type="button"
+                      className="flex w-full flex-col items-start gap-0.5 border border-transparent px-3 py-2 text-left transition hover:border-border hover:bg-accent/8"
+                      onClick={triggerCityJsonInput}
+                    >
+                      <span className="text-sm font-medium text-foreground">Upload new CityJSONL</span>
+                      <span className="text-xs text-muted-foreground">Replace the current city model</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="mt-1 flex w-full flex-col items-start gap-0.5 border border-transparent px-3 py-2 text-left transition hover:border-border hover:bg-accent/8"
+                      onClick={triggerAnnotationInput}
+                    >
+                      <span className="text-sm font-medium text-foreground">Upload val3dity report</span>
+                      <span className="text-xs text-muted-foreground">Attach a matching validation report</span>
+                    </button>
+                  </div>
+                )}
+              </div>
               <Button
                 size="icon"
                 variant="ghost"
-                className="rounded-full"
                 onClick={toggleTheme}
                 aria-label="Toggle theme"
                 title="Toggle theme"
               >
                 {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
               </Button>
+            </div>
+
+            <div className="flex flex-col items-center gap-2">
               <Badge variant="outline" className="border-accent/30 bg-accent/10 text-accent">
                 {dataset?.features.length ?? 0}
               </Badge>
@@ -627,36 +708,88 @@ function App() {
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               <section className="flex min-h-0 flex-[1.05] flex-col border-b border-border">
                 <div className="space-y-3 p-4 pb-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] uppercase tracking-[0.22em] text-accent/75">
-                        CityJSON Webviewer
-                      </p>
-                      <h1 className="mt-1 text-lg font-semibold tracking-tight text-foreground">
-                        Features
-                      </h1>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="min-w-0 rounded-sm border border-foreground/10 bg-foreground/5 px-2.5 py-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                            CityJSONL
+                          </p>
+                          <p className="mt-0.5 break-all text-xs leading-4.5 text-foreground/85">
+                            {dataset?.sourceName ?? 'No file loaded'}
+                          </p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-6 shrink-0"
+                          onClick={triggerCityJsonInput}
+                          aria-label="Open CityJSONL file"
+                          title="Open CityJSONL file"
+                        >
+                          <FolderOpen className="size-3.5" />
+                        </Button>
+                      </div>
                     </div>
-                    <Badge className="max-w-[12rem] truncate bg-foreground/10 text-foreground hover:bg-foreground/10">
-                      {dataset?.sourceName ?? 'No file'}
-                    </Badge>
-                  </div>
 
-                  <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                    <Badge
-                      variant="outline"
+                    <div
                       className={cn(
+                        'min-w-0 rounded-sm border px-2.5 py-2',
                         annotationSourceName
-                          ? 'border-destructive/30 bg-destructive/10 text-destructive'
-                          : 'border-foreground/10 bg-foreground/5 text-foreground/55',
+                          ? 'border-destructive/30 bg-destructive/10'
+                          : 'border-foreground/10 bg-foreground/5',
                       )}
                     >
-                      {annotationSourceName ?? 'No annotations'}
-                    </Badge>
-                    {annotationSourceName && (
-                      <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={clearAnnotations}>
-                        Clear
-                      </Button>
-                    )}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                            Val3dity Report
+                          </p>
+                          <p
+                            className={cn(
+                              'mt-0.5 break-all text-xs leading-4.5',
+                              annotationSourceName ? 'text-destructive' : 'text-foreground/55',
+                            )}
+                          >
+                            {annotationSourceName ?? 'No report loaded'}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 flex-col items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-6"
+                            onClick={triggerAnnotationInput}
+                            aria-label="Open val3dity report"
+                            title="Open val3dity report"
+                            disabled={!dataset}
+                          >
+                            <FolderOpen className="size-3.5" />
+                          </Button>
+                          {annotationSourceName && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-6"
+                              onClick={clearAnnotations}
+                              aria-label="Clear val3dity report"
+                              title="Clear val3dity report"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div>
+                      <h1 className="text-lg font-semibold tracking-tight text-foreground">Features</h1>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {dataset?.features.length ?? 0} features loaded
+                      </p>
+                    </div>
                   </div>
 
                   <div className="relative">
@@ -669,7 +802,7 @@ function App() {
                     />
                   </div>
 
-                  <div className="flex items-center justify-between rounded-xl border border-border bg-foreground/4 px-3 py-2">
+                  <div className="flex items-center justify-between rounded-sm border border-border bg-foreground/4 px-3 py-2">
                     <div>
                       <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Errors only</p>
                       <p className="text-xs text-foreground/60">
@@ -695,7 +828,7 @@ function App() {
                         <div
                           key={feature.id}
                           className={cn(
-                            'flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-lg border px-2.5 py-2 transition',
+                            'flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-sm border px-2.5 py-2 transition',
                             isSelected
                               ? 'border-accent/40 bg-accent/10 text-foreground shadow-[0_0_0_1px] shadow-accent/25'
                               : isInvalid
@@ -743,7 +876,7 @@ function App() {
                             type="button"
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 shrink-0 self-center rounded-full"
+                            className="h-8 w-8 shrink-0 self-center"
                             aria-label={`Center ${feature.label}`}
                             title={`Center ${feature.label}`}
                             onClick={() => {
@@ -758,7 +891,7 @@ function App() {
                     })}
 
                     {!isLoading && filteredFeatures.length === 0 && (
-                      <div className="rounded-xl border border-dashed border-border bg-foreground/3 px-4 py-6 text-sm text-muted-foreground">
+                      <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-4 py-6 text-sm text-muted-foreground">
                         No features matched the current filter.
                       </div>
                     )}
@@ -794,7 +927,7 @@ function App() {
                                 setSelectedVertexIndex(null)
                               }}
                               className={cn(
-                                'flex items-center gap-1.5 rounded-md border px-2 py-1 text-left text-xs transition',
+                                'flex items-center gap-1.5 rounded-sm border px-2 py-1 text-left text-xs transition',
                                 object.id === activeObjectId
                                   ? 'border-primary/40 bg-primary/10 text-foreground'
                                   : 'border-foreground/8 bg-foreground/3 text-foreground/70 hover:border-foreground/16 hover:bg-foreground/6',
@@ -839,7 +972,7 @@ function App() {
                                       return (
                                         <div
                                           key={`${error.id}-${error.code}`}
-                                          className="flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-lg border px-3 py-2.5 text-left transition"
+                                          className="flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-sm border px-3 py-2.5 text-left transition"
                                           style={{
                                             borderColor: `${color}30`,
                                             backgroundColor: `${color}18`,
@@ -854,9 +987,14 @@ function App() {
                                                 />
                                                 <div className="min-w-0 overflow-hidden">
                                                   <p className="truncate text-sm font-semibold text-foreground/90">{error.description}</p>
-                                                  <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                                                  <a
+                                                    href={getVal3dityErrorUrl(error)}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground underline decoration-muted-foreground/35 underline-offset-3 transition hover:text-foreground"
+                                                  >
                                                     code {error.code}
-                                                  </p>
+                                                  </a>
                                                 </div>
                                               </div>
                                               {error.faceIndex != null && (
@@ -880,7 +1018,7 @@ function App() {
                                             type="button"
                                             variant="ghost"
                                             size="icon"
-                                            className="h-8 w-8 shrink-0 self-center rounded-full"
+                                            className="h-8 w-8 shrink-0 self-center"
                                             aria-label={`Center ${error.description}`}
                                             title={`Center ${error.description}`}
                                             onClick={() => centerValidationError(error)}
@@ -902,7 +1040,7 @@ function App() {
                                 {Object.entries(selectedFeature.attributes).map(([key, value]) => (
                                   <div
                                     key={key}
-                                    className="min-w-0 w-full overflow-hidden rounded-lg border border-foreground/8 bg-foreground/3 px-2.5 py-1.5"
+                                    className="min-w-0 w-full overflow-hidden rounded-sm border border-foreground/8 bg-foreground/3 px-2.5 py-1.5"
                                   >
                                     <dt className="m-0 min-w-0 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
                                       {key}
@@ -921,7 +1059,7 @@ function App() {
                           </TabsContent>
                         </>
                       ) : (
-                        <div className="rounded-xl border border-dashed border-border bg-foreground/3 px-4 py-6 text-sm text-muted-foreground">
+                        <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-4 py-6 text-sm text-muted-foreground">
                           Click a building in the scene or choose a feature from the left column.
                         </div>
                       )}
@@ -966,7 +1104,7 @@ function App() {
 
         {editMode && activeObject && (
           <div className="pointer-events-none absolute bottom-24 left-4 z-10 max-w-md">
-            <div className="floating-panel pointer-events-auto space-y-2 rounded-2xl border p-3">
+            <div className="floating-panel pointer-events-auto space-y-2 rounded-sm border p-3">
               <p className="text-sm leading-5 text-foreground/78">
                 Editing <span className="font-semibold text-foreground">{activeObject.id}</span>. Shift-click the active
                 object to select a face, press <span className="font-semibold text-foreground">J</span>
@@ -1027,7 +1165,7 @@ function App() {
         )}
 
         <div className="pointer-events-none absolute bottom-4 left-4 right-4 z-10">
-          <div className="floating-panel pointer-events-auto flex flex-wrap items-center gap-2 rounded-2xl border px-3 py-2.5">
+          <div className="floating-panel pointer-events-auto flex flex-wrap items-center gap-2 rounded-sm border px-3 py-2.5">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               {isPaneCollapsed && (
                 <>
@@ -1056,7 +1194,7 @@ function App() {
               </Button>
               {selectedFeature && (
                 <>
-                  <div className="floating-chip flex items-center gap-2 rounded-xl border px-2.5 py-1.5">
+                  <div className="floating-chip flex items-center gap-2 rounded-sm border px-2.5 py-1.5">
                     <span className="text-xs text-muted-foreground">Isolate</span>
                     <Switch
                       checked={isolateSelectedFeature}
@@ -1064,7 +1202,7 @@ function App() {
                       aria-label="Toggle isolate selected feature"
                     />
                   </div>
-                  <div className="floating-chip flex items-center gap-2 rounded-xl border px-2.5 py-1.5">
+                  <div className="floating-chip flex items-center gap-2 rounded-sm border px-2.5 py-1.5">
                     <span className={cn('text-xs', editMode && activeObject ? 'text-muted-foreground' : 'text-muted-foreground/55')}>
                       Xray
                     </span>
@@ -1086,7 +1224,7 @@ function App() {
                   </Button>
                 </>
               )}
-              <div className="floating-chip flex items-center gap-2 rounded-xl border px-2.5 py-1.5">
+              <div className="floating-chip flex items-center gap-2 rounded-sm border px-2.5 py-1.5">
                 <span className="font-mono text-[11px] text-muted-foreground">{cameraFocalLength}mm</span>
                 <input
                   type="range"
@@ -1095,7 +1233,7 @@ function App() {
                   step={1}
                   value={cameraFocalLength}
                   onChange={(event) => setCameraFocalLength(Number(event.target.value))}
-                  className="slider-accent h-2 w-32 cursor-pointer appearance-none rounded-full bg-input"
+                  className="slider-accent h-2 w-32 cursor-pointer appearance-none rounded-none bg-input"
                   aria-label="Camera focal length"
                 />
               </div>
@@ -1106,39 +1244,53 @@ function App() {
         <div className="pointer-events-none absolute right-4 top-4 z-10 max-w-md">
           <div
             className={cn(
-              'floating-panel pointer-events-auto rounded-2xl border text-sm',
-              isHelpCollapsed ? 'px-2.5 py-2' : 'px-4 py-3',
+              'floating-panel pointer-events-auto flex items-start gap-3 rounded-sm border text-sm',
+              isHelpCollapsed ? 'px-2 py-2' : 'max-w-sm px-3 py-3',
             )}
           >
-            <div className="flex items-start gap-3">
-              <div className="min-w-0 flex-1">
-                <button
-                  type="button"
-                  className="flex items-center gap-2 text-left"
-                  onClick={() => setIsHelpCollapsed((current) => !current)}
-                  aria-expanded={!isHelpCollapsed}
-                  aria-controls="viewport-help-panel"
-                >
-                  <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                    Help
-                  </span>
-                </button>
-                {!isHelpCollapsed && (
-                  <p id="viewport-help-panel" className="mt-2 leading-5 text-foreground/78">
-                    {viewportHelpText}
+            {!isHelpCollapsed && (
+              <div id="viewport-help-panel" className="min-w-0 flex-1 space-y-3">
+                <div>
+                  <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                    Hotkeys
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {editMode ? 'Edit mode controls' : 'Navigation and selection'}
+                  </p>
+                </div>
+
+                <div className="grid gap-1.5">
+                  {hotkeys.map((hotkey) => (
+                    <div key={hotkey.keys} className="flex items-center justify-between gap-3">
+                      <Badge variant="outline" className="shrink-0 font-mono text-[10px] text-foreground/80">
+                        {hotkey.keys}
+                      </Badge>
+                      <span className="text-right text-xs leading-5 text-foreground/76">
+                        {hotkey.description}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                {helpStatusText && (
+                  <p className="border-t border-border pt-2 text-xs leading-5 text-muted-foreground">
+                    {helpStatusText}
                   </p>
                 )}
               </div>
+            )}
+
+            <div className="ml-auto flex shrink-0 items-start gap-1">
               <Button
                 type="button"
                 variant="ghost"
-                size="icon"
-                className="size-8 shrink-0 rounded-full"
+                className="h-8 shrink-0 gap-1 px-2"
                 onClick={() => setIsHelpCollapsed((current) => !current)}
-                aria-label={isHelpCollapsed ? 'Expand help panel' : 'Collapse help panel'}
+                aria-label={isHelpCollapsed ? 'Expand hotkey panel' : 'Collapse hotkey panel'}
                 aria-expanded={!isHelpCollapsed}
                 aria-controls="viewport-help-panel"
               >
+                <CircleHelp className="size-4" />
                 {isHelpCollapsed ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
               </Button>
             </div>
@@ -1149,7 +1301,7 @@ function App() {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".json,.jsonl,.city.json,.city.jsonl"
+        accept=".jsonl,.city.jsonl"
         className="hidden"
         onChange={handleFileSelection}
       />
@@ -1163,7 +1315,7 @@ function App() {
 
       {isDragging && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm">
-          <div className="rounded-2xl border-2 border-dashed border-accent/35 bg-card/85 px-10 py-8 text-center shadow-2xl">
+          <div className="rounded-sm border-2 border-dashed border-accent/35 bg-card/85 px-10 py-8 text-center shadow-2xl">
             <p className="text-lg font-semibold text-foreground">Drop file to open</p>
             <p className="mt-1 text-sm text-muted-foreground">
               .city.jsonl / .city.json for features, .json for val3dity report
@@ -1211,6 +1363,18 @@ function formatValue(value: unknown) {
   }
 
   return String(value)
+}
+
+function getVal3dityErrorUrl(error: ViewerValidationError) {
+  const anchor = error.description
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, '-')
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+
+  return anchor ? `${VAL3DITY_ERRORS_URL}#${anchor}` : VAL3DITY_ERRORS_URL
 }
 
 export default App

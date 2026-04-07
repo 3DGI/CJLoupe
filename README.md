@@ -1,4 +1,4 @@
-# cjvis
+# Loupe
 
 Fullscreen CityJSON feature viewer built with React, Three.js, Tailwind, and shadcn-style UI components. It uses Bun for dependency management and a Nix flake for the development shell.
 
