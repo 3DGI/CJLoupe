@@ -15,6 +15,7 @@ import {
   SquareMousePointer,
   Sun,
   Trash2,
+  X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
@@ -79,6 +80,7 @@ function App() {
   const [isDragging, setIsDragging] = useState(false)
   const [isHelpCollapsed, setIsHelpCollapsed] = useState(false)
   const [isFileMenuOpen, setIsFileMenuOpen] = useState(false)
+  const [dismissedErrorMessage, setDismissedErrorMessage] = useState<string | null>(null)
   const dragCountRef = useRef(0)
   const { theme, toggleTheme } = useTheme()
 
@@ -188,6 +190,10 @@ function App() {
   useEffect(() => {
     void loadFromSample()
   }, [loadFromSample])
+
+  useEffect(() => {
+    setDismissedErrorMessage(null)
+  }, [error])
 
   useEffect(() => {
     if (!isFileMenuOpen) {
@@ -627,11 +633,8 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [applyFeatureVertices, centerCurrentSelection, cycleSelectedFaceRing, cycleSelectedFaceVertex, editMode, selectedFeatureId, toggleEditMode])
 
-  const helpStatusText = error
-    ? error
-    : isLoading
-      ? 'Loading CityJSON feature sequence…'
-      : null
+  const helpStatusText = isLoading ? 'Loading CityJSON feature sequence…' : null
+  const isErrorDialogVisible = Boolean(error && dismissedErrorMessage !== error)
   const hotkeys = editMode
     ? [
         { keys: 'Tab', description: 'Exit edit mode' },
@@ -1383,12 +1386,38 @@ function App() {
         onChange={handleAnnotationSelection}
       />
 
+      {isErrorDialogVisible && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/42 backdrop-blur-md">
+          <div className="w-full max-w-lg rounded-sm border border-destructive/35 bg-background/94 p-5 shadow-[0_28px_100px_rgb(0_0_0_/_0.28)]">
+            <div className="flex items-start gap-4">
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-destructive">
+                  Error
+                </p>
+                <p className="mt-2 text-sm leading-6 text-foreground/92">{error}</p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-8 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                onClick={() => setDismissedErrorMessage(error)}
+                aria-label="Dismiss error"
+                title="Dismiss error"
+              >
+                <X className="size-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isDragging && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm">
           <div className="rounded-sm border-2 border-dashed border-accent/35 bg-card/85 px-10 py-8 text-center shadow-2xl">
             <p className="text-lg font-semibold text-foreground">Drop file to open</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              .city.jsonl / .city.json for features, .json for val3dity report
+              .city.jsonl for features, .json for val3dity report
             </p>
           </div>
         </div>
