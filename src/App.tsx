@@ -292,7 +292,7 @@ function App() {
 
     for (const file of files) {
       const name = file.name.toLowerCase()
-      if (name.endsWith('.jsonl') || name.endsWith('.city.json') || name.endsWith('.city.jsonl')) {
+      if (name.endsWith('.jsonl') || name.endsWith('.city.jsonl')) {
         cityFile = file
       } else if (name.endsWith('.json')) {
         reportFile = file
