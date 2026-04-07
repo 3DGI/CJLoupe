@@ -482,6 +482,10 @@ function App() {
     setDetailPaneMode((current) => (current === 'fullscreen' ? 'split' : 'fullscreen'))
   }
 
+  function toggleSidebarVisibility() {
+    setIsPaneCollapsed((current) => !current)
+  }
+
   const handleSelectSemanticSurface = useCallback((surface: {
     featureId: string
     objectId: string
@@ -816,10 +820,10 @@ function App() {
           'panel-shell z-20 flex shrink-0 border-border',
           isMobileLayout
             ? (
-                detailPaneMode === 'fullscreen'
-                  ? 'absolute inset-0 h-auto border-t-0 pb-[env(safe-area-inset-bottom)]'
-                  : isPaneCollapsed
-                    ? 'absolute inset-x-0 bottom-0 h-[calc(3.5rem+env(safe-area-inset-bottom))] border-t pb-[env(safe-area-inset-bottom)]'
+                isPaneCollapsed
+                  ? 'absolute inset-x-0 bottom-0 h-[calc(3.5rem+env(safe-area-inset-bottom))] border-t pb-[env(safe-area-inset-bottom)]'
+                  : detailPaneMode === 'fullscreen'
+                    ? 'absolute inset-0 h-auto border-t-0 pb-[env(safe-area-inset-bottom)]'
                     : 'absolute inset-x-0 bottom-0 h-[min(76dvh,42rem)] border-t pb-[env(safe-area-inset-bottom)]'
               )
             : (isPaneCollapsed ? 'relative h-full w-16 border-r' : 'relative h-full w-[min(29rem,34vw)] border-r'),
@@ -838,7 +842,7 @@ function App() {
               <Button
                 size="icon"
                 variant="ghost"
-                onClick={() => setIsPaneCollapsed((current) => !current)}
+                onClick={toggleSidebarVisibility}
                 aria-label={isPaneCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
               >
                 {isMobileLayout
