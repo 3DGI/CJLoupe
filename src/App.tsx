@@ -51,6 +51,7 @@ const SAMPLE_URL = `${import.meta.env.BASE_URL}samples/rf-val3dity.city.jsonl`
 const SAMPLE_REPORT_URL = `${import.meta.env.BASE_URL}samples/val-report.json`
 const VAL3DITY_ERRORS_URL = 'https://val3dity.readthedocs.io/2.6.0/errors/'
 const GITHUB_REPO_URL = 'https://github.com/3DGI/CJLoupe'
+const DEFAULT_CAMERA_FOCAL_LENGTH = 50
 
 type DetailPaneMode = 'split' | 'collapsed' | 'fullscreen'
 
@@ -72,6 +73,7 @@ function App() {
   const [selectedFaceRingIndex, setSelectedFaceRingIndex] = useState(0)
   const [selectedVertexIndex, setSelectedVertexIndex] = useState<number | null>(null)
   const [geometryRevision, setGeometryRevision] = useState(0)
+  const [viewportResetRevision, setViewportResetRevision] = useState(0)
   const [focusRevision, setFocusRevision] = useState(0)
   const [focusTarget, setFocusTarget] = useState<ViewerFocusTarget>(null)
   const [annotationSourceName, setAnnotationSourceName] = useState<string | null>(null)
@@ -188,7 +190,6 @@ function App() {
       ])
       const mergedDataset = mergeValidationAnnotations(nextDataset, annotations)
       applyDataset(mergedDataset)
-      setShowOnlyInvalidFeatures(mergedDataset.features.some((feature) => feature.errors.length > 0))
       setAnnotationSourceName('val-report.json')
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to load sample file.'
@@ -368,7 +369,6 @@ function App() {
       ])
       const mergedDataset = mergeValidationAnnotations(nextDataset, annotations)
       applyDataset(mergedDataset)
-      setShowOnlyInvalidFeatures(mergedDataset.features.some((feature) => feature.errors.length > 0))
       setAnnotationSourceName(reportFile.name)
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to load dropped files.'
@@ -378,12 +378,26 @@ function App() {
     }
   }
 
+  function resetViewerState() {
+    setCameraFocalLength(DEFAULT_CAMERA_FOCAL_LENGTH)
+    setHideOccludedEditEdges(true)
+    setShowOnlyInvalidFeatures(false)
+    setShowSemanticSurfaces(false)
+    setIsolateSelectedFeature(false)
+    setDetailTab('errors')
+    setDetailPaneMode('split')
+    setSearchQuery('')
+    setFocusTarget(null)
+    setSelectedSemanticSurface(null)
+    setViewportResetRevision((current) => current + 1)
+  }
+
   function applyDataset(nextDataset: ViewerDataset) {
     originalVerticesRef.current = new Map(
       nextDataset.features.map((feature) => [feature.id, cloneVertices(feature.vertices)]),
     )
+    resetViewerState()
     setDataset(nextDataset)
-    setShowOnlyInvalidFeatures(nextDataset.features.some((feature) => feature.errors.length > 0))
 
     const firstFeature = nextDataset.features[0] ?? null
     setSelectedFeatureId(firstFeature?.id ?? null)
@@ -1233,11 +1247,13 @@ function App() {
 
       <div className="relative min-w-0 flex-1">
         <CityViewport
+          key={viewportResetRevision}
           data={dataset}
           cameraFocalLength={cameraFocalLength}
           hideOccludedEditEdges={hideOccludedEditEdges}
           isolateSelectedFeature={isolateSelectedFeature}
           geometryRevision={geometryRevision}
+          viewportResetRevision={viewportResetRevision}
           focusRevision={focusRevision}
           focusTarget={focusTarget}
           selectedFeatureId={selectedFeatureId}

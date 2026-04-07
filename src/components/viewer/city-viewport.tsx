@@ -30,6 +30,7 @@ type CityViewportProps = {
   hideOccludedEditEdges: boolean
   isolateSelectedFeature: boolean
   geometryRevision: number
+  viewportResetRevision: number
   focusRevision: number
   focusTarget: ViewerFocusTarget
   selectedFeatureId: string | null
@@ -87,6 +88,7 @@ function CityViewport({
   hideOccludedEditEdges,
   isolateSelectedFeature,
   geometryRevision,
+  viewportResetRevision,
   focusRevision,
   focusTarget,
   selectedFeatureId,
@@ -679,6 +681,18 @@ function CityViewport({
 
     renderViewport(runtime)
   }, [showSemanticSurfaces])
+
+  useEffect(() => {
+    const runtime = runtimeRef.current
+    const currentData = dataRef.current
+    if (!runtime || !currentData) {
+      return
+    }
+
+    fitCameraToDataset(runtime, currentData)
+    fittedDatasetKeyRef.current = getDatasetViewKey(currentData)
+    renderViewport(runtime)
+  }, [viewportResetRevision])
 
   useEffect(() => {
     const runtime = runtimeRef.current
