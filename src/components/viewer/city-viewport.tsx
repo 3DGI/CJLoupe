@@ -18,6 +18,11 @@ import { errorColor } from '@/lib/error-palette'
 
 type Theme = 'light' | 'dark'
 
+const VIEWPORT_FOG_DENSITY = {
+  light: 0.00008,
+  dark: 0.00012,
+} as const
+
 type CityViewportProps = {
   data: ViewerDataset | null
   cameraFocalLength: number
@@ -141,7 +146,7 @@ function CityViewport({
     }
 
     const scene = new THREE.Scene()
-    scene.fog = new THREE.FogExp2('#061120', 0.0007)
+    scene.fog = new THREE.FogExp2('#061120', VIEWPORT_FOG_DENSITY.dark)
 
     const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500000)
     camera.filmGauge = 35
@@ -1550,7 +1555,7 @@ function getViewportPalette(theme: Theme) {
   if (theme === 'light') {
     return {
       fog: '#c7d4e5',
-      fogDensity: 0.00048,
+      fogDensity: VIEWPORT_FOG_DENSITY.light,
       ambient: '#f6f9fd',
       ambientIntensity: 1.35,
       hemisphereSky: '#edf5ff',
@@ -1582,7 +1587,7 @@ function getViewportPalette(theme: Theme) {
 
   return {
     fog: '#061120',
-    fogDensity: 0.0007,
+    fogDensity: VIEWPORT_FOG_DENSITY.dark,
     ambient: '#f6f8ff',
     ambientIntensity: 1.6,
     hemisphereSky: '#b9e4ff',
