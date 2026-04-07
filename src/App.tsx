@@ -7,6 +7,8 @@ import {
   Crosshair,
   FolderOpen,
   LocateFixed,
+  Maximize2,
+  Minimize2,
   Moon,
   Move3D,
   Search,
@@ -45,6 +47,8 @@ const SAMPLE_URL = '/samples/rf-val3dity.city.jsonl'
 const SAMPLE_REPORT_URL = '/samples/val-report.json'
 const VAL3DITY_ERRORS_URL = 'https://val3dity.readthedocs.io/2.6.0/errors/'
 
+type DetailPaneMode = 'split' | 'collapsed' | 'fullscreen'
+
 function App() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const annotationInputRef = useRef<HTMLInputElement>(null)
@@ -71,6 +75,7 @@ function App() {
   const [showOnlyInvalidFeatures, setShowOnlyInvalidFeatures] = useState(false)
   const [isolateSelectedFeature, setIsolateSelectedFeature] = useState(false)
   const [detailTab, setDetailTab] = useState('errors')
+  const [detailPaneMode, setDetailPaneMode] = useState<DetailPaneMode>('split')
   const [isDragging, setIsDragging] = useState(false)
   const [isHelpCollapsed, setIsHelpCollapsed] = useState(false)
   const [isFileMenuOpen, setIsFileMenuOpen] = useState(false)
@@ -82,6 +87,9 @@ function App() {
   }, [dataset])
 
   const selectedFeature = selectedFeatureId ? featureMap.get(selectedFeatureId) ?? null : null
+  const selectedFeatureObjectCount = selectedFeature?.objects.length ?? 0
+  const selectedFeatureErrorCount = selectedFeature?.errors.length ?? 0
+  const selectedFeatureAttributeCount = selectedFeature ? Object.keys(selectedFeature.attributes).length : 0
   const activeObject =
     selectedFeature?.objects.find((object) => object.id === activeObjectId) ??
     selectedFeature?.objects[0] ??
@@ -110,6 +118,21 @@ function App() {
       : activeFaceRingIndex === 0
         ? 'Outer ring'
         : `Hole ${activeFaceRingIndex}`
+  const visibleDetailErrors = useMemo(() => {
+    if (!selectedFeature) {
+      return []
+    }
+
+    return selectedFeature.errors.filter((error) => {
+      if (!activeObjectId || selectedFeature.objects.length <= 1) {
+        return true
+      }
+
+      return !error.cityObjectId || error.cityObjectId === activeObjectId
+    })
+  }, [activeObjectId, selectedFeature])
+  const visibleDetailErrorCount = visibleDetailErrors.length
+  const showErrorTabs = visibleDetailErrorCount > 0
 
   const filteredFeatures = useMemo(() => {
     if (!dataset) {
@@ -323,6 +346,7 @@ function App() {
   function clearAnnotations() {
     setDataset((current) => (current ? mergeValidationAnnotations(current, new Map()) : current))
     setAnnotationSourceName(null)
+    setShowOnlyInvalidFeatures(false)
   }
 
   function triggerCityJsonInput() {
@@ -342,6 +366,14 @@ function App() {
     }
 
     setIsFileMenuOpen((current) => !current)
+  }
+
+  function toggleDetailPaneCollapse() {
+    setDetailPaneMode((current) => (current === 'collapsed' ? 'split' : 'collapsed'))
+  }
+
+  function toggleDetailPaneFullscreen() {
+    setDetailPaneMode((current) => (current === 'fullscreen' ? 'split' : 'fullscreen'))
   }
 
   const centerFeatureById = useCallback((featureId: string) => {
@@ -628,7 +660,7 @@ function App() {
     >
       <aside
         className={cn(
-          'panel-shell relative z-20 flex h-full shrink-0 border-r border-border transition-[width] duration-300',
+          'panel-shell relative z-20 flex h-full shrink-0 border-r border-border',
           isPaneCollapsed ? 'w-16' : 'w-[min(29rem,34vw)]',
         )}
       >
@@ -706,8 +738,9 @@ function App() {
 
           {!isPaneCollapsed && (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-              <section className="flex min-h-0 flex-[1.05] flex-col border-b border-border">
-                <div className="space-y-3 p-4 pb-3">
+              {detailPaneMode !== 'fullscreen' && (
+                <section className="flex min-h-0 flex-[1.05] flex-col border-b border-border">
+                  <div className="space-y-3 p-4 pb-3">
                   <div className="grid grid-cols-2 gap-2">
                     <div className="min-w-0 rounded-sm border border-foreground/10 bg-foreground/5 px-2.5 py-2">
                       <div className="flex items-start justify-between gap-2">
@@ -802,118 +835,168 @@ function App() {
                     />
                   </div>
 
-                  <div className="flex items-center justify-between rounded-sm border border-border bg-foreground/4 px-3 py-2">
-                    <div>
-                      <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Errors only</p>
-                      <p className="text-xs text-foreground/60">
-                        {filteredFeatures.length} of {dataset?.features.length ?? 0}
-                      </p>
+                  {annotationSourceName && (
+                    <div className="flex items-center justify-between rounded-sm border border-border bg-foreground/4 px-3 py-2">
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Errors only</p>
+                        <p className="text-xs text-foreground/60">
+                          {filteredFeatures.length} of {dataset?.features.length ?? 0}
+                        </p>
+                      </div>
+                      <Switch
+                        checked={showOnlyInvalidFeatures}
+                        onCheckedChange={setShowOnlyInvalidFeatures}
+                        className="shrink-0"
+                        aria-label="Show only features with validation errors"
+                      />
                     </div>
-                    <Switch
-                      checked={showOnlyInvalidFeatures}
-                      onCheckedChange={setShowOnlyInvalidFeatures}
-                      className="shrink-0"
-                      aria-label="Show only features with validation errors"
-                    />
+                  )}
                   </div>
-                </div>
 
-                <ScrollArea className="min-h-0 flex-1">
-                  <div className="space-y-1.5 p-3 pt-0">
-                    {filteredFeatures.map((feature) => {
-                      const isSelected = feature.id === selectedFeatureId
-                      const errorCount = feature.errors.length
-                      const isInvalid = feature.validity === false
-                      return (
-                        <div
-                          key={feature.id}
-                          className={cn(
-                            'flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-sm border px-2.5 py-2 transition',
-                            isSelected
-                              ? 'border-accent/40 bg-accent/10 text-foreground shadow-[0_0_0_1px] shadow-accent/25'
-                              : isInvalid
-                                ? 'border-destructive/20 bg-destructive/8 text-foreground/88 hover:border-destructive/28 hover:bg-destructive/12'
-                                : 'border-foreground/8 bg-foreground/3 text-foreground/78 hover:border-foreground/16 hover:bg-foreground/6',
-                          )}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => handleSelectFeature(feature.id)}
-                            className="min-w-0 flex-1 overflow-hidden text-left"
+                  <ScrollArea className="min-h-0 flex-1">
+                    <div className="space-y-1.5 p-3 pt-0">
+                      {filteredFeatures.map((feature) => {
+                        const isSelected = feature.id === selectedFeatureId
+                        const errorCount = feature.errors.length
+                        const isInvalid = feature.validity === false
+                        return (
+                          <div
+                            key={feature.id}
+                            className={cn(
+                              'flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-sm border px-2.5 py-2 transition',
+                              isSelected
+                                ? 'border-accent/40 bg-accent/10 text-foreground shadow-[0_0_0_1px] shadow-accent/25'
+                                : isInvalid
+                                  ? 'border-destructive/20 bg-destructive/8 text-foreground/88 hover:border-destructive/28 hover:bg-destructive/12'
+                                  : 'border-foreground/8 bg-foreground/3 text-foreground/78 hover:border-foreground/16 hover:bg-foreground/6',
+                            )}
                           >
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-1.5">
-                                  <p className="truncate text-sm font-medium">{feature.label}</p>
-                                  <Badge
-                                    variant="outline"
-                                    className={cn(
-                                      'shrink-0 px-1.5 py-0 text-[10px]',
-                                      isSelected
-                                        ? 'border-accent/30 bg-accent/10 text-accent'
-                                        : isInvalid
-                                          ? 'border-destructive/30 bg-destructive/12 text-destructive'
-                                          : 'border-foreground/10 bg-foreground/5 text-foreground/60',
-                                    )}
-                                  >
-                                    {feature.type}
-                                  </Badge>
+                            <button
+                              type="button"
+                              onClick={() => handleSelectFeature(feature.id)}
+                              className="min-w-0 flex-1 overflow-hidden text-left"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1.5">
+                                    <p className="truncate text-sm font-medium">{feature.label}</p>
+                                    <Badge
+                                      variant="outline"
+                                      className={cn(
+                                        'shrink-0 px-1.5 py-0 text-[10px]',
+                                        isSelected
+                                          ? 'border-accent/30 bg-accent/10 text-accent'
+                                          : isInvalid
+                                            ? 'border-destructive/30 bg-destructive/12 text-destructive'
+                                            : 'border-foreground/10 bg-foreground/5 text-foreground/60',
+                                      )}
+                                    >
+                                      {feature.type}
+                                    </Badge>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                            <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
-                              <span>{feature.objects.length} obj</span>
-                              <span>{feature.vertices.length} vtx</span>
-                              {errorCount > 0 && (
-                                <span className="text-destructive">
-                                  {errorCount} err ({[...new Set(feature.errors.map((e) => e.code))].join(', ')})
-                                </span>
-                              )}
-                            </div>
-                          </button>
+                              <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
+                                <span>{feature.objects.length} obj</span>
+                                <span>{feature.vertices.length} vtx</span>
+                                {errorCount > 0 && (
+                                  <span className="text-destructive">
+                                    {errorCount} err ({[...new Set(feature.errors.map((e) => e.code))].join(', ')})
+                                  </span>
+                                )}
+                              </div>
+                            </button>
 
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 shrink-0 self-center"
-                            aria-label={`Center ${feature.label}`}
-                            title={`Center ${feature.label}`}
-                            onClick={() => {
-                              handleSelectFeature(feature.id)
-                              centerFeatureById(feature.id)
-                            }}
-                          >
-                            <Crosshair className="size-4" />
-                          </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 shrink-0 self-center"
+                              aria-label={`Center ${feature.label}`}
+                              title={`Center ${feature.label}`}
+                              onClick={() => {
+                                handleSelectFeature(feature.id)
+                                centerFeatureById(feature.id)
+                              }}
+                            >
+                              <Crosshair className="size-4" />
+                            </Button>
+                          </div>
+                        )
+                      })}
+
+                      {!isLoading && filteredFeatures.length === 0 && (
+                        <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-4 py-6 text-sm text-muted-foreground">
+                          No features matched the current filter.
                         </div>
-                      )
-                    })}
-
-                    {!isLoading && filteredFeatures.length === 0 && (
-                      <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-4 py-6 text-sm text-muted-foreground">
-                        No features matched the current filter.
-                      </div>
-                    )}
-                  </div>
-                </ScrollArea>
-              </section>
-
-              <Tabs value={detailTab} onValueChange={setDetailTab} asChild>
-                <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-                  <div className="space-y-3 p-4 pb-3">
-                    <div className="flex items-center gap-2">
-                      <p className="min-w-0 truncate text-sm font-semibold text-foreground">
-                        {selectedFeature?.label ?? 'No feature selected'}
-                      </p>
-                      {selectedFeature && (
-                        <Badge variant="outline" className="shrink-0 border-primary/30 bg-primary/10 text-primary">
-                          {selectedFeature.type}
-                        </Badge>
                       )}
                     </div>
+                  </ScrollArea>
+                </section>
+              )}
 
-                    {selectedFeature && (
+              <Tabs value={detailTab} onValueChange={setDetailTab} asChild>
+                <section
+                  className={cn(
+                    'flex min-w-0 flex-col border-t border-border',
+                    detailPaneMode === 'collapsed'
+                      ? 'shrink-0'
+                      : detailPaneMode === 'fullscreen'
+                        ? 'min-h-0 flex-1 border-t-0'
+                        : 'min-h-0 flex-1',
+                  )}
+                >
+                  <div className="space-y-3 p-4 pb-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex size-6 items-center justify-center rounded-sm text-muted-foreground">
+                            <Search className="size-3.5" />
+                          </span>
+                          <p className="min-w-0 truncate text-sm font-semibold text-foreground">
+                            {selectedFeature?.label ?? 'No feature selected'}
+                          </p>
+                          {selectedFeature && (
+                            <Badge variant="outline" className="shrink-0 border-primary/30 bg-primary/10 text-primary">
+                              {selectedFeature.type}
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+                          <span>{selectedFeatureObjectCount} obj</span>
+                          <span>{selectedFeatureObjectCount > 1 ? visibleDetailErrorCount : selectedFeatureErrorCount} err</span>
+                          <span>{selectedFeatureAttributeCount} attr</span>
+                          {activeObject && <span>active {activeObject.id}</span>}
+                        </div>
+                      </div>
+
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-8"
+                          onClick={toggleDetailPaneCollapse}
+                          aria-label={detailPaneMode === 'collapsed' ? 'Expand feature details' : 'Collapse feature details'}
+                          title={detailPaneMode === 'collapsed' ? 'Expand feature details' : 'Collapse feature details'}
+                        >
+                          {detailPaneMode === 'collapsed' ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-8"
+                          onClick={toggleDetailPaneFullscreen}
+                          aria-label={detailPaneMode === 'fullscreen' ? 'Exit full detail view' : 'Expand details to full panel'}
+                          title={detailPaneMode === 'fullscreen' ? 'Exit full detail view' : 'Expand details to full panel'}
+                        >
+                          {detailPaneMode === 'fullscreen' ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+                        </Button>
+                      </div>
+                    </div>
+
+                    {detailPaneMode !== 'collapsed' && selectedFeature && (
                       <>
                         <div className="flex flex-wrap gap-1.5">
                           {selectedFeature.objects.map((object) => (
@@ -939,132 +1022,119 @@ function App() {
                           ))}
                         </div>
 
-                        <TabsList>
-                          <TabsTrigger value="errors">
-                            Errors{selectedFeature.errors.length > 0 ? ` (${selectedFeature.errors.length})` : ''}
-                          </TabsTrigger>
-                          <TabsTrigger value="attributes">
-                            Attributes ({Object.keys(selectedFeature.attributes).length})
-                          </TabsTrigger>
-                        </TabsList>
+                        {showErrorTabs && (
+                          <TabsList>
+                            <TabsTrigger value="errors">
+                              Errors{visibleDetailErrorCount > 0 ? ` (${visibleDetailErrorCount})` : ''}
+                            </TabsTrigger>
+                            <TabsTrigger value="attributes">
+                              Attributes ({selectedFeatureAttributeCount})
+                            </TabsTrigger>
+                          </TabsList>
+                        )}
                       </>
                     )}
                   </div>
 
-                  <ScrollArea key={selectedFeatureId} className="min-h-0 min-w-0 flex-1">
-                    <div className="min-w-0 space-y-4 p-4 pt-0">
-                      {selectedFeature ? (
-                        <>
-                          <TabsContent value="errors">
-                            <DetailSection title="Errors">
-                              <div className="space-y-3">
-                                {selectedFeature.errors.length > 0 ? (
-                                  <div className="grid gap-2">
-                                    {selectedFeature.errors
-                                      .filter((error) => {
-                                        if (!activeObjectId || selectedFeature.objects.length <= 1) {
-                                          return true
-                                        }
-                                        return !error.cityObjectId || error.cityObjectId === activeObjectId
-                                      })
-                                      .map((error) => {
-                                      const color = errorColor(error.code)
-                                      return (
-                                        <div
-                                          key={`${error.id}-${error.code}`}
-                                          className="flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-sm border px-3 py-2.5 text-left transition"
-                                          style={{
-                                            borderColor: `${color}30`,
-                                            backgroundColor: `${color}18`,
-                                          }}
-                                        >
-                                          <div className="min-w-0 flex-1 overflow-hidden">
-                                            <div className="flex min-w-0 items-start justify-between gap-3">
-                                              <div className="flex min-w-0 items-start gap-2.5">
-                                                <span
-                                                  className="mt-1 h-3 w-3 shrink-0 rounded-sm"
-                                                  style={{ backgroundColor: color }}
-                                                />
-                                                <div className="min-w-0 overflow-hidden">
-                                                  <p className="truncate text-sm font-semibold text-foreground/90">{error.description}</p>
-                                                  <a
-                                                    href={getVal3dityErrorUrl(error)}
-                                                    target="_blank"
-                                                    rel="noreferrer"
-                                                    className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground underline decoration-muted-foreground/35 underline-offset-3 transition hover:text-foreground"
-                                                  >
-                                                    code {error.code}
-                                                  </a>
+                  {detailPaneMode !== 'collapsed' && (
+                    <ScrollArea key={selectedFeatureId} className="min-h-0 min-w-0 flex-1">
+                      <div className="min-w-0 space-y-4 p-4 pt-0">
+                        {selectedFeature ? (
+                          <>
+                            {showErrorTabs ? (
+                              <>
+                                <TabsContent value="errors">
+                                  <DetailSection title="Errors">
+                                    <div className="space-y-3">
+                                      {visibleDetailErrorCount > 0 ? (
+                                        <div className="grid gap-2">
+                                          {visibleDetailErrors.map((error) => {
+                                            const color = errorColor(error.code)
+                                            return (
+                                              <div
+                                                key={`${error.id}-${error.code}`}
+                                                className="flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-sm border px-3 py-2.5 text-left transition"
+                                                style={{
+                                                  borderColor: `${color}30`,
+                                                  backgroundColor: `${color}18`,
+                                                }}
+                                              >
+                                                <div className="min-w-0 flex-1 overflow-hidden">
+                                                  <div className="flex min-w-0 items-start justify-between gap-3">
+                                                    <div className="flex min-w-0 items-start gap-2.5">
+                                                      <span
+                                                        className="mt-1 h-3 w-3 shrink-0 rounded-sm"
+                                                        style={{ backgroundColor: color }}
+                                                      />
+                                                      <div className="min-w-0 overflow-hidden">
+                                                        <p className="truncate text-sm font-semibold text-foreground/90">{error.description}</p>
+                                                        <a
+                                                          href={getVal3dityErrorUrl(error)}
+                                                          target="_blank"
+                                                          rel="noreferrer"
+                                                          className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground underline decoration-muted-foreground/35 underline-offset-3 transition hover:text-foreground"
+                                                        >
+                                                          code {error.code}
+                                                        </a>
+                                                      </div>
+                                                    </div>
+                                                    {error.faceIndex != null && (
+                                                      <Badge
+                                                        variant="outline"
+                                                        className="shrink-0 text-foreground/70"
+                                                        style={{ borderColor: `${color}50`, backgroundColor: `${color}20` }}
+                                                      >
+                                                        face {error.faceIndex}
+                                                      </Badge>
+                                                    )}
+                                                  </div>
+                                                  <p className="mt-1.5 break-words font-mono text-[10px] text-muted-foreground">
+                                                    {error.id}
+                                                  </p>
+                                                  {error.info && (
+                                                    <p className="mt-1.5 text-sm text-foreground/65">{error.info}</p>
+                                                  )}
                                                 </div>
-                                              </div>
-                                              {error.faceIndex != null && (
-                                                <Badge
-                                                  variant="outline"
-                                                  className="shrink-0 text-foreground/70"
-                                                  style={{ borderColor: `${color}50`, backgroundColor: `${color}20` }}
+                                                <Button
+                                                  type="button"
+                                                  variant="ghost"
+                                                  size="icon"
+                                                  className="h-8 w-8 shrink-0 self-center"
+                                                  aria-label={`Center ${error.description}`}
+                                                  title={`Center ${error.description}`}
+                                                  onClick={() => centerValidationError(error)}
                                                 >
-                                                  face {error.faceIndex}
-                                                </Badge>
-                                              )}
-                                            </div>
-                                            <p className="mt-1.5 break-words font-mono text-[10px] text-muted-foreground">
-                                              {error.id}
-                                            </p>
-                                            {error.info && (
-                                              <p className="mt-1.5 text-sm text-foreground/65">{error.info}</p>
-                                            )}
-                                          </div>
-                                          <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-8 w-8 shrink-0 self-center"
-                                            aria-label={`Center ${error.description}`}
-                                            title={`Center ${error.description}`}
-                                            onClick={() => centerValidationError(error)}
-                                          >
-                                            <Crosshair className="size-4" />
-                                          </Button>
+                                                  <Crosshair className="size-4" />
+                                                </Button>
+                                              </div>
+                                            )
+                                          })}
                                         </div>
-                                      )
-                                    })}
-                                  </div>
-                                ) : null}
-                              </div>
-                            </DetailSection>
-                          </TabsContent>
+                                      ) : null}
+                                    </div>
+                                  </DetailSection>
+                                </TabsContent>
 
-                          <TabsContent value="attributes">
-                            <DetailSection title="Attributes">
-                              <dl className="m-0 min-w-0 space-y-2">
-                                {Object.entries(selectedFeature.attributes).map(([key, value]) => (
-                                  <div
-                                    key={key}
-                                    className="min-w-0 w-full overflow-hidden rounded-sm border border-foreground/8 bg-foreground/3 px-2.5 py-1.5"
-                                  >
-                                    <dt className="m-0 min-w-0 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
-                                      {key}
-                                    </dt>
-                                    <dd className="m-0 mt-1 min-w-0 max-w-full">
-                                      <div className="min-w-0 max-w-full overflow-x-auto overflow-y-hidden">
-                                        <div className="w-fit min-w-full pr-2 whitespace-nowrap text-[13px] leading-5 text-foreground/80">
-                                          {formatValue(value)}
-                                        </div>
-                                      </div>
-                                    </dd>
-                                  </div>
-                                ))}
-                              </dl>
-                            </DetailSection>
-                          </TabsContent>
-                        </>
-                      ) : (
-                        <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-4 py-6 text-sm text-muted-foreground">
-                          Click a building in the scene or choose a feature from the left column.
-                        </div>
-                      )}
-                    </div>
-                  </ScrollArea>
+                                <TabsContent value="attributes">
+                                  <DetailSection title="Attributes">
+                                    <AttributeList attributes={selectedFeature.attributes} />
+                                  </DetailSection>
+                                </TabsContent>
+                              </>
+                            ) : (
+                              <DetailSection title="Attributes">
+                                <AttributeList attributes={selectedFeature.attributes} />
+                              </DetailSection>
+                            )}
+                          </>
+                        ) : (
+                          <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-4 py-6 text-sm text-muted-foreground">
+                            Click a building in the scene or choose a feature from the left column.
+                          </div>
+                        )}
+                      </div>
+                    </ScrollArea>
+                  )}
                 </section>
               </Tabs>
             </div>
@@ -1342,6 +1412,30 @@ function DetailSection({
       </div>
       {children}
     </section>
+  )
+}
+
+function AttributeList({ attributes }: { attributes: Record<string, unknown> }) {
+  return (
+    <dl className="m-0 min-w-0 space-y-2">
+      {Object.entries(attributes).map(([key, value]) => (
+        <div
+          key={key}
+          className="min-w-0 w-full overflow-hidden rounded-sm border border-foreground/8 bg-foreground/3 px-2.5 py-1.5"
+        >
+          <dt className="m-0 min-w-0 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
+            {key}
+          </dt>
+          <dd className="m-0 mt-1 min-w-0 max-w-full">
+            <div className="min-w-0 max-w-full overflow-x-auto overflow-y-hidden">
+              <div className="w-fit min-w-full pr-2 whitespace-nowrap text-[13px] leading-5 text-foreground/80">
+                {formatValue(value)}
+              </div>
+            </div>
+          </dd>
+        </div>
+      ))}
+    </dl>
   )
 }
 
