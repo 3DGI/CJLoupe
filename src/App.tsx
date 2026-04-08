@@ -20,7 +20,6 @@ import {
   Search,
   SquareMousePointer,
   Sun,
-  Trash2,
   X,
 } from 'lucide-react'
 import { Suspense, lazy, memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
