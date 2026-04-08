@@ -138,7 +138,7 @@ export function parseCityJsonSequence(text: string, sourceName: string): ViewerD
 
     features.push({
       id: featureId,
-      label: deriveFeatureLabel(featureId, attributes),
+      label: deriveFeatureLabel(featureId),
       rootObjectId,
       type: rootObject.type ?? 'CityObject',
       validity: null,
@@ -399,15 +399,9 @@ function uniqueVertexIndices(polygons: PolygonRings[]) {
   return [...indices].sort((left, right) => left - right)
 }
 
-function deriveFeatureLabel(featureId: string, attributes: Record<string, unknown>) {
-  for (const key of ['name', 'naam', 'title', 'label', 'identificatie']) {
-    const value = attributes[key]
-    if (typeof value === 'string' && value.trim().length > 0) {
-      return value.trim()
-    }
-  }
-
-  return featureId
+function deriveFeatureLabel(featureId: string) {
+  const prefix = 'NL.IMBAG.Pand.'
+  return featureId.startsWith(prefix) ? featureId.slice(prefix.length) : featureId
 }
 
 function parseValidationError(error: Val3dityError): ViewerValidationError {
