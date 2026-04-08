@@ -1,6 +1,10 @@
 # CJLoupe
 
-CityJSONL 3D viewer/inspection tool with support for val3dity annotations
+CityJSONL 3D viewer and inspection tool with support for val3dity annotations.
+
+It was built specifically to inspect errors in CityJSONL geometries, with the ability to investigate how the geometry is actually structured down to the vertex level.
+
+This app was built almost entirely through vibe coding, mostly with Codex 5.4, though I still spent more than three full days supervising and scrutinizing the agent to make sure it worked the way I wanted.
 
 ## Development
 
@@ -33,11 +37,12 @@ When a dataset is already open, the file action lets you either replace the curr
 
 ## Current capabilities
 
-- Fullscreen 3D viewport for CityJSON feature sequences
-- Collapsible left sidebar with file controls, feature list, and feature details
-- Visualising semantic surfaces
+- 3D viewport for CityJSON feature sequences
+- Collapsible left sidebar with feature list, and feature details
+- Semantic surfaces visualisation
 - val3dity report loading and error visualization
-- Edit mode with face selection, vertex selection, and vertex movement
+- Edit mode with face selection, ring cycling, vertex selection, and vertex movement
+- simple mobile UI without edit mode
 
 ## Geometry selection
 
