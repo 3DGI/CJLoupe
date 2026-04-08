@@ -155,10 +155,9 @@
   }
 
   .panel-header-surface {
-    background: color-mix(in oklch, var(--background) 90%, transparent);
-    border-color: color-mix(in oklch, var(--border) 86%, transparent);
+    background: var(--background);
+    border-color: var(--border);
     box-shadow: 0 10px 26px rgb(15 23 42 / 5%);
-    backdrop-filter: blur(16px);
   }
 
   .dark .panel-header-surface {
@@ -167,6 +166,15 @@
 
   .detail-rule {
     background: color-mix(in oklch, var(--border) 84%, transparent);
+  }
+
+  .panel-body-surface {
+    background: color-mix(in oklch, var(--background) 97%, var(--foreground) 3%);
+  }
+
+  .detail-tab[data-state='active'] {
+    background: color-mix(in oklch, var(--background) 97%, var(--foreground) 3%) !important;
+    border-bottom-color: color-mix(in oklch, var(--background) 97%, var(--foreground) 3%) !important;
   }
 
   .no-scrollbar {

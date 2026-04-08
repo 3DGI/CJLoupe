@@ -1254,22 +1254,22 @@ function App() {
 
                   {detailPaneMode !== 'collapsed' && (
                     <ScrollArea className="min-h-0 min-w-0 flex-1">
-                      <div className="min-w-0 space-y-2 p-4 pt-0">
+                      <div className="panel-body-surface min-w-0 space-y-2 p-4 pt-0">
                         {selectedFeature ? (
                           <>
-                            <div className="panel-header-surface sticky top-0 z-10 -mx-4 px-4 pt-1.5 pb-0 relative backdrop-blur-none">
-                              <TabsList className="floating-chip shrink-0 rounded-sm border p-1">
+                            <div className="panel-header-surface sticky top-0 z-10 -mx-4 px-4 pt-1.5 pb-0 relative">
+                              <TabsList className="relative z-10 shrink-0 gap-0">
                                 {showErrorTabs && (
                                   <TabsTrigger
                                     value="errors"
-                                    className="h-8 border-transparent bg-transparent px-2.5 text-foreground/72 hover:border-transparent hover:bg-accent/8 data-[state=active]:border-transparent data-[state=active]:bg-secondary data-[state=active]:text-secondary-foreground"
+                                    className="detail-tab h-8 rounded-t-sm rounded-b-none border-transparent bg-transparent px-2.5 text-foreground/72 hover:border-transparent hover:bg-accent/6 data-[state=active]:border-border data-[state=active]:text-foreground"
                                   >
                                     Errors{visibleDetailErrorCount > 0 ? ` (${visibleDetailErrorCount})` : ''}
                                   </TabsTrigger>
                                 )}
                                 <TabsTrigger
                                   value="attributes"
-                                  className="h-8 border-transparent bg-transparent px-2.5 text-foreground/72 hover:border-transparent hover:bg-accent/8 data-[state=active]:border-transparent data-[state=active]:bg-secondary data-[state=active]:text-secondary-foreground"
+                                  className="detail-tab h-8 rounded-t-sm rounded-b-none border-transparent bg-transparent px-2.5 text-foreground/72 hover:border-transparent hover:bg-accent/6 data-[state=active]:border-border data-[state=active]:text-foreground"
                                 >
                                   Attributes ({selectedFeatureAttributeCount})
                                 </TabsTrigger>
