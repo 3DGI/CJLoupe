@@ -176,7 +176,27 @@ export function parseCityJsonSequence(text: string, sourceName: string): ViewerD
 }
 
 export function parseValidationReport(text: string) {
-  const report = JSON.parse(text) as Val3dityReport
+  let reportData: unknown
+
+  try {
+    reportData = JSON.parse(text)
+  } catch {
+    throw new Error('Validation report is not valid JSON.')
+  }
+
+  if (!reportData || typeof reportData !== 'object' || Array.isArray(reportData)) {
+    throw new Error('Validation report must be a JSON object with a top-level "features" array.')
+  }
+
+  const report = reportData as Val3dityReport
+  if (!Array.isArray(report.features)) {
+    throw new Error('Validation report must contain a top-level "features" array.')
+  }
+
+  if (report.features.length === 0) {
+    throw new Error('Validation report contains no features.')
+  }
+
   const annotations = new Map<
     string,
     {
@@ -185,19 +205,49 @@ export function parseValidationReport(text: string) {
     }
   >()
 
-  for (const feature of report.features ?? []) {
-    const featureId = feature.id
-    if (!featureId) {
-      continue
+  for (const feature of report.features) {
+    if (!feature || typeof feature !== 'object' || Array.isArray(feature)) {
+      throw new Error('Validation report contains an invalid feature entry.')
     }
 
-    annotations.set(featureId, {
-      validity: Boolean(feature.validity),
+    const featureId = feature.id
+    if (typeof featureId !== 'string' || featureId.trim().length === 0) {
+      throw new Error('Validation report contains a feature without a valid string id.')
+    }
+
+    if ('validity' in feature && typeof feature.validity !== 'boolean') {
+      throw new Error(`Validation report feature "${featureId}" is missing a valid boolean "validity" field.`)
+    }
+
+    if ('errors' in feature && !Array.isArray(feature.errors)) {
+      throw new Error(`Validation report feature "${featureId}" has an invalid "errors" field.`)
+    }
+
+    annotations.set(featureId.trim(), {
+      validity: feature.validity ?? false,
       errors: (feature.errors ?? []).map(parseValidationError),
     })
   }
 
   return annotations
+}
+
+export function assertValidationAnnotationsMatchDataset(
+  dataset: ViewerDataset,
+  annotations: Map<string, { validity: boolean; errors: ViewerValidationError[] }>,
+) {
+  const datasetFeatureIds = new Set(dataset.features.map((feature) => feature.id))
+  let matchingFeatureCount = 0
+
+  for (const featureId of annotations.keys()) {
+    if (datasetFeatureIds.has(featureId)) {
+      matchingFeatureCount += 1
+    }
+  }
+
+  if (matchingFeatureCount === 0) {
+    throw new Error('Validation report does not match the currently loaded CityJSON features.')
+  }
 }
 
 export function mergeValidationAnnotations(

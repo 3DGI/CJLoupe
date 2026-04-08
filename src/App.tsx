@@ -34,6 +34,7 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useTheme } from '@/components/use-theme'
 import {
+  assertValidationAnnotationsMatchDataset,
   loadCityJsonSequenceFromFile,
   loadCityJsonSequenceFromUrl,
   loadValidationReportFromFile,
@@ -363,6 +364,7 @@ function App() {
 
     try {
       const annotations = await loadValidationReportFromFile(file)
+      assertValidationAnnotationsMatchDataset(dataset, annotations)
       setDataset((current) => {
         if (!current) {
           return current
@@ -433,6 +435,7 @@ function App() {
         loadCityJsonSequenceFromFile(cityFile),
         loadValidationReportFromFile(reportFile),
       ])
+      assertValidationAnnotationsMatchDataset(nextDataset, annotations)
       const mergedDataset = mergeValidationAnnotations(nextDataset, annotations)
       applyDataset(mergedDataset)
       setAnnotationSourceName(reportFile.name)
@@ -483,6 +486,7 @@ function App() {
         loadCityJsonSequenceFromUrl(SAMPLE_URL, 'rf-val3dity sample'),
         loadValidationReportFromUrl(SAMPLE_REPORT_URL),
       ])
+      assertValidationAnnotationsMatchDataset(nextDataset, annotations)
       const mergedDataset = mergeValidationAnnotations(nextDataset, annotations)
       applyDataset(mergedDataset)
       setAnnotationSourceName('val-report.json')
