@@ -164,17 +164,34 @@
     box-shadow: 0 10px 26px rgb(0 0 0 / 22%);
   }
 
-  .detail-rule {
-    background: color-mix(in oklch, var(--border) 84%, transparent);
-  }
-
   .panel-body-surface {
     background: color-mix(in oklch, var(--background) 97%, var(--foreground) 3%);
   }
 
+  .detail-tabs {
+    gap: 0;
+  }
+
+  .detail-tab {
+    height: 2rem;
+    padding-inline: 0.625rem;
+    border-color: transparent;
+    border-radius: var(--radius) var(--radius) 0 0;
+    background: transparent;
+    color: color-mix(in oklch, var(--foreground) 72%, transparent);
+    transition: none;
+  }
+
+  .detail-tab:hover {
+    border-color: transparent;
+    background: color-mix(in oklch, var(--accent) 6%, transparent);
+  }
+
   .detail-tab[data-state='active'] {
-    background: color-mix(in oklch, var(--background) 97%, var(--foreground) 3%) !important;
-    border-bottom-color: color-mix(in oklch, var(--background) 97%, var(--foreground) 3%) !important;
+    background: var(--background) !important;
+    border-color: var(--border) !important;
+    border-bottom-color: var(--background) !important;
+    color: var(--foreground) !important;
   }
 
   .no-scrollbar {

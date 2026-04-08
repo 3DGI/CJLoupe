@@ -1132,7 +1132,7 @@ function App() {
                       value={searchQuery}
                       onChange={handleSearchQueryChange}
                       placeholder="Search features"
-                      className="h-9 pl-8"
+                      className="h-9 pl-8 transition-none"
                     />
                   </div>
 
@@ -1147,7 +1147,7 @@ function App() {
                       <Switch
                         checked={showOnlyInvalidFeatures}
                         onCheckedChange={handleShowOnlyInvalidFeaturesChange}
-                        className="shrink-0"
+                        className="shrink-0 transition-none"
                         aria-label="Show only features with validation errors"
                       />
                     </div>
@@ -1250,33 +1250,26 @@ function App() {
                         />
                       </div>
                     )}
+
+                    {detailPaneMode !== 'collapsed' && selectedFeature && showErrorTabs && (
+                      <div className="-mx-4 -mb-2.5 border-b border-border px-4 pt-1.5">
+                        <TabsList className="detail-tabs">
+                          <TabsTrigger value="errors" className="detail-tab">
+                            Errors
+                          </TabsTrigger>
+                          <TabsTrigger value="attributes" className="detail-tab">
+                            Attributes
+                          </TabsTrigger>
+                        </TabsList>
+                      </div>
+                    )}
                   </div>
 
                   {detailPaneMode !== 'collapsed' && (
                     <ScrollArea className="min-h-0 min-w-0 flex-1">
-                      <div className="panel-body-surface min-w-0 space-y-2 p-4 pt-0">
+                      <div className="panel-body-surface min-w-0 space-y-2 p-4 pt-3">
                         {selectedFeature ? (
                           <>
-                            <div className="panel-header-surface sticky top-0 z-10 -mx-4 px-4 pt-1.5 pb-0 relative">
-                              <TabsList className="relative z-10 shrink-0 gap-0">
-                                {showErrorTabs && (
-                                  <TabsTrigger
-                                    value="errors"
-                                    className="detail-tab h-8 rounded-t-sm rounded-b-none border-transparent bg-transparent px-2.5 text-foreground/72 hover:border-transparent hover:bg-accent/6 data-[state=active]:border-border data-[state=active]:text-foreground"
-                                  >
-                                    Errors{visibleDetailErrorCount > 0 ? ` (${visibleDetailErrorCount})` : ''}
-                                  </TabsTrigger>
-                                )}
-                                <TabsTrigger
-                                  value="attributes"
-                                  className="detail-tab h-8 rounded-t-sm rounded-b-none border-transparent bg-transparent px-2.5 text-foreground/72 hover:border-transparent hover:bg-accent/6 data-[state=active]:border-border data-[state=active]:text-foreground"
-                                >
-                                  Attributes ({selectedFeatureAttributeCount})
-                                </TabsTrigger>
-                              </TabsList>
-                              <div className="detail-rule absolute inset-x-0 bottom-0 h-px" />
-                            </div>
-
                             {showErrorTabs ? (
                               <>
                                 <TabsContent value="errors">
@@ -1585,7 +1578,7 @@ function App() {
 
               <div className="ml-auto flex flex-wrap items-center gap-1.5">
                 <div className="floating-chip flex items-center gap-1 rounded-sm border p-1">
-                  <Button variant="ghost" size="sm" className="h-7 gap-1.5 px-2" onClick={toggleEditMode}>
+                  <Button variant="ghost" size="sm" className="h-7 gap-1.5 px-2 transition-none" onClick={toggleEditMode}>
                     <Move3D className="size-3.5" />
                     {editMode ? 'Exit edit' : 'Edit'}
                   </Button>
@@ -1617,7 +1610,7 @@ function App() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="size-7"
+                      className="size-7 transition-none"
                       onClick={centerCurrentSelection}
                       aria-label="Center current selection"
                       title="Center current selection"
@@ -1669,7 +1662,7 @@ function App() {
                 <div className="grid gap-1.5">
                   {helpItems.map((hotkey) => (
                     <div key={hotkey.keys} className="flex items-center justify-between gap-3">
-                      <Badge variant="outline" className="shrink-0 font-mono text-[10px] text-foreground/80">
+                      <Badge variant="outline" className="shrink-0 font-mono text-[10px] text-foreground/80 transition-none">
                         {hotkey.keys}
                       </Badge>
                       <span className="text-right text-xs leading-5 text-foreground/76">
@@ -1961,7 +1954,7 @@ function ToolbarToggleButton({
       aria-label={ariaLabel}
       aria-pressed={active}
       className={cn(
-        'h-7 gap-1.5 rounded-sm border px-2 text-[11px] font-medium',
+        'h-7 gap-1.5 rounded-sm border px-2 text-[11px] font-medium transition-none',
         active
           ? 'border-primary/35 bg-primary/14 text-primary hover:bg-primary/18 hover:text-primary'
           : 'border-border/70 bg-background/35 text-muted-foreground hover:bg-accent/8 hover:text-foreground',
