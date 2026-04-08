@@ -20,8 +20,8 @@ import { errorColor } from '@/lib/error-palette'
 type Theme = 'light' | 'dark'
 
 const VIEWPORT_FOG_DENSITY = {
-  light: 0.00008,
-  dark: 0.00012,
+  light: 0.000045,
+  dark: 0.00007,
 } as const
 
 type CityViewportProps = {
@@ -62,6 +62,7 @@ type Runtime = {
   arcball: ArcballControls
   transform: TransformControls
   rootGroup: THREE.Group
+  cameraLightRig: THREE.Group
   handleGroup: THREE.Group
   edgeGroup: THREE.Group
   annotationGroup: THREE.Group
@@ -84,6 +85,7 @@ type Runtime = {
   hemisphereLight: THREE.HemisphereLight
   keyLight: THREE.DirectionalLight
   fillLight: THREE.DirectionalLight
+  rimLight: THREE.DirectionalLight
 }
 
 function CityViewport({
@@ -190,6 +192,7 @@ function CityViewport({
     })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
     renderer.autoClear = true
     container.appendChild(renderer.domElement)
 
@@ -209,20 +212,33 @@ function CityViewport({
     transform.enabled = false
     scene.add(transform.getHelper())
 
-    const ambientLight = new THREE.AmbientLight('#f6f8ff', 1.6)
+    const cameraLightRig = new THREE.Group()
+    scene.add(cameraLightRig)
+
+    const ambientLight = new THREE.AmbientLight('#f4f6f8', 0.8)
     scene.add(ambientLight)
 
-    const hemisphereLight = new THREE.HemisphereLight('#b9e4ff', '#09111c', 1.1)
+    const hemisphereLight = new THREE.HemisphereLight('#ebf0f4', '#51606f', 0.5)
     hemisphereLight.position.set(0, 0, 1)
     scene.add(hemisphereLight)
 
-    const keyLight = new THREE.DirectionalLight('#fff2d7', 1.8)
-    keyLight.position.set(1, -1, 2)
-    scene.add(keyLight)
+    const keyLight = new THREE.DirectionalLight('#fff5ea', 1.35)
+    keyLight.position.set(1.8, -1.4, 1.8)
+    keyLight.target.position.set(0, 0, -5)
+    cameraLightRig.add(keyLight)
+    cameraLightRig.add(keyLight.target)
 
-    const fillLight = new THREE.DirectionalLight('#78d6ff', 0.9)
-    fillLight.position.set(-1, 1, 1.2)
-    scene.add(fillLight)
+    const fillLight = new THREE.DirectionalLight('#d7e4ee', 0.38)
+    fillLight.position.set(-1.6, 1.2, 0.9)
+    fillLight.target.position.set(0, 0, -5)
+    cameraLightRig.add(fillLight)
+    cameraLightRig.add(fillLight.target)
+
+    const rimLight = new THREE.DirectionalLight('#f8fbff', 0.52)
+    rimLight.position.set(-0.7, -2.3, 2.4)
+    rimLight.target.position.set(0, 0, -4)
+    cameraLightRig.add(rimLight)
+    cameraLightRig.add(rimLight.target)
 
     const rootGroup = new THREE.Group()
     scene.add(rootGroup)
@@ -243,6 +259,7 @@ function CityViewport({
       arcball,
       transform,
       rootGroup,
+      cameraLightRig,
       handleGroup,
       edgeGroup,
       annotationGroup,
@@ -265,6 +282,7 @@ function CityViewport({
       hemisphereLight,
       keyLight,
       fillLight,
+      rimLight,
     }
     runtime.raycaster.params.Points.threshold = 1
     applyViewportTheme(runtime, themeRef.current)
@@ -1451,6 +1469,7 @@ function clearEditPointOverlays(runtime: Runtime) {
 
 function renderViewport(runtime: Runtime) {
   updateCameraClipping(runtime)
+  syncCameraLightRig(runtime)
   runtime.renderer.clear(true, true, true)
   runtime.renderer.render(runtime.scene, runtime.camera)
 }
@@ -1744,8 +1763,8 @@ function centerViewOnExtentPreservingOffset(
 function createMaterial(objectType: string, theme: Theme, semanticMode = false) {
   const material = new THREE.MeshStandardMaterial({
     color: semanticMode ? '#64748b' : baseColorForType(objectType, theme),
-    roughness: 0.72,
-    metalness: 0.08,
+    roughness: 0.82,
+    metalness: 0.02,
     transparent: false,
     opacity: 1,
     depthWrite: true,
@@ -1762,8 +1781,8 @@ function createMaterial(objectType: string, theme: Theme, semanticMode = false) 
 function baseColorForType(objectType: string, theme: Theme) {
   const palette =
     theme === 'light'
-      ? ['#5f7690', '#58708b', '#506884', '#697f98', '#61768f']
-      : ['#577590', '#5b7c99', '#516f88', '#617f98', '#64748b']
+      ? ['#7a828c', '#6e7781', '#828b95', '#727c86', '#87909a']
+      : ['#6f7883', '#78828d', '#68717b', '#838c97', '#707a85']
   const hash = [...objectType].reduce((sum, character) => sum + character.charCodeAt(0), 0)
   return palette[hash % palette.length]
 }
@@ -1772,9 +1791,9 @@ function createErrorMaterial(color: string) {
   const mat = new THREE.MeshStandardMaterial({
     color,
     emissive: color,
-    emissiveIntensity: 0.18,
-    roughness: 0.5,
-    metalness: 0.05,
+    emissiveIntensity: 0.08,
+    roughness: 0.64,
+    metalness: 0.02,
     transparent: false,
     opacity: 1,
     depthWrite: true,
@@ -1787,8 +1806,8 @@ function createErrorMaterial(color: string) {
 function createSemanticMaterial(color: string) {
   const mat = new THREE.MeshStandardMaterial({
     color,
-    roughness: 0.72,
-    metalness: 0.08,
+    roughness: 0.8,
+    metalness: 0.02,
     transparent: false,
     opacity: 1,
     depthWrite: true,
@@ -1816,6 +1835,9 @@ function applyViewportTheme(runtime: Runtime, theme: Theme) {
   runtime.keyLight.intensity = palette.keyIntensity
   runtime.fillLight.color.set(palette.fillLight)
   runtime.fillLight.intensity = palette.fillIntensity
+  runtime.rimLight.color.set(palette.rimLight)
+  runtime.rimLight.intensity = palette.rimIntensity
+  runtime.renderer.toneMappingExposure = palette.exposure
 
   const edgeMaterial = runtime.editBaseEdges?.material as LineMaterial | undefined
   if (edgeMaterial) {
@@ -1842,29 +1864,32 @@ function applyViewportTheme(runtime: Runtime, theme: Theme) {
 function getViewportPalette(theme: Theme) {
   if (theme === 'light') {
     return {
-      fog: '#c7d4e5',
+      fog: '#d9e1e8',
       fogDensity: VIEWPORT_FOG_DENSITY.light,
-      ambient: '#f6f9fd',
-      ambientIntensity: 1.35,
-      hemisphereSky: '#edf5ff',
-      hemisphereGround: '#a8bccf',
-      hemisphereIntensity: 0.92,
-      keyLight: '#fff0d2',
-      keyIntensity: 1.45,
-      fillLight: '#5aa7cc',
-      fillIntensity: 0.68,
-      selectedFeature: '#7dd3fc',
-      selectionEmissive: '#082f49',
-      selectionEmissiveIntensity: 0.18,
-      activeObject: '#f59e0b',
-      activeEmissive: '#78350f',
-      activeEmissiveIntensity: 0.22,
-      semanticActiveEmissiveIntensity: 0.46,
-      baseEmissive: '#020617',
-      baseEmissiveIntensity: 0.18,
+      ambient: '#f6f7f9',
+      ambientIntensity: 0.82,
+      hemisphereSky: '#eef2f5',
+      hemisphereGround: '#7a8794',
+      hemisphereIntensity: 0.44,
+      keyLight: '#fff3e3',
+      keyIntensity: 1.32,
+      fillLight: '#d4dee8',
+      fillIntensity: 0.34,
+      rimLight: '#f7fbff',
+      rimIntensity: 0.42,
+      exposure: 0.96,
+      selectedFeature: '#6eb7d1',
+      selectionEmissive: '#133245',
+      selectionEmissiveIntensity: 0.08,
+      activeObject: '#d8942d',
+      activeEmissive: '#5d3a12',
+      activeEmissiveIntensity: 0.1,
+      semanticActiveEmissiveIntensity: 0.18,
+      baseEmissive: '#000000',
+      baseEmissiveIntensity: 0,
       errorEmissive: '#000000',
-      errorIntensity: 0.18,
-      errorSelectedIntensity: 0.12,
+      errorIntensity: 0.08,
+      errorSelectedIntensity: 0.05,
       editPoint: '#f8fafc',
       selectedEditPoint: '#f59e0b',
       editBaseEdge: '#e2e8f0',
@@ -1879,27 +1904,30 @@ function getViewportPalette(theme: Theme) {
   return {
     fog: '#061120',
     fogDensity: VIEWPORT_FOG_DENSITY.dark,
-    ambient: '#f6f8ff',
-    ambientIntensity: 1.6,
-    hemisphereSky: '#b9e4ff',
-    hemisphereGround: '#09111c',
-    hemisphereIntensity: 1.1,
-    keyLight: '#fff2d7',
-    keyIntensity: 1.8,
-    fillLight: '#78d6ff',
-    fillIntensity: 0.9,
-    selectedFeature: '#7dd3fc',
-    selectionEmissive: '#082f49',
-    selectionEmissiveIntensity: 0.18,
-    activeObject: '#f59e0b',
-    activeEmissive: '#78350f',
-    activeEmissiveIntensity: 0.22,
-    semanticActiveEmissiveIntensity: 0.46,
-    baseEmissive: '#020617',
-    baseEmissiveIntensity: 0.18,
+    ambient: '#edf2f7',
+    ambientIntensity: 0.62,
+    hemisphereSky: '#dfe7ef',
+    hemisphereGround: '#101923',
+    hemisphereIntensity: 0.42,
+    keyLight: '#fff3df',
+    keyIntensity: 1.24,
+    fillLight: '#cad7e2',
+    fillIntensity: 0.28,
+    rimLight: '#edf4fb',
+    rimIntensity: 0.56,
+    exposure: 0.9,
+    selectedFeature: '#77bdd4',
+    selectionEmissive: '#0f2f3f',
+    selectionEmissiveIntensity: 0.1,
+    activeObject: '#de9a30',
+    activeEmissive: '#5a3812',
+    activeEmissiveIntensity: 0.12,
+    semanticActiveEmissiveIntensity: 0.22,
+    baseEmissive: '#000000',
+    baseEmissiveIntensity: 0,
     errorEmissive: '#000000',
-    errorIntensity: 0.18,
-    errorSelectedIntensity: 0.12,
+    errorIntensity: 0.08,
+    errorSelectedIntensity: 0.05,
     editPoint: '#f8fafc',
     selectedEditPoint: '#f59e0b',
     editBaseEdge: '#f8fafc',
@@ -2132,6 +2160,12 @@ function getCurrentViewDirection(runtime: Runtime) {
   return currentDirection.lengthSq() > 0
     ? currentDirection.normalize()
     : new THREE.Vector3(0.45, -0.8, 0.42).normalize()
+}
+
+function syncCameraLightRig(runtime: Runtime) {
+  runtime.cameraLightRig.position.copy(runtime.camera.position)
+  runtime.cameraLightRig.quaternion.copy(runtime.camera.quaternion)
+  runtime.cameraLightRig.updateMatrixWorld(true)
 }
 
 function localCenterFromExtent(extent: ViewerFeature['extent'], center: Vec3) {
