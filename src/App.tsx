@@ -1591,8 +1591,8 @@ function App() {
               )}
             </div>
           ) : (
-            <div className="floating-panel pointer-events-auto flex flex-wrap items-center gap-2 rounded-sm border px-3 py-2.5">
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <div className="floating-panel pointer-events-auto flex flex-wrap items-center gap-1.5 rounded-sm border px-2.5 py-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                 {isPaneCollapsed && (
                   <>
                     <Badge variant="outline" className="border-border bg-background/60 text-foreground/75">
@@ -1613,46 +1613,39 @@ function App() {
                 )}
               </div>
 
-              <div className="ml-auto flex flex-wrap items-center gap-2">
-                <div className="floating-chip flex items-center gap-1 rounded-sm border p-1">
-                  <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2.5" onClick={toggleEditMode}>
-                    <Move3D className="size-3.5" />
-                    {editMode ? 'Exit edit' : 'Edit'}
-                  </Button>
-                  <div className="flex items-center gap-2 rounded-sm px-2 py-1.5">
-                    <span className={cn('text-xs', editMode && activeObject ? 'text-muted-foreground' : 'text-muted-foreground/55')}>
-                      Xray
-                    </span>
-                    <Switch
-                      checked={!hideOccludedEditEdges}
-                      onCheckedChange={(checked) => setHideOccludedEditEdges(!checked)}
-                      disabled={!editMode || !activeObject}
-                      aria-label="Toggle xray view for edit mode"
-                    />
-                  </div>
-                </div>
+              <div className="ml-auto flex flex-wrap items-center gap-1.5">
+                <Button variant="ghost" size="sm" className="h-7 gap-1.5 px-2" onClick={toggleEditMode}>
+                  <Move3D className="size-3.5" />
+                  {editMode ? 'Exit edit' : 'Edit'}
+                </Button>
+                <ToolbarToggleButton
+                  active={!hideOccludedEditEdges}
+                  disabled={!editMode || !activeObject}
+                  onClick={() => setHideOccludedEditEdges((current) => !current)}
+                  ariaLabel="Toggle xray view for edit mode"
+                >
+                  Xray
+                </ToolbarToggleButton>
                 {selectedFeature && (
                   <>
-                    <div className="floating-chip flex items-center gap-2 rounded-sm border px-2.5 py-1.5">
-                      <span className="text-xs text-muted-foreground">Semantics</span>
-                      <Switch
-                        checked={showSemanticSurfaces}
-                        onCheckedChange={setShowSemanticSurfaces}
-                        aria-label="Toggle semantic surface colors"
-                      />
-                    </div>
-                    <div className="floating-chip flex items-center gap-2 rounded-sm border px-2.5 py-1.5">
-                      <span className="text-xs text-muted-foreground">Isolate</span>
-                      <Switch
-                        checked={isolateSelectedFeature}
-                        onCheckedChange={setIsolateSelectedFeature}
-                        aria-label="Toggle isolate selected feature"
-                      />
-                    </div>
+                    <ToolbarToggleButton
+                      active={showSemanticSurfaces}
+                      onClick={() => setShowSemanticSurfaces((current) => !current)}
+                      ariaLabel="Toggle semantic surface colors"
+                    >
+                      Semantics
+                    </ToolbarToggleButton>
+                    <ToolbarToggleButton
+                      active={isolateSelectedFeature}
+                      onClick={() => setIsolateSelectedFeature((current) => !current)}
+                      ariaLabel="Toggle isolate selected feature"
+                    >
+                      Isolate
+                    </ToolbarToggleButton>
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-8 gap-1.5 px-2.5"
+                      className="h-7 gap-1.5 px-2"
                       onClick={centerCurrentSelection}
                     >
                       <LocateFixed className="size-3.5" />
@@ -1660,7 +1653,7 @@ function App() {
                     </Button>
                   </>
                 )}
-                <div className="floating-chip flex items-center gap-2 rounded-sm border px-2.5 py-1.5">
+                <div className="floating-chip flex items-center gap-1.5 rounded-sm border px-2 py-1">
                   <Camera className="size-3.5 text-muted-foreground" />
                   <span className="font-mono text-[11px] text-muted-foreground">{cameraFocalLength}mm</span>
                   <input
@@ -1670,7 +1663,7 @@ function App() {
                     step={1}
                     value={cameraFocalLength}
                     onChange={(event) => setCameraFocalLength(Number(event.target.value))}
-                    className="slider-accent h-2 w-32 cursor-pointer appearance-none rounded-none bg-input"
+                    className="slider-accent h-2 w-24 cursor-pointer appearance-none rounded-none bg-input"
                     aria-label="Camera focal length"
                   />
                 </div>
@@ -1810,6 +1803,42 @@ function DetailSection({
       </div>
       {children}
     </section>
+  )
+}
+
+function ToolbarToggleButton({
+  active,
+  disabled = false,
+  onClick,
+  children,
+  ariaLabel,
+}: {
+  active: boolean
+  disabled?: boolean
+  onClick: () => void
+  children: ReactNode
+  ariaLabel: string
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      disabled={disabled}
+      onClick={onClick}
+      aria-label={ariaLabel}
+      aria-pressed={active}
+      className={cn(
+        'h-7 gap-1.5 rounded-sm border px-2 text-[11px] font-medium',
+        active
+          ? 'border-primary/35 bg-primary/14 text-primary hover:bg-primary/18 hover:text-primary'
+          : 'border-border/70 bg-background/35 text-muted-foreground hover:bg-accent/8 hover:text-foreground',
+        disabled && 'border-border/45 bg-transparent text-muted-foreground/45 hover:bg-transparent hover:text-muted-foreground/45',
+      )}
+    >
+      <span className={cn('size-1.5 rounded-full', active ? 'bg-primary' : 'bg-muted-foreground/45')} />
+      <span>{children}</span>
+    </Button>
   )
 }
 
