@@ -43,6 +43,7 @@ import {
 import { cn } from '@/lib/utils'
 import type {
   Vec3,
+  ViewerCityObject,
   ViewerDataset,
   ViewerFeature,
   ViewerFocusTarget,
@@ -168,6 +169,7 @@ function App() {
   }, [activeObjectId, selectedFeature])
   const visibleDetailErrorCount = visibleDetailErrors.length
   const showErrorTabs = visibleDetailErrorCount > 0
+  const resolvedDetailTab = showErrorTabs ? detailTab : 'attributes'
 
   const featureListItems = useMemo<FeatureListItem[]>(() => {
     if (!dataset) {
@@ -600,6 +602,13 @@ function App() {
     })
     setFocusRevision((current) => current + 1)
   }
+
+  const handleSelectDetailObject = useCallback((objectId: string) => {
+    setActiveObjectId(objectId)
+    setSelectedFaceIndex(null)
+    setSelectedFaceRingIndex(0)
+    setSelectedVertexIndex(null)
+  }, [])
 
   const toggleEditMode = useCallback(() => {
     if (isMobileLayout) {
@@ -1168,7 +1177,7 @@ function App() {
               )}
 
               {(!isMobileLayout || mobilePanelView === 'details') && (
-              <Tabs value={detailTab} onValueChange={setDetailTab} asChild>
+              <Tabs value={resolvedDetailTab} onValueChange={setDetailTab} asChild>
                 <section
                   className={cn(
                     'flex min-w-0 flex-col border-t border-border',
@@ -1234,30 +1243,11 @@ function App() {
 
                     {detailPaneMode !== 'collapsed' && selectedFeature && (
                       <>
-                        <div className="flex flex-wrap gap-1.5">
-                          {selectedFeature.objects.map((object) => (
-                            <button
-                              key={object.id}
-                              type="button"
-                              onClick={() => {
-                                setActiveObjectId(object.id)
-                                setSelectedFaceIndex(null)
-                                setSelectedFaceRingIndex(0)
-                                setSelectedVertexIndex(null)
-                              }}
-                              className={cn(
-                                'flex items-center gap-1.5 rounded-sm border px-2 py-1 text-left text-xs transition',
-                                object.id === activeObjectId
-                                  ? 'border-primary/40 bg-primary/10 text-foreground'
-                                  : 'border-foreground/8 bg-foreground/3 text-foreground/70 hover:border-foreground/16 hover:bg-foreground/6',
-                              )}
-                            >
-                              <span className="truncate font-medium">{object.id}</span>
-                              <span className="shrink-0 text-[10px] text-muted-foreground">{object.type}</span>
-                            </button>
-                          ))}
-                        </div>
-
+                        <ObjectCarousel
+                          objects={selectedFeature.objects}
+                          activeObjectId={activeObject?.id ?? null}
+                          onSelectObject={handleSelectDetailObject}
+                        />
                       </>
                     )}
                   </div>
@@ -1267,26 +1257,28 @@ function App() {
                       <div className="min-w-0 space-y-4 p-4 pt-0">
                         {selectedFeature ? (
                           <>
+                            <div className="flex items-center">
+                              <TabsList className="floating-chip shrink-0 rounded-sm border p-1">
+                                {showErrorTabs && (
+                                  <TabsTrigger
+                                    value="errors"
+                                    className="h-8 border-transparent bg-transparent px-2.5 text-foreground/72 hover:border-transparent hover:bg-accent/8 data-[state=active]:border-transparent data-[state=active]:bg-secondary data-[state=active]:text-secondary-foreground"
+                                  >
+                                    Errors{visibleDetailErrorCount > 0 ? ` (${visibleDetailErrorCount})` : ''}
+                                  </TabsTrigger>
+                                )}
+                                <TabsTrigger
+                                  value="attributes"
+                                  className="h-8 border-transparent bg-transparent px-2.5 text-foreground/72 hover:border-transparent hover:bg-accent/8 data-[state=active]:border-transparent data-[state=active]:bg-secondary data-[state=active]:text-secondary-foreground"
+                                >
+                                  Attributes ({selectedFeatureAttributeCount})
+                                </TabsTrigger>
+                              </TabsList>
+                              <div className="detail-rule -ml-px h-px flex-1" />
+                            </div>
+
                             {showErrorTabs ? (
                               <>
-                                <div className="flex items-center gap-3">
-                                  <TabsList className="floating-chip shrink-0 rounded-sm border p-1">
-                                    <TabsTrigger
-                                      value="errors"
-                                      className="h-8 border-transparent bg-transparent px-2.5 text-foreground/72 hover:border-transparent hover:bg-accent/8 data-[state=active]:border-transparent data-[state=active]:bg-secondary data-[state=active]:text-secondary-foreground"
-                                    >
-                                      Errors{visibleDetailErrorCount > 0 ? ` (${visibleDetailErrorCount})` : ''}
-                                    </TabsTrigger>
-                                    <TabsTrigger
-                                      value="attributes"
-                                      className="h-8 border-transparent bg-transparent px-2.5 text-foreground/72 hover:border-transparent hover:bg-accent/8 data-[state=active]:border-transparent data-[state=active]:bg-secondary data-[state=active]:text-secondary-foreground"
-                                    >
-                                      Attributes ({selectedFeatureAttributeCount})
-                                    </TabsTrigger>
-                                  </TabsList>
-                                  <div className="detail-rule h-px flex-1" />
-                                </div>
-
                                 <TabsContent value="errors">
                                   <div className="space-y-3">
                                     {visibleDetailErrorCount > 0 ? (
@@ -1362,9 +1354,7 @@ function App() {
                                 </TabsContent>
                               </>
                             ) : (
-                              <DetailSection title="Attributes">
-                                <AttributeList attributes={selectedFeature.attributes} />
-                              </DetailSection>
+                              <AttributeList attributes={selectedFeature.attributes} />
                             )}
                           </>
                         ) : (
@@ -1771,6 +1761,99 @@ function App() {
   )
 }
 
+const ObjectCarousel = memo(function ObjectCarousel({
+  objects,
+  activeObjectId,
+  onSelectObject,
+}: {
+  objects: ViewerCityObject[]
+  activeObjectId: string | null
+  onSelectObject: (objectId: string) => void
+}) {
+  const activeButtonRef = useRef<HTMLButtonElement | null>(null)
+  const activeIndex = objects.findIndex((object) => object.id === activeObjectId)
+  const resolvedIndex = activeIndex >= 0 ? activeIndex : 0
+  const resolvedActiveObjectId = objects[resolvedIndex]?.id ?? null
+  const hasPrev = resolvedIndex > 0
+  const hasNext = resolvedIndex >= 0 && resolvedIndex < objects.length - 1
+
+  useEffect(() => {
+    activeButtonRef.current?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'nearest',
+      inline: 'center',
+    })
+  }, [resolvedActiveObjectId])
+
+  const selectRelativeObject = useCallback((direction: -1 | 1) => {
+    const nextObject = objects[resolvedIndex + direction]
+    if (!nextObject) {
+      return
+    }
+
+    onSelectObject(nextObject.id)
+  }, [objects, onSelectObject, resolvedIndex])
+
+  return (
+    <div className="relative">
+      <div className={cn('object-carousel-scroll no-scrollbar overflow-x-auto py-0.5', objects.length > 1 ? 'px-12' : 'px-0')}>
+        <div className={cn('flex w-max items-center gap-1.5', objects.length > 1 && 'min-w-full')}>
+          {objects.map((object) => {
+            const isActive = object.id === resolvedActiveObjectId
+
+            return (
+              <button
+                key={object.id}
+                ref={isActive ? activeButtonRef : null}
+                type="button"
+                onClick={() => onSelectObject(object.id)}
+                className={cn(
+                  'flex shrink-0 items-center gap-1.5 rounded-sm border px-2 py-1 text-left text-xs transition',
+                  isActive
+                    ? 'border-primary/40 bg-primary/10 text-foreground'
+                    : 'border-foreground/8 bg-foreground/3 text-foreground/70 hover:border-foreground/16 hover:bg-foreground/6',
+                )}
+              >
+                <span className="max-w-[14rem] truncate font-medium">{object.id}</span>
+                <span className="shrink-0 text-[10px] text-muted-foreground">{object.type}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {objects.length > 1 && (
+        <>
+          <button
+            type="button"
+            onClick={() => selectRelativeObject(-1)}
+            disabled={!hasPrev}
+            aria-label="Select previous object"
+            className={cn(
+              'object-carousel-edge-left absolute inset-y-0 left-0 z-10 flex w-11 items-center justify-start pl-1.5 text-muted-foreground transition',
+              hasPrev ? 'cursor-pointer hover:text-foreground' : 'pointer-events-none opacity-0',
+            )}
+          >
+            <ChevronLeft className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => selectRelativeObject(1)}
+            disabled={!hasNext}
+            aria-label="Select next object"
+            className={cn(
+              'object-carousel-edge-right absolute inset-y-0 right-0 z-10 flex w-11 items-center justify-end pr-1.5 text-muted-foreground transition',
+              hasNext ? 'cursor-pointer hover:text-foreground' : 'pointer-events-none opacity-0',
+            )}
+          >
+            <ChevronRight className="size-4" />
+          </button>
+        </>
+      )}
+    </div>
+  )
+})
+
 const FeatureListRow = memo(function FeatureListRow({
   item,
   selected,
@@ -1852,24 +1935,6 @@ const FeatureListRow = memo(function FeatureListRow({
         <Crosshair className="size-4" />
       </Button>
     </div>
-  )
-})
-
-const DetailSection = memo(function DetailSection({
-  title,
-  children,
-}: {
-  title: string
-  children: ReactNode
-}) {
-  return (
-    <section className="min-w-0 space-y-3">
-      <div className="flex items-center gap-2">
-        <div className="detail-rule h-px flex-1" />
-        <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{title}</p>
-      </div>
-      {children}
-    </section>
   )
 })
 

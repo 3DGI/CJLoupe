@@ -158,6 +158,27 @@
     background: color-mix(in oklch, var(--border) 84%, transparent);
   }
 
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .object-carousel-scroll {
+    scroll-padding-inline: 3rem;
+  }
+
+  .object-carousel-edge-left {
+    background: linear-gradient(90deg, var(--background) 28%, color-mix(in oklch, var(--background) 76%, transparent) 68%, transparent);
+  }
+
+  .object-carousel-edge-right {
+    background: linear-gradient(270deg, var(--background) 28%, color-mix(in oklch, var(--background) 76%, transparent) 68%, transparent);
+  }
+
   .slider-accent {
     accent-color: var(--accent);
   }
