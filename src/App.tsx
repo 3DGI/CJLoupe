@@ -60,6 +60,7 @@ const DEFAULT_CAMERA_FOCAL_LENGTH = 50
 type DetailPaneMode = 'split' | 'collapsed' | 'fullscreen'
 type MobileInspectMode = 'object' | 'surface'
 type MobilePanelView = 'features' | 'details'
+type HelpItem = { keys: string; description: string }
 
 const CityViewport = lazy(() =>
   import('@/components/viewer/city-viewport').then((module) => ({ default: module.CityViewport })),
@@ -148,6 +149,7 @@ function App() {
     () => getFaceVertexCycle(selectedFace, activeFaceRingIndex),
     [activeFaceRingIndex, selectedFace],
   )
+  const selectedFaceVertexCount = selectedFaceVertexIndices.length
   const selectedFaceRingLabel =
     selectedFaceRingCount === 0
       ? 'No ring selected'
@@ -170,6 +172,13 @@ function App() {
   const visibleDetailErrorCount = visibleDetailErrors.length
   const showErrorTabs = visibleDetailErrorCount > 0
   const resolvedDetailTab = showErrorTabs ? detailTab : 'attributes'
+  const activeSemanticSurface = selectedSemanticSurface?.surface
+    ? {
+        objectId: selectedSemanticSurface.objectId,
+        faceIndex: selectedSemanticSurface.faceIndex,
+        surface: selectedSemanticSurface.surface,
+      }
+    : null
 
   const featureListItems = useMemo<FeatureListItem[]>(() => {
     if (!dataset) {
@@ -835,11 +844,16 @@ function App() {
 
   const helpStatusText = isLoading ? 'Loading CityJSON feature sequence…' : null
   const isErrorDialogVisible = Boolean(error && dismissedErrorMessage !== error)
+  const isPaneContentVisible = isMobileLayout ? !isPaneCollapsed : true
+  const isFeaturePanelVisible = !isMobileLayout || mobilePanelView === 'features'
+  const isDetailPanelVisible = !isMobileLayout || mobilePanelView === 'details'
+  const detailOverlayPositionClass = isMobileLayout ? 'bottom-20 left-3 right-3' : 'bottom-20 left-4 max-w-md'
+  const viewportToolbarPositionClass = isMobileLayout ? 'left-3 right-3 top-4' : 'bottom-4 left-4 right-4'
   const mobilePanelTabs: Array<{ view: MobilePanelView; label: string; disabled?: boolean }> = [
     { view: 'features', label: 'Features' },
     { view: 'details', label: 'Details', disabled: !selectedFeature },
   ]
-  const helpItems = isMobileLayout
+  const helpItems: HelpItem[] = isMobileLayout
     ? [
         {
           keys: 'Tap',
@@ -1059,7 +1073,7 @@ function App() {
             </div>
           </div>
 
-          {(isMobileLayout ? !isPaneCollapsed : true) && (
+          {isPaneContentVisible && (
             <div
               aria-hidden={!isMobileLayout && isPaneCollapsed}
               className={cn(
@@ -1098,7 +1112,7 @@ function App() {
                 </div>
               )}
 
-              {(isMobileLayout ? mobilePanelView === 'features' : true) && (
+              {isFeaturePanelVisible && (
                 <section
                   aria-hidden={!isMobileLayout && detailPaneMode === 'fullscreen'}
                   className={cn(
@@ -1174,7 +1188,7 @@ function App() {
                 </section>
               )}
 
-              {(!isMobileLayout || mobilePanelView === 'details') && (
+              {isDetailPanelVisible && (
               <Tabs value={resolvedDetailTab} onValueChange={setDetailTab} asChild>
                 <section
                   className={cn(
@@ -1404,296 +1418,73 @@ function App() {
         </div>
 
         {editMode && activeObject && (
-          <div className={cn(
-            'pointer-events-none absolute z-10',
-            isMobileLayout ? 'bottom-20 left-3 right-3' : 'bottom-20 left-4 max-w-md',
-          )}>
-            <div className="space-y-2">
-              {selectedVertex && (
-                <div className="floating-panel pointer-events-auto rounded-sm border px-3 py-2 font-mono text-[11px] text-muted-foreground">
-                  vtx {selectedVertexIndex}
-                  <span className="mx-1 text-border">|</span>
-                  {selectedVertex[0].toFixed(3)}, {selectedVertex[1].toFixed(3)}, {selectedVertex[2].toFixed(3)}
-                </div>
-              )}
-              <div className="floating-panel pointer-events-auto space-y-2 rounded-sm border p-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
-                  {selectedFaceIndex != null ? `Face ${selectedFaceIndex}` : 'No face selected'}
-                </Badge>
-                {selectedFaceRingCount > 0 && (
-                  <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
-                    {selectedFaceRingLabel}
-                  </Badge>
-                )}
-                {selectedFaceVertexIndices.length > 0 && (
-                  <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
-                    {selectedFaceVertexIndices.length} vertices
-                  </Badge>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 px-2.5"
-                  onClick={cycleSelectedFaceRing}
-                  disabled={selectedFaceHoleCount === 0}
-                >
-                  Next ring (R)
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 px-2.5"
-                  onClick={() => cycleSelectedFaceVertex(-1)}
-                  disabled={selectedFaceVertexIndices.length === 0}
-                >
-                  Prev vertex (J)
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 px-2.5"
-                  onClick={() => cycleSelectedFaceVertex(1)}
-                  disabled={selectedFaceVertexIndices.length === 0}
-                >
-                  Next vertex (K)
-                </Button>
-              </div>
-              </div>
-            </div>
-          </div>
+          <EditSelectionOverlay
+            positionClassName={detailOverlayPositionClass}
+            selectedVertex={selectedVertex}
+            selectedVertexIndex={selectedVertexIndex}
+            selectedFaceIndex={selectedFaceIndex}
+            selectedFaceRingCount={selectedFaceRingCount}
+            selectedFaceRingLabel={selectedFaceRingLabel}
+            selectedFaceVertexCount={selectedFaceVertexCount}
+            selectedFaceHoleCount={selectedFaceHoleCount}
+            onCycleSelectedFaceRing={cycleSelectedFaceRing}
+            onCycleSelectedFaceVertex={cycleSelectedFaceVertex}
+          />
         )}
 
-        {!editMode && showSemanticSurfaces && selectedSemanticSurface?.surface && (
-          <div className={cn(
-            'pointer-events-none absolute z-10',
-            isMobileLayout ? 'bottom-20 left-3 right-3' : 'bottom-20 left-4 max-w-md',
-          )}>
-            <div className="floating-panel pointer-events-auto space-y-3 rounded-sm border p-3">
-              {(() => {
-                const surfaceColor = semanticSurfaceColor(selectedSemanticSurface.surface.type)
-                return (
-              <div className="flex items-center gap-2">
-                <Badge
-                  variant="outline"
-                  className="text-foreground"
-                  style={{
-                    borderColor: `${surfaceColor}66`,
-                    backgroundColor: `${surfaceColor}22`,
-                    color: surfaceColor,
-                  }}
-                >
-                  {selectedSemanticSurface.surface.type}
-                </Badge>
-                <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
-                  {selectedSemanticSurface.objectId}
-                </Badge>
-                <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
-                  face {selectedSemanticSurface.faceIndex}
-                </Badge>
-              </div>
-                )
-              })()}
-
-              {Object.keys(selectedSemanticSurface.surface.attributes).length > 0 ? (
-                <dl className="m-0 space-y-2">
-                  {Object.entries(selectedSemanticSurface.surface.attributes).map(([key, value]) => (
-                    <div
-                      key={key}
-                      className="rounded-sm border border-foreground/8 bg-foreground/3 px-2.5 py-1.5"
-                    >
-                      <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
-                        {key}
-                      </dt>
-                      <dd className="mt-1 text-sm text-foreground/80">{formatValue(value)}</dd>
-                    </div>
-                  ))}
-                </dl>
-              ) : (
-                <p className="text-sm text-muted-foreground">No semantic surface attributes.</p>
-              )}
-            </div>
-          </div>
+        {!editMode && showSemanticSurfaces && activeSemanticSurface && (
+          <SemanticSurfaceOverlay
+            positionClassName={detailOverlayPositionClass}
+            semanticSurface={activeSemanticSurface}
+          />
         )}
 
         <div
           className={cn(
             'pointer-events-none absolute z-10',
-            isMobileLayout ? 'left-3 right-3 top-4' : 'bottom-4 left-4 right-4',
+            viewportToolbarPositionClass,
           )}
         >
           {isMobileLayout ? (
-            <div className="floating-panel pointer-events-auto flex items-center gap-2 rounded-sm border px-2 py-2">
-              {selectedFeature && (
-                <Button
-                  variant={showSemanticSurfaces ? 'secondary' : 'ghost'}
-                  size="sm"
-                  className="h-8 px-2.5"
-                  onClick={() => setShowSemanticSurfaces((current) => !current)}
-                >
-                  Sem
-                </Button>
-              )}
-              {selectedFeature && showSemanticSurfaces && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 px-2.5"
-                  onClick={() =>
-                    setMobileInspectMode((current) => (current === 'object' ? 'surface' : 'object'))
-                  }
-                >
-                  {mobileInspectMode === 'surface' ? 'Surface' : 'Object'}
-                </Button>
-              )}
-              {selectedFeature && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="ml-auto h-8 gap-1.5 px-2.5"
-                  onClick={centerCurrentSelection}
-                >
-                  <LocateFixed className="size-3.5" />
-                  Center
-                </Button>
-              )}
-            </div>
+            <MobileViewportToolbar
+              hasSelectedFeature={Boolean(selectedFeature)}
+              showSemanticSurfaces={showSemanticSurfaces}
+              mobileInspectMode={mobileInspectMode}
+              onToggleSemanticSurfaces={() => setShowSemanticSurfaces((current) => !current)}
+              onToggleMobileInspectMode={() =>
+                setMobileInspectMode((current) => (current === 'object' ? 'surface' : 'object'))
+              }
+              onCenterCurrentSelection={centerCurrentSelection}
+            />
           ) : (
-            <div className="floating-panel pointer-events-auto flex flex-wrap items-center gap-1.5 rounded-sm border px-2.5 py-2">
-              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                {isPaneCollapsed && (
-                  <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">
-                    <SquareMousePointer className="mr-1 size-3.5" />
-                    {activeObject?.id ?? 'No object'}
-                  </Badge>
-                )}
-              </div>
-
-              <div className="ml-auto flex flex-wrap items-center gap-1.5">
-                <div className="floating-chip flex items-center gap-1 rounded-sm border p-1">
-                  <Button variant="ghost" size="sm" className="h-7 gap-1.5 px-2 transition-none" onClick={toggleEditMode}>
-                    <Move3D className="size-3.5" />
-                    {editMode ? 'Exit edit' : 'Edit'}
-                  </Button>
-                  <ToolbarToggleButton
-                    active={!hideOccludedEditEdges}
-                    disabled={!editMode || !activeObject}
-                    onClick={() => setHideOccludedEditEdges((current) => !current)}
-                    ariaLabel="Toggle xray view for edit mode"
-                  >
-                    Xray
-                  </ToolbarToggleButton>
-                </div>
-                {selectedFeature && (
-                  <>
-                    <ToolbarToggleButton
-                      active={showSemanticSurfaces}
-                      onClick={() => setShowSemanticSurfaces((current) => !current)}
-                      ariaLabel="Toggle semantic surface colors"
-                    >
-                      Semantics
-                    </ToolbarToggleButton>
-                    <ToolbarToggleButton
-                      active={isolateSelectedFeature}
-                      onClick={() => setIsolateSelectedFeature((current) => !current)}
-                      ariaLabel="Toggle isolate selected feature"
-                    >
-                      Isolate
-                    </ToolbarToggleButton>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7 transition-none"
-                      onClick={centerCurrentSelection}
-                      aria-label="Center current selection"
-                      title="Center current selection"
-                    >
-                      <LocateFixed className="size-3.5" />
-                    </Button>
-                  </>
-                )}
-                <div className="floating-chip flex items-center gap-1.5 rounded-sm border px-2 py-1">
-                  <Camera className="size-3.5 text-muted-foreground" />
-                  <span className="font-mono text-[11px] text-muted-foreground">{cameraFocalLength}mm</span>
-                  <input
-                    type="range"
-                    min={12}
-                    max={120}
-                    step={1}
-                    value={cameraFocalLength}
-                    onChange={(event) => setCameraFocalLength(Number(event.target.value))}
-                    className="slider-accent h-2 w-24 cursor-pointer appearance-none rounded-none bg-input"
-                    aria-label="Camera focal length"
-                  />
-                </div>
-              </div>
-            </div>
+            <DesktopViewportToolbar
+              isPaneCollapsed={isPaneCollapsed}
+              activeObjectId={activeObject?.id ?? null}
+              editMode={editMode}
+              xrayActive={!hideOccludedEditEdges}
+              xrayDisabled={!editMode || !activeObject}
+              hasSelectedFeature={Boolean(selectedFeature)}
+              showSemanticSurfaces={showSemanticSurfaces}
+              isolateSelectedFeature={isolateSelectedFeature}
+              cameraFocalLength={cameraFocalLength}
+              onToggleEditMode={toggleEditMode}
+              onToggleXray={() => setHideOccludedEditEdges((current) => !current)}
+              onToggleSemanticSurfaces={() => setShowSemanticSurfaces((current) => !current)}
+              onToggleIsolateSelectedFeature={() => setIsolateSelectedFeature((current) => !current)}
+              onCenterCurrentSelection={centerCurrentSelection}
+              onCameraFocalLengthChange={setCameraFocalLength}
+            />
           )}
         </div>
 
         {!isMobileLayout && (
-        <div
-          className="pointer-events-none absolute right-4 top-4 z-10 max-w-md"
-        >
-          <div
-            className={cn(
-              'floating-panel pointer-events-auto flex items-start gap-3 rounded-sm border text-sm',
-              isHelpCollapsed ? 'px-2 py-2' : 'max-w-sm px-3 py-3',
-            )}
-          >
-            {!isHelpCollapsed && (
-              <div id="viewport-help-panel" className="min-w-0 flex-1 space-y-3">
-                <div>
-                  <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                    {isMobileLayout ? 'Mobile' : 'Hotkeys'}
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {isMobileLayout ? 'Touch inspection' : (editMode ? 'Edit mode controls' : 'Navigation and selection')}
-                  </p>
-                </div>
-
-                <div className="grid gap-1.5">
-                  {helpItems.map((hotkey) => (
-                    <div key={hotkey.keys} className="flex items-center justify-between gap-3">
-                      <Badge variant="outline" className="shrink-0 font-mono text-[10px] text-foreground/80 transition-none">
-                        {hotkey.keys}
-                      </Badge>
-                      <span className="text-right text-xs leading-5 text-foreground/76">
-                        {hotkey.description}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                {helpStatusText && (
-                  <p className="border-t border-border pt-2 text-xs leading-5 text-muted-foreground">
-                    {helpStatusText}
-                  </p>
-                )}
-              </div>
-            )}
-
-            <div className="ml-auto flex shrink-0 items-start gap-1">
-              <Button
-                type="button"
-                variant="ghost"
-                className="h-8 shrink-0 gap-1 px-2"
-                onClick={() => setIsHelpCollapsed((current) => !current)}
-                aria-label={isHelpCollapsed ? 'Expand hotkey panel' : 'Collapse hotkey panel'}
-                aria-expanded={!isHelpCollapsed}
-                aria-controls="viewport-help-panel"
-              >
-                <CircleHelp className="size-4" />
-                {isHelpCollapsed ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
-              </Button>
-            </div>
-          </div>
-        </div>
+          <ViewportHelpPanel
+            isCollapsed={isHelpCollapsed}
+            subtitle={editMode ? 'Edit mode controls' : 'Navigation and selection'}
+            helpItems={helpItems}
+            helpStatusText={helpStatusText}
+            onToggleCollapsed={() => setIsHelpCollapsed((current) => !current)}
+          />
         )}
       </div>
 
@@ -1748,6 +1539,379 @@ function App() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function EditSelectionOverlay({
+  positionClassName,
+  selectedVertex,
+  selectedVertexIndex,
+  selectedFaceIndex,
+  selectedFaceRingCount,
+  selectedFaceRingLabel,
+  selectedFaceVertexCount,
+  selectedFaceHoleCount,
+  onCycleSelectedFaceRing,
+  onCycleSelectedFaceVertex,
+}: {
+  positionClassName: string
+  selectedVertex: Vec3 | null
+  selectedVertexIndex: number | null
+  selectedFaceIndex: number | null
+  selectedFaceRingCount: number
+  selectedFaceRingLabel: string
+  selectedFaceVertexCount: number
+  selectedFaceHoleCount: number
+  onCycleSelectedFaceRing: () => void
+  onCycleSelectedFaceVertex: (direction: -1 | 1) => void
+}) {
+  return (
+    <div className={cn('pointer-events-none absolute z-10', positionClassName)}>
+      <div className="space-y-2">
+        {selectedVertex && (
+          <div className="floating-panel pointer-events-auto rounded-sm border px-3 py-2 font-mono text-[11px] text-muted-foreground">
+            vtx {selectedVertexIndex}
+            <span className="mx-1 text-border">|</span>
+            {selectedVertex[0].toFixed(3)}, {selectedVertex[1].toFixed(3)}, {selectedVertex[2].toFixed(3)}
+          </div>
+        )}
+        <div className="floating-panel pointer-events-auto space-y-2 rounded-sm border p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
+              {selectedFaceIndex != null ? `Face ${selectedFaceIndex}` : 'No face selected'}
+            </Badge>
+            {selectedFaceRingCount > 0 && (
+              <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
+                {selectedFaceRingLabel}
+              </Badge>
+            )}
+            {selectedFaceVertexCount > 0 && (
+              <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
+                {selectedFaceVertexCount} vertices
+              </Badge>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 px-2.5"
+              onClick={onCycleSelectedFaceRing}
+              disabled={selectedFaceHoleCount === 0}
+            >
+              Next ring (R)
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 px-2.5"
+              onClick={() => onCycleSelectedFaceVertex(-1)}
+              disabled={selectedFaceVertexCount === 0}
+            >
+              Prev vertex (J)
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 px-2.5"
+              onClick={() => onCycleSelectedFaceVertex(1)}
+              disabled={selectedFaceVertexCount === 0}
+            >
+              Next vertex (K)
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SemanticSurfaceOverlay({
+  positionClassName,
+  semanticSurface,
+}: {
+  positionClassName: string
+  semanticSurface: {
+    objectId: string
+    faceIndex: number
+    surface: ViewerSemanticSurface
+  }
+}) {
+  const surfaceColor = semanticSurfaceColor(semanticSurface.surface.type)
+
+  return (
+    <div className={cn('pointer-events-none absolute z-10', positionClassName)}>
+      <div className="floating-panel pointer-events-auto space-y-3 rounded-sm border p-3">
+        <div className="flex items-center gap-2">
+          <Badge
+            variant="outline"
+            className="text-foreground"
+            style={{
+              borderColor: `${surfaceColor}66`,
+              backgroundColor: `${surfaceColor}22`,
+              color: surfaceColor,
+            }}
+          >
+            {semanticSurface.surface.type}
+          </Badge>
+          <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
+            {semanticSurface.objectId}
+          </Badge>
+          <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
+            face {semanticSurface.faceIndex}
+          </Badge>
+        </div>
+
+        {Object.keys(semanticSurface.surface.attributes).length > 0 ? (
+          <dl className="m-0 space-y-2">
+            {Object.entries(semanticSurface.surface.attributes).map(([key, value]) => (
+              <div
+                key={key}
+                className="rounded-sm border border-foreground/8 bg-foreground/3 px-2.5 py-1.5"
+              >
+                <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
+                  {key}
+                </dt>
+                <dd className="mt-1 text-sm text-foreground/80">{formatValue(value)}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : (
+          <p className="text-sm text-muted-foreground">No semantic surface attributes.</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function MobileViewportToolbar({
+  hasSelectedFeature,
+  showSemanticSurfaces,
+  mobileInspectMode,
+  onToggleSemanticSurfaces,
+  onToggleMobileInspectMode,
+  onCenterCurrentSelection,
+}: {
+  hasSelectedFeature: boolean
+  showSemanticSurfaces: boolean
+  mobileInspectMode: MobileInspectMode
+  onToggleSemanticSurfaces: () => void
+  onToggleMobileInspectMode: () => void
+  onCenterCurrentSelection: () => void
+}) {
+  return (
+    <div className="floating-panel pointer-events-auto flex items-center gap-2 rounded-sm border px-2 py-2">
+      {hasSelectedFeature && (
+        <Button
+          variant={showSemanticSurfaces ? 'secondary' : 'ghost'}
+          size="sm"
+          className="h-8 px-2.5"
+          onClick={onToggleSemanticSurfaces}
+        >
+          Sem
+        </Button>
+      )}
+      {hasSelectedFeature && showSemanticSurfaces && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 px-2.5"
+          onClick={onToggleMobileInspectMode}
+        >
+          {mobileInspectMode === 'surface' ? 'Surface' : 'Object'}
+        </Button>
+      )}
+      {hasSelectedFeature && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="ml-auto h-8 gap-1.5 px-2.5"
+          onClick={onCenterCurrentSelection}
+        >
+          <LocateFixed className="size-3.5" />
+          Center
+        </Button>
+      )}
+    </div>
+  )
+}
+
+function DesktopViewportToolbar({
+  isPaneCollapsed,
+  activeObjectId,
+  editMode,
+  xrayActive,
+  xrayDisabled,
+  hasSelectedFeature,
+  showSemanticSurfaces,
+  isolateSelectedFeature,
+  cameraFocalLength,
+  onToggleEditMode,
+  onToggleXray,
+  onToggleSemanticSurfaces,
+  onToggleIsolateSelectedFeature,
+  onCenterCurrentSelection,
+  onCameraFocalLengthChange,
+}: {
+  isPaneCollapsed: boolean
+  activeObjectId: string | null
+  editMode: boolean
+  xrayActive: boolean
+  xrayDisabled: boolean
+  hasSelectedFeature: boolean
+  showSemanticSurfaces: boolean
+  isolateSelectedFeature: boolean
+  cameraFocalLength: number
+  onToggleEditMode: () => void
+  onToggleXray: () => void
+  onToggleSemanticSurfaces: () => void
+  onToggleIsolateSelectedFeature: () => void
+  onCenterCurrentSelection: () => void
+  onCameraFocalLengthChange: (value: number) => void
+}) {
+  return (
+    <div className="floating-panel pointer-events-auto flex flex-wrap items-center gap-1.5 rounded-sm border px-2.5 py-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        {isPaneCollapsed && (
+          <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">
+            <SquareMousePointer className="mr-1 size-3.5" />
+            {activeObjectId ?? 'No object'}
+          </Badge>
+        )}
+      </div>
+
+      <div className="ml-auto flex flex-wrap items-center gap-1.5">
+        <div className="floating-chip flex items-center gap-1 rounded-sm border p-1">
+          <Button variant="ghost" size="sm" className="h-7 gap-1.5 px-2 transition-none" onClick={onToggleEditMode}>
+            <Move3D className="size-3.5" />
+            {editMode ? 'Exit edit' : 'Edit'}
+          </Button>
+          <ToolbarToggleButton
+            active={xrayActive}
+            disabled={xrayDisabled}
+            onClick={onToggleXray}
+            ariaLabel="Toggle xray view for edit mode"
+          >
+            Xray
+          </ToolbarToggleButton>
+        </div>
+        {hasSelectedFeature && (
+          <>
+            <ToolbarToggleButton
+              active={showSemanticSurfaces}
+              onClick={onToggleSemanticSurfaces}
+              ariaLabel="Toggle semantic surface colors"
+            >
+              Semantics
+            </ToolbarToggleButton>
+            <ToolbarToggleButton
+              active={isolateSelectedFeature}
+              onClick={onToggleIsolateSelectedFeature}
+              ariaLabel="Toggle isolate selected feature"
+            >
+              Isolate
+            </ToolbarToggleButton>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7 transition-none"
+              onClick={onCenterCurrentSelection}
+              aria-label="Center current selection"
+              title="Center current selection"
+            >
+              <LocateFixed className="size-3.5" />
+            </Button>
+          </>
+        )}
+        <div className="floating-chip flex items-center gap-1.5 rounded-sm border px-2 py-1">
+          <Camera className="size-3.5 text-muted-foreground" />
+          <span className="font-mono text-[11px] text-muted-foreground">{cameraFocalLength}mm</span>
+          <input
+            type="range"
+            min={12}
+            max={120}
+            step={1}
+            value={cameraFocalLength}
+            onChange={(event) => onCameraFocalLengthChange(Number(event.target.value))}
+            className="slider-accent h-2 w-24 cursor-pointer appearance-none rounded-none bg-input"
+            aria-label="Camera focal length"
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ViewportHelpPanel({
+  isCollapsed,
+  subtitle,
+  helpItems,
+  helpStatusText,
+  onToggleCollapsed,
+}: {
+  isCollapsed: boolean
+  subtitle: string
+  helpItems: HelpItem[]
+  helpStatusText: string | null
+  onToggleCollapsed: () => void
+}) {
+  return (
+    <div className="pointer-events-none absolute right-4 top-4 z-10 max-w-md">
+      <div
+        className={cn(
+          'floating-panel pointer-events-auto flex items-start gap-3 rounded-sm border text-sm',
+          isCollapsed ? 'px-2 py-2' : 'max-w-sm px-3 py-3',
+        )}
+      >
+        {!isCollapsed && (
+          <div id="viewport-help-panel" className="min-w-0 flex-1 space-y-3">
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                Hotkeys
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>
+            </div>
+
+            <div className="grid gap-1.5">
+              {helpItems.map((hotkey) => (
+                <div key={hotkey.keys} className="flex items-center justify-between gap-3">
+                  <Badge variant="outline" className="shrink-0 font-mono text-[10px] text-foreground/80 transition-none">
+                    {hotkey.keys}
+                  </Badge>
+                  <span className="text-right text-xs leading-5 text-foreground/76">
+                    {hotkey.description}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {helpStatusText && (
+              <p className="border-t border-border pt-2 text-xs leading-5 text-muted-foreground">
+                {helpStatusText}
+              </p>
+            )}
+          </div>
+        )}
+
+        <div className="ml-auto flex shrink-0 items-start gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-8 shrink-0 gap-1 px-2"
+            onClick={onToggleCollapsed}
+            aria-label={isCollapsed ? 'Expand hotkey panel' : 'Collapse hotkey panel'}
+            aria-expanded={!isCollapsed}
+            aria-controls="viewport-help-panel"
+          >
+            <CircleHelp className="size-4" />
+            {isCollapsed ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }
