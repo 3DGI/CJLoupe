@@ -88,6 +88,12 @@ type Runtime = {
   rimLight: THREE.DirectionalLight
 }
 
+type ObjectGeometryBlueprint = {
+  positions: Float32Array
+  normals: Float32Array
+  polygonTriangleIndices: number[][]
+}
+
 function CityViewport({
   data,
   cameraFocalLength,
@@ -121,6 +127,14 @@ function CityViewport({
   const hideOccludedEditEdgesRef = useRef(hideOccludedEditEdges)
   const isolateSelectedFeatureRef = useRef(isolateSelectedFeature)
   const selectionRef = useRef({
+    selectedFeatureId,
+    activeObjectId,
+    editMode,
+    selectedFaceIndex,
+    selectedFaceRingIndex,
+    selectedVertexIndex,
+  })
+  const previousSelectionRef = useRef({
     selectedFeatureId,
     activeObjectId,
     editMode,
@@ -640,19 +654,22 @@ function CityViewport({
       return
     }
 
+    const selection = selectionRef.current
+    const previousSelection = previousSelectionRef.current
+
     if (runtime.showSemanticSurfaces && !editMode) {
-      rebuildScene(runtime, currentData, selectionRef.current)
-      rebuildAnnotations(runtime)
+      updateSelectionSurfacePresentation(runtime, currentData, previousSelection, selection)
     }
 
     syncSelection(
       runtime,
       currentData,
-      selectionRef.current,
+      selection,
       hideOccludedEditEdgesRef.current,
       isolateSelectedFeatureRef.current,
     )
     renderViewport(runtime)
+    previousSelectionRef.current = selection
   }, [selectedFeatureId, activeObjectId, editMode, selectedFaceIndex, selectedFaceRingIndex, selectedVertexIndex, hideOccludedEditEdges, isolateSelectedFeature])
 
   useEffect(() => {
@@ -710,8 +727,7 @@ function CityViewport({
     runtime.showSemanticSurfaces = showSemanticSurfaces
 
     if (currentData) {
-      rebuildScene(runtime, currentData, selectionRef.current)
-      rebuildAnnotations(runtime)
+      updateSceneSurfacePresentation(runtime, currentData, selectionRef.current)
       syncSelection(
         runtime,
         currentData,
@@ -806,24 +822,15 @@ function rebuildScene(
         continue
       }
 
-      const selectedSemanticFaceIndex =
-        runtime.showSemanticSurfaces &&
-        !selection.editMode &&
-        selection.selectedFeatureId === feature.id &&
-        selection.activeObjectId === object.id
-          ? selection.selectedFaceIndex
-          : null
-      const { faceGroups, groupColors } = runtime.showSemanticSurfaces
-        ? computeFaceSemanticGroups(object.semanticSurfaces, selectedSemanticFaceIndex)
-        : computeFaceErrorGroups(feature.errors, object.id)
-      const geometry = buildObjectGeometry(object.polygons, draftVertices, featureCenter, faceGroups)
-      const baseMaterial = createMaterial(object.type, runtime.theme, runtime.showSemanticSurfaces)
-      const materials = buildMaterialArray(
-        baseMaterial,
-        groupColors,
-        runtime.showSemanticSurfaces ? createSemanticMaterial : createErrorMaterial,
+      const { blueprint, geometry, material } = buildObjectMeshPresentation(
+        runtime,
+        feature,
+        object,
+        selection,
+        draftVertices,
+        featureCenter,
       )
-      const mesh = new THREE.Mesh(geometry, materials.length > 1 ? materials : baseMaterial)
+      const mesh = new THREE.Mesh(geometry, material)
       mesh.position.set(
         featureCenter[0] - data.center[0],
         featureCenter[1] - data.center[1],
@@ -835,6 +842,7 @@ function rebuildScene(
         objectType: object.type,
         featureCenter,
         triangleFaceIndices: geometry.userData.triangleFaceIndices,
+        geometryBlueprint: blueprint,
       }
       runtime.meshesByObjectKey.set(objectKey(feature.id, object.id), mesh)
       runtime.rootGroup.add(mesh)
@@ -868,21 +876,306 @@ function rebuildFeatureGeometry(
     }
 
     const center = (mesh.userData.featureCenter as Vec3) ?? data.center
-    const selectedSemanticFaceIndex =
-      runtime.showSemanticSurfaces &&
-      !selection.editMode &&
-      selection.selectedFeatureId === featureId &&
-      selection.activeObjectId === object.id
-        ? selection.selectedFaceIndex
-        : null
-    const { faceGroups } = runtime.showSemanticSurfaces
-      ? computeFaceSemanticGroups(object.semanticSurfaces, selectedSemanticFaceIndex)
-      : computeFaceErrorGroups(feature.errors, object.id)
-    const nextGeometry = buildObjectGeometry(object.polygons, vertices, center, faceGroups)
-    mesh.geometry.dispose()
-    mesh.geometry = nextGeometry
-    mesh.userData.triangleFaceIndices = nextGeometry.userData.triangleFaceIndices
+    const nextBlueprint = buildObjectGeometryBlueprint(object.polygons, vertices, center)
+    const { faceGroups } = resolveObjectFaceGroups(runtime, feature, object, selection)
+    const nextGeometry = buildGroupedObjectGeometry(nextBlueprint, faceGroups)
+    replaceMeshGeometry(mesh, nextGeometry)
+    mesh.userData.geometryBlueprint = nextBlueprint
   }
+}
+
+function updateSceneSurfacePresentation(
+  runtime: Runtime,
+  data: ViewerDataset,
+  selection: {
+    selectedFeatureId: string | null
+    activeObjectId: string | null
+    editMode: boolean
+    selectedFaceIndex: number | null
+    selectedFaceRingIndex: number
+    selectedVertexIndex: number | null
+  },
+) {
+  for (const feature of data.features) {
+    for (const object of feature.objects) {
+      updateObjectSurfacePresentation(runtime, feature, object, selection)
+    }
+  }
+}
+
+function updateSelectionSurfacePresentation(
+  runtime: Runtime,
+  data: ViewerDataset,
+  previousSelection: {
+    selectedFeatureId: string | null
+    activeObjectId: string | null
+    editMode: boolean
+    selectedFaceIndex: number | null
+    selectedFaceRingIndex: number
+    selectedVertexIndex: number | null
+  },
+  selection: {
+    selectedFeatureId: string | null
+    activeObjectId: string | null
+    editMode: boolean
+    selectedFaceIndex: number | null
+    selectedFaceRingIndex: number
+    selectedVertexIndex: number | null
+  },
+) {
+  const previousObjectKey =
+    previousSelection.selectedFeatureId && previousSelection.activeObjectId
+      ? objectKey(previousSelection.selectedFeatureId, previousSelection.activeObjectId)
+      : null
+  const nextObjectKey =
+    selection.selectedFeatureId && selection.activeObjectId
+      ? objectKey(selection.selectedFeatureId, selection.activeObjectId)
+      : null
+  const didSelectedObjectChange = previousObjectKey !== nextObjectKey
+  const didSelectedFaceChange = previousSelection.selectedFaceIndex !== selection.selectedFaceIndex
+  const didEditModeChange = previousSelection.editMode !== selection.editMode
+
+  if (!didSelectedObjectChange && !didSelectedFaceChange && !didEditModeChange) {
+    return
+  }
+
+  const affectedKeys = new Set<string>()
+  if (previousObjectKey) {
+    affectedKeys.add(previousObjectKey)
+  }
+  if (nextObjectKey) {
+    affectedKeys.add(nextObjectKey)
+  }
+
+  for (const key of affectedKeys) {
+    const [featureId, objectId] = key.split('::')
+    const feature = data.features.find((candidate) => candidate.id === featureId)
+    const object = feature?.objects.find((candidate) => candidate.id === objectId)
+    if (!feature || !object) {
+      continue
+    }
+
+    updateObjectSurfacePresentation(runtime, feature, object, selection)
+  }
+}
+
+function updateObjectSurfacePresentation(
+  runtime: Runtime,
+  feature: ViewerFeature,
+  object: ViewerFeature['objects'][number],
+  selection: {
+    selectedFeatureId: string | null
+    activeObjectId: string | null
+    editMode: boolean
+    selectedFaceIndex: number | null
+    selectedFaceRingIndex: number
+    selectedVertexIndex: number | null
+  },
+) {
+  const mesh = runtime.meshesByObjectKey.get(objectKey(feature.id, object.id))
+  if (!mesh) {
+    return
+  }
+
+  const draftVertices = runtime.featureDrafts.get(feature.id) ?? feature.vertices
+  const featureCenter: Vec3 = [
+    (feature.extent[0] + feature.extent[3]) * 0.5,
+    (feature.extent[1] + feature.extent[4]) * 0.5,
+    (feature.extent[2] + feature.extent[5]) * 0.5,
+  ]
+  const existingBlueprint = mesh.userData.geometryBlueprint as ObjectGeometryBlueprint | undefined
+  const { blueprint, geometry, material } = buildObjectMeshPresentation(
+    runtime,
+    feature,
+    object,
+    selection,
+    draftVertices,
+    featureCenter,
+    existingBlueprint,
+  )
+  replaceMeshGeometry(mesh, geometry)
+  replaceMeshMaterial(mesh, material)
+  mesh.userData.geometryBlueprint = blueprint
+  mesh.userData.triangleFaceIndices = geometry.userData.triangleFaceIndices
+}
+
+function buildObjectMeshPresentation(
+  runtime: Runtime,
+  feature: ViewerFeature,
+  object: ViewerFeature['objects'][number],
+  selection: {
+    selectedFeatureId: string | null
+    activeObjectId: string | null
+    editMode: boolean
+    selectedFaceIndex: number | null
+    selectedFaceRingIndex: number
+    selectedVertexIndex: number | null
+  },
+  vertices: Vec3[],
+  featureCenter: Vec3,
+  existingBlueprint?: ObjectGeometryBlueprint,
+) {
+  const blueprint = existingBlueprint ?? buildObjectGeometryBlueprint(object.polygons, vertices, featureCenter)
+  const { faceGroups, groupColors } = resolveObjectFaceGroups(runtime, feature, object, selection)
+  const geometry = buildGroupedObjectGeometry(blueprint, faceGroups)
+  const baseMaterial = createMaterial(object.type, runtime.theme, runtime.showSemanticSurfaces)
+  const materials = buildMaterialArray(
+    baseMaterial,
+    groupColors,
+    runtime.showSemanticSurfaces ? createSemanticMaterial : createErrorMaterial,
+  )
+
+  return {
+    blueprint,
+    geometry,
+    material: materials.length > 1 ? materials : baseMaterial,
+  }
+}
+
+function resolveObjectFaceGroups(
+  runtime: Runtime,
+  feature: ViewerFeature,
+  object: ViewerFeature['objects'][number],
+  selection: {
+    selectedFeatureId: string | null
+    activeObjectId: string | null
+    editMode: boolean
+    selectedFaceIndex: number | null
+    selectedFaceRingIndex: number
+    selectedVertexIndex: number | null
+  },
+) {
+  const selectedSemanticFaceIndex =
+    runtime.showSemanticSurfaces &&
+    !selection.editMode &&
+    selection.selectedFeatureId === feature.id &&
+    selection.activeObjectId === object.id
+      ? selection.selectedFaceIndex
+      : null
+
+  return runtime.showSemanticSurfaces
+    ? computeFaceSemanticGroups(object.semanticSurfaces, selectedSemanticFaceIndex)
+    : computeFaceErrorGroups(feature.errors, object.id)
+}
+
+function buildObjectGeometryBlueprint(
+  polygons: PolygonRings[],
+  vertices: Vec3[],
+  center: Vec3,
+): ObjectGeometryBlueprint {
+  const positions: number[] = []
+  const polygonTriangleIndices: number[][] = []
+  const previewIndices: number[] = []
+  let offset = 0
+
+  for (let polyIndex = 0; polyIndex < polygons.length; polyIndex += 1) {
+    const polygon = polygons[polyIndex]
+    const projectedPolygon = polygon
+      .map((ring) =>
+        ring
+          .map((index) => vertices[index])
+          .filter((vertex): vertex is Vec3 => Array.isArray(vertex)),
+      )
+      .filter((ring) => ring.length >= 3)
+
+    if (projectedPolygon.length === 0) {
+      polygonTriangleIndices.push([])
+      continue
+    }
+
+    const flatVertices = projectedPolygon.flat()
+    for (const vertex of flatVertices) {
+      positions.push(vertex[0] - center[0], vertex[1] - center[1], vertex[2] - center[2])
+    }
+
+    const polygonIndices: number[] = []
+    const triangles = triangulatePolygon(projectedPolygon)
+    for (const triangle of triangles) {
+      polygonIndices.push(offset + triangle[0], offset + triangle[1], offset + triangle[2])
+      previewIndices.push(offset + triangle[0], offset + triangle[1], offset + triangle[2])
+    }
+    polygonTriangleIndices.push(polygonIndices)
+    offset += flatVertices.length
+  }
+
+  const previewGeometry = new THREE.BufferGeometry()
+  previewGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  previewGeometry.setIndex(previewIndices)
+  previewGeometry.computeVertexNormals()
+
+  const positionArray = (previewGeometry.getAttribute('position') as THREE.BufferAttribute).array
+  const normalAttribute = previewGeometry.getAttribute('normal') as THREE.BufferAttribute | undefined
+  const normalArray = normalAttribute?.array
+  const blueprint: ObjectGeometryBlueprint = {
+    positions: new Float32Array(positionArray as ArrayLike<number>),
+    normals: normalArray
+      ? new Float32Array(normalArray as ArrayLike<number>)
+      : new Float32Array(positionArray.length),
+    polygonTriangleIndices,
+  }
+
+  previewGeometry.dispose()
+  return blueprint
+}
+
+function buildGroupedObjectGeometry(
+  blueprint: ObjectGeometryBlueprint,
+  faceGroups: Map<number, number>,
+) {
+  const groupedIndices = new Map<number, number[]>()
+  const triangleFaceIndicesByGroup = new Map<number, number[]>()
+
+  blueprint.polygonTriangleIndices.forEach((polygonIndices, polyIndex) => {
+    if (polygonIndices.length === 0) {
+      return
+    }
+
+    const groupIndex = faceGroups.get(polyIndex) ?? 0
+    const groupIndices = groupedIndices.get(groupIndex) ?? []
+    groupIndices.push(...polygonIndices)
+    groupedIndices.set(groupIndex, groupIndices)
+
+    const groupFaceIndices = triangleFaceIndicesByGroup.get(groupIndex) ?? []
+    for (let triangleIndex = 0; triangleIndex < polygonIndices.length; triangleIndex += 3) {
+      groupFaceIndices.push(polyIndex)
+    }
+    triangleFaceIndicesByGroup.set(groupIndex, groupFaceIndices)
+  })
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.BufferAttribute(blueprint.positions, 3))
+  geometry.setAttribute('normal', new THREE.BufferAttribute(blueprint.normals, 3))
+
+  const allIndices: number[] = []
+  const triangleFaceIndices: number[] = []
+  const sortedKeys = [...groupedIndices.keys()].sort((a, b) => a - b)
+  for (const key of sortedKeys) {
+    const groupIndices = groupedIndices.get(key) ?? []
+    const groupFaceIndices = triangleFaceIndicesByGroup.get(key) ?? []
+    const start = allIndices.length
+    allIndices.push(...groupIndices)
+    triangleFaceIndices.push(...groupFaceIndices)
+    geometry.addGroup(start, groupIndices.length, key)
+  }
+
+  geometry.setIndex(allIndices)
+  geometry.userData.triangleFaceIndices = triangleFaceIndices
+  geometry.computeBoundingSphere()
+  return geometry
+}
+
+function replaceMeshGeometry(mesh: THREE.Mesh, geometry: THREE.BufferGeometry) {
+  mesh.geometry.dispose()
+  mesh.geometry = geometry
+  mesh.userData.triangleFaceIndices = geometry.userData.triangleFaceIndices
+}
+
+function replaceMeshMaterial(mesh: THREE.Mesh, material: THREE.Material | THREE.Material[]) {
+  const currentMaterials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+  for (const currentMaterial of currentMaterials) {
+    currentMaterial.dispose()
+  }
+  mesh.material = material
 }
 
 function rebuildAnnotations(runtime: Runtime) {
@@ -1239,72 +1532,6 @@ function hideEditWireframe(runtime: Runtime) {
   if (runtime.editActiveRingEdges) {
     runtime.editActiveRingEdges.visible = false
   }
-}
-
-function buildObjectGeometry(
-  polygons: PolygonRings[],
-  vertices: Vec3[],
-  center: Vec3,
-  faceGroups?: Map<number, number>,
-) {
-  const positions: number[] = []
-  const groupedIndices = new Map<number, number[]>()
-  const groupedTriangleFaceIndices = new Map<number, number[]>()
-  let offset = 0
-
-  for (let polyIndex = 0; polyIndex < polygons.length; polyIndex++) {
-    const polygon = polygons[polyIndex]
-    const projectedPolygon = polygon
-      .map((ring) =>
-        ring
-          .map((index) => vertices[index])
-          .filter((vertex): vertex is Vec3 => Array.isArray(vertex)),
-      )
-      .filter((ring) => ring.length >= 3)
-
-    if (projectedPolygon.length === 0) {
-      continue
-    }
-
-    const flatVertices = projectedPolygon.flat()
-    for (const vertex of flatVertices) {
-      positions.push(vertex[0] - center[0], vertex[1] - center[1], vertex[2] - center[2])
-    }
-
-    const groupIndex = faceGroups?.get(polyIndex) ?? 0
-    const bucket = groupedIndices.get(groupIndex) ?? []
-    const bucketFaceIndices = groupedTriangleFaceIndices.get(groupIndex) ?? []
-    const triangles = triangulatePolygon(projectedPolygon)
-    for (const triangle of triangles) {
-      bucket.push(offset + triangle[0], offset + triangle[1], offset + triangle[2])
-      bucketFaceIndices.push(polyIndex)
-    }
-    groupedIndices.set(groupIndex, bucket)
-    groupedTriangleFaceIndices.set(groupIndex, bucketFaceIndices)
-
-    offset += flatVertices.length
-  }
-
-  const allIndices: number[] = []
-  const triangleFaceIndices: number[] = []
-  const geometry = new THREE.BufferGeometry()
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
-
-  const sortedKeys = [...groupedIndices.keys()].sort((a, b) => a - b)
-  for (const key of sortedKeys) {
-    const bucket = groupedIndices.get(key)!
-    const bucketFaceIndices = groupedTriangleFaceIndices.get(key) ?? []
-    const start = allIndices.length
-    allIndices.push(...bucket)
-    triangleFaceIndices.push(...bucketFaceIndices)
-    geometry.addGroup(start, bucket.length, key)
-  }
-
-  geometry.setIndex(allIndices)
-  geometry.userData.triangleFaceIndices = triangleFaceIndices
-  geometry.computeVertexNormals()
-  geometry.computeBoundingSphere()
-  return geometry
 }
 
 function buildEditPoints(

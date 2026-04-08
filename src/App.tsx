@@ -20,7 +20,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
 
 import { Badge } from '@/components/ui/badge'
@@ -31,7 +31,6 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useTheme } from '@/components/use-theme'
-import { CityViewport } from '@/components/viewer/city-viewport'
 import {
   loadCityJsonSequenceFromFile,
   loadCityJsonSequenceFromUrl,
@@ -58,6 +57,10 @@ const DEFAULT_CAMERA_FOCAL_LENGTH = 50
 type DetailPaneMode = 'split' | 'collapsed' | 'fullscreen'
 type MobileInspectMode = 'object' | 'surface'
 type MobilePanelView = 'features' | 'details'
+
+const CityViewport = lazy(() =>
+  import('@/components/viewer/city-viewport').then((module) => ({ default: module.CityViewport })),
+)
 
 type FeatureListItem = {
   feature: ViewerFeature
@@ -1388,32 +1391,34 @@ function App() {
       </aside>
 
       <div className="relative h-full min-w-0 flex-1">
-        <CityViewport
-          key={viewportResetRevision}
-          data={dataset}
-          cameraFocalLength={cameraFocalLength}
-          hideOccludedEditEdges={hideOccludedEditEdges}
-          isolateSelectedFeature={isolateSelectedFeature}
-          geometryRevision={geometryRevision}
-          viewportResetRevision={viewportResetRevision}
-          focusRevision={focusRevision}
-          focusTarget={focusTarget}
-          selectedFeatureId={selectedFeatureId}
-          activeObjectId={activeObjectId}
-          editMode={editMode}
-          selectedFaceIndex={selectedFaceIndex}
-          selectedFaceRingIndex={activeFaceRingIndex}
-          selectedVertexIndex={selectedVertexIndex}
-          showSemanticSurfaces={showSemanticSurfaces}
-          mobileInteraction={isMobileLayout}
-          mobileSelectionMode={mobileInspectMode}
-          onSelectFeature={handleSelectFeature}
-          onSelectFace={handleSelectFace}
-          onSelectVertex={handleSelectVertex}
-          onSelectSemanticSurface={handleSelectSemanticSurface}
-          onVertexCommit={applyFeatureVertices}
-          theme={theme}
-        />
+        <Suspense fallback={<div className="h-full w-full bg-canvas" />}>
+          <CityViewport
+            key={viewportResetRevision}
+            data={dataset}
+            cameraFocalLength={cameraFocalLength}
+            hideOccludedEditEdges={hideOccludedEditEdges}
+            isolateSelectedFeature={isolateSelectedFeature}
+            geometryRevision={geometryRevision}
+            viewportResetRevision={viewportResetRevision}
+            focusRevision={focusRevision}
+            focusTarget={focusTarget}
+            selectedFeatureId={selectedFeatureId}
+            activeObjectId={activeObjectId}
+            editMode={editMode}
+            selectedFaceIndex={selectedFaceIndex}
+            selectedFaceRingIndex={activeFaceRingIndex}
+            selectedVertexIndex={selectedVertexIndex}
+            showSemanticSurfaces={showSemanticSurfaces}
+            mobileInteraction={isMobileLayout}
+            mobileSelectionMode={mobileInspectMode}
+            onSelectFeature={handleSelectFeature}
+            onSelectFace={handleSelectFace}
+            onSelectVertex={handleSelectVertex}
+            onSelectSemanticSurface={handleSelectSemanticSurface}
+            onVertexCommit={applyFeatureVertices}
+            theme={theme}
+          />
+        </Suspense>
 
         <div className="pointer-events-none absolute inset-0 canvas-fade" />
         <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2">
