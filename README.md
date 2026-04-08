@@ -8,6 +8,15 @@ This app was built almost entirely through vibe coding, mostly with Codex 5.4, t
 
 ![CJLoupe screenshot](./Screenshot.png)
 
+## Current capabilities
+
+- 3D viewport for CityJSON feature sequences
+- Collapsible left sidebar with feature list, and feature details
+- Semantic surfaces visualisation
+- val3dity report loading and error visualization
+- Edit mode with face selection, ring cycling, vertex selection, and vertex movement
+- simple mobile UI without edit mode
+
 ## Development
 
 ```bash
@@ -36,15 +45,6 @@ You can load files in two ways:
 - Drag and drop files into the window
 
 When a dataset is already open, the file action lets you either replace the current CityJSON sequence or attach a matching val3dity report.
-
-## Current capabilities
-
-- 3D viewport for CityJSON feature sequences
-- Collapsible left sidebar with feature list, and feature details
-- Semantic surfaces visualisation
-- val3dity report loading and error visualization
-- Edit mode with face selection, ring cycling, vertex selection, and vertex movement
-- simple mobile UI without edit mode
 
 ## Geometry selection
 
