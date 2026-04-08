@@ -8,6 +8,7 @@ import {
   Crosshair,
   FolderOpen,
   Github,
+  Layers3,
   LocateFixed,
   Maximize2,
   Minimize2,
@@ -992,9 +993,6 @@ function App() {
               <Badge variant="outline" className="border-accent/30 bg-accent/10 text-accent">
                 {dataset?.features.length ?? 0}
               </Badge>
-              <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive">
-                {dataset?.features.filter((feature) => feature.errors.length > 0).length ?? 0}
-              </Badge>
             </div>
           </div>
 
@@ -1049,7 +1047,8 @@ function App() {
                     <>
                       <div>
                         <div>
-                          <h1 className="text-lg font-semibold tracking-tight text-foreground">
+                          <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
+                            <Layers3 className="size-4 text-muted-foreground" />
                             Features ({dataset?.features.length ?? 0})
                           </h1>
                         </div>
@@ -1422,15 +1421,15 @@ function App() {
             'pointer-events-none absolute z-10',
             isMobileLayout ? 'bottom-20 left-3 right-3' : 'bottom-24 left-4 max-w-md',
           )}>
-            <div className="floating-panel pointer-events-auto space-y-2 rounded-sm border p-3">
-              <p className="text-sm leading-5 text-foreground/78">
-                Editing <span className="font-semibold text-foreground">{activeObject.id}</span>. Shift-click the active
-                object to select a face, press <span className="font-semibold text-foreground">J</span>
-                {' / '}
-                <span className="font-semibold text-foreground">K</span> to step through the current ring, press
-                <span className="font-semibold text-foreground"> R</span> to cycle rings, or Cmd/Ctrl-click a vertex and
-                drag the gizmo.
-              </p>
+            <div className="space-y-2">
+              {selectedVertex && (
+                <div className="floating-panel pointer-events-auto rounded-sm border px-3 py-2 font-mono text-[11px] text-muted-foreground">
+                  vtx {selectedVertexIndex}
+                  <span className="mx-1 text-border">|</span>
+                  {selectedVertex[0].toFixed(3)}, {selectedVertex[1].toFixed(3)}, {selectedVertex[2].toFixed(3)}
+                </div>
+              )}
+              <div className="floating-panel pointer-events-auto space-y-2 rounded-sm border p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
                   {selectedFaceIndex != null ? `Face ${selectedFaceIndex}` : 'No face selected'}
@@ -1477,6 +1476,7 @@ function App() {
                 >
                   Next vertex (K)
                 </Button>
+              </div>
               </div>
             </div>
           </div>
@@ -1580,38 +1580,28 @@ function App() {
             <div className="floating-panel pointer-events-auto flex flex-wrap items-center gap-1.5 rounded-sm border px-2.5 py-2">
               <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                 {isPaneCollapsed && (
-                  <>
-                    <Badge variant="outline" className="border-border bg-background/60 text-foreground/75">
-                      {selectedFeature?.label ?? 'No feature'}
-                    </Badge>
-                    <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">
-                      <SquareMousePointer className="mr-1 size-3.5" />
-                      {activeObject?.id ?? 'No object'}
-                    </Badge>
-                  </>
-                )}
-                {selectedVertex && (
-                  <span className="font-mono text-[11px] text-muted-foreground">
-                    vtx {selectedVertexIndex}
-                    <span className="mx-1 text-border">|</span>
-                    {selectedVertex[0].toFixed(3)}, {selectedVertex[1].toFixed(3)}, {selectedVertex[2].toFixed(3)}
-                  </span>
+                  <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">
+                    <SquareMousePointer className="mr-1 size-3.5" />
+                    {activeObject?.id ?? 'No object'}
+                  </Badge>
                 )}
               </div>
 
               <div className="ml-auto flex flex-wrap items-center gap-1.5">
-                <Button variant="ghost" size="sm" className="h-7 gap-1.5 px-2" onClick={toggleEditMode}>
-                  <Move3D className="size-3.5" />
-                  {editMode ? 'Exit edit' : 'Edit'}
-                </Button>
-                <ToolbarToggleButton
-                  active={!hideOccludedEditEdges}
-                  disabled={!editMode || !activeObject}
-                  onClick={() => setHideOccludedEditEdges((current) => !current)}
-                  ariaLabel="Toggle xray view for edit mode"
-                >
-                  Xray
-                </ToolbarToggleButton>
+                <div className="floating-chip flex items-center gap-1 rounded-sm border p-1">
+                  <Button variant="ghost" size="sm" className="h-7 gap-1.5 px-2" onClick={toggleEditMode}>
+                    <Move3D className="size-3.5" />
+                    {editMode ? 'Exit edit' : 'Edit'}
+                  </Button>
+                  <ToolbarToggleButton
+                    active={!hideOccludedEditEdges}
+                    disabled={!editMode || !activeObject}
+                    onClick={() => setHideOccludedEditEdges((current) => !current)}
+                    ariaLabel="Toggle xray view for edit mode"
+                  >
+                    Xray
+                  </ToolbarToggleButton>
+                </div>
                 {selectedFeature && (
                   <>
                     <ToolbarToggleButton
@@ -1630,12 +1620,13 @@ function App() {
                     </ToolbarToggleButton>
                     <Button
                       variant="ghost"
-                      size="sm"
-                      className="h-7 gap-1.5 px-2"
+                      size="icon"
+                      className="size-7"
                       onClick={centerCurrentSelection}
+                      aria-label="Center current selection"
+                      title="Center current selection"
                     >
                       <LocateFixed className="size-3.5" />
-                      Center
                     </Button>
                   </>
                 )}
