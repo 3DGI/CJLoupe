@@ -128,11 +128,13 @@ function App() {
   const selectedFeature = selectedFeatureId ? featureMap.get(selectedFeatureId) ?? null : null
   const selectedFeatureObjectCount = selectedFeature?.objects.length ?? 0
   const selectedFeatureErrorCount = selectedFeature?.errors.length ?? 0
-  const selectedFeatureAttributeCount = selectedFeature ? Object.keys(selectedFeature.attributes).length : 0
   const activeObject =
     selectedFeature?.objects.find((object) => object.id === activeObjectId) ??
     selectedFeature?.objects[0] ??
     null
+  const selectedFeatureAttributeCount = selectedFeature ? Object.keys(selectedFeature.attributes).length : 0
+  const activeObjectAttributeCount = activeObject ? Object.keys(activeObject.attributes).length : 0
+  const displayedDetailAttributeCount = activeObject ? activeObjectAttributeCount + selectedFeatureAttributeCount : selectedFeatureAttributeCount
   const selectedVertex =
     selectedFeature && selectedVertexIndex != null
       ? selectedFeature.vertices[selectedVertexIndex] ?? null
@@ -1245,7 +1247,7 @@ function App() {
                           {hasValidationReportLoaded && (
                             <span>{selectedFeatureObjectCount > 1 ? visibleDetailErrorCount : selectedFeatureErrorCount} errors</span>
                           )}
-                          <span>{selectedFeatureAttributeCount} attributes</span>
+                          <span>{displayedDetailAttributeCount} attributes</span>
                         </div>
                       </div>
 
@@ -1379,11 +1381,17 @@ function App() {
                                 </TabsContent>
 
                                 <TabsContent value="attributes">
-                                  <AttributeList attributes={selectedFeature.attributes} />
+                                  <DetailAttributePanel
+                                    objectAttributes={activeObject?.attributes ?? {}}
+                                    parentAttributes={selectedFeature.attributes}
+                                  />
                                 </TabsContent>
                               </>
                             ) : (
-                              <AttributeList attributes={selectedFeature.attributes} />
+                              <DetailAttributePanel
+                                objectAttributes={activeObject?.attributes ?? {}}
+                                parentAttributes={selectedFeature.attributes}
+                              />
                             )}
                           </>
                         ) : (
@@ -2153,6 +2161,67 @@ function ToolbarToggleButton({
       <span className={cn('size-1.5 rounded-full', active ? 'bg-primary' : 'bg-muted-foreground/45')} />
       <span>{children}</span>
     </Button>
+  )
+}
+
+const DetailAttributePanel = memo(function DetailAttributePanel({
+  objectAttributes,
+  parentAttributes,
+}: {
+  objectAttributes: Record<string, unknown>
+  parentAttributes: Record<string, unknown>
+}) {
+  const hasObjectAttributes = Object.keys(objectAttributes).length > 0
+  const hasParentAttributes = Object.keys(parentAttributes).length > 0
+
+  if (!hasObjectAttributes && !hasParentAttributes) {
+    return (
+      <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-4 py-6 text-sm text-muted-foreground">
+        No attributes available for the selected object or its parent feature.
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <AttributeSection
+        title="Object Attributes"
+        attributes={objectAttributes}
+        emptyText="No attributes on the active object."
+      />
+      <AttributeSection
+        title="Parent Attributes"
+        attributes={parentAttributes}
+        emptyText="No attributes on the parent feature."
+      />
+    </div>
+  )
+})
+
+function AttributeSection({
+  title,
+  attributes,
+  emptyText,
+}: {
+  title: string
+  attributes: Record<string, unknown>
+  emptyText: string
+}) {
+  const entries = Object.entries(attributes)
+
+  return (
+    <section className="space-y-2">
+      <div className="flex items-center gap-2">
+        <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">{title}</p>
+      </div>
+      {entries.length > 0 ? (
+        <AttributeList attributes={attributes} />
+      ) : (
+        <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-3 py-4 text-sm text-muted-foreground">
+          {emptyText}
+        </div>
+      )}
+    </section>
   )
 }
 
