@@ -10,10 +10,11 @@ This app was built almost entirely through vibe coding, mostly with Codex 5.4, t
 
 ## Current capabilities
 
-- 3D viewport for [CityJSON feature sequences](https://www.cityjson.org/cityjsonseq/)
+- Loading of [CityJSON feature sequences](https://www.cityjson.org/cityjsonseq/) files
+- 3D viewport with arcball navigation and object picking
+- [val3dity](https://github.com/tudelft3d/val3dity) report loading and error visualization (generate with the val3dity `--report` flag)
 - Collapsible left sidebar with feature list, and feature details
 - Semantic surfaces visualisation
-- [val3dity](https://github.com/tudelft3d/val3dity) report loading and error visualization
 - Edit mode with face selection, ring cycling, vertex selection, and vertex movement
 - Simple mobile UI without edit mode
 
