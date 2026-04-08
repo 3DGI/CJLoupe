@@ -109,6 +109,13 @@
   input {
     font: inherit;
   }
+
+  .theme-changing *,
+  .theme-changing *::before,
+  .theme-changing *::after {
+    transition: none !important;
+    animation: none !important;
+  }
 }
 
 @layer utilities {
@@ -175,7 +182,6 @@
     border-radius: var(--radius) var(--radius) 0 0;
     background: transparent;
     color: color-mix(in oklch, var(--foreground) 72%, transparent);
-    transition: none;
   }
 
   .detail-tab:hover {

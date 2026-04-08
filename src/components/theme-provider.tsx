@@ -4,6 +4,9 @@ import { ThemeContext, type Theme } from '@/components/theme-context'
 
 const STORAGE_KEY = 'cjloupe-theme'
 const MEDIA_QUERY = '(prefers-color-scheme: dark)'
+const THEME_CHANGING_CLASS = 'theme-changing'
+
+let themeTransitionCleanupFrame: number | null = null
 
 function getStoredTheme(): Theme | null {
   const stored = localStorage.getItem(STORAGE_KEY)
@@ -18,9 +21,26 @@ function getInitialTheme(): Theme {
   return getStoredTheme() ?? getSystemTheme()
 }
 
+function suppressTransitionsDuringThemeChange(root: HTMLElement) {
+  root.classList.add(THEME_CHANGING_CLASS)
+
+  if (themeTransitionCleanupFrame != null) {
+    window.cancelAnimationFrame(themeTransitionCleanupFrame)
+  }
+
+  themeTransitionCleanupFrame = window.requestAnimationFrame(() => {
+    themeTransitionCleanupFrame = window.requestAnimationFrame(() => {
+      root.classList.remove(THEME_CHANGING_CLASS)
+      themeTransitionCleanupFrame = null
+    })
+  })
+}
+
 function applyTheme(theme: Theme) {
-  document.documentElement.classList.toggle('dark', theme === 'dark')
-  document.documentElement.style.colorScheme = theme
+  const root = document.documentElement
+  suppressTransitionsDuringThemeChange(root)
+  root.classList.toggle('dark', theme === 'dark')
+  root.style.colorScheme = theme
 }
 
 function ThemeProvider({ children }: { children: ReactNode }) {

@@ -1144,7 +1144,7 @@ function App() {
                       value={searchQuery}
                       onChange={handleSearchQueryChange}
                       placeholder="Search features"
-                      className="h-9 pl-8 transition-none"
+                      className="h-9 pl-8"
                     />
                   </div>
 
@@ -1159,7 +1159,7 @@ function App() {
                       <Switch
                         checked={showOnlyInvalidFeatures}
                         onCheckedChange={handleShowOnlyInvalidFeaturesChange}
-                        className="shrink-0 transition-none"
+                        className="shrink-0"
                         aria-label="Show only features with validation errors"
                       />
                     </div>
@@ -1786,7 +1786,7 @@ function DesktopViewportToolbar({
 
       <div className="ml-auto flex flex-wrap items-center gap-1.5">
         <div className="floating-chip flex items-center gap-1 rounded-sm border p-1">
-          <Button variant="ghost" size="sm" className="h-7 gap-1.5 px-2 transition-none" onClick={onToggleEditMode}>
+          <Button variant="ghost" size="sm" className="h-7 gap-1.5 px-2" onClick={onToggleEditMode}>
             <Move3D className="size-3.5" />
             {editMode ? 'Exit edit' : 'Edit'}
           </Button>
@@ -1818,7 +1818,7 @@ function DesktopViewportToolbar({
             <Button
               variant="ghost"
               size="icon"
-              className="size-7 transition-none"
+              className="size-7"
               onClick={onCenterCurrentSelection}
               aria-label="Center current selection"
               title="Center current selection"
@@ -1879,7 +1879,7 @@ function ViewportHelpPanel({
             <div className="grid gap-1.5">
               {helpItems.map((hotkey) => (
                 <div key={hotkey.keys} className="flex items-center justify-between gap-3">
-                  <Badge variant="outline" className="shrink-0 font-mono text-[10px] text-foreground/80 transition-none">
+                  <Badge variant="outline" className="shrink-0 font-mono text-[10px] text-foreground/80">
                     {hotkey.keys}
                   </Badge>
                   <span className="text-right text-xs leading-5 text-foreground/76">
@@ -2116,7 +2116,7 @@ function ToolbarToggleButton({
       aria-label={ariaLabel}
       aria-pressed={active}
       className={cn(
-        'h-7 gap-1.5 rounded-sm border px-2 text-[11px] font-medium transition-none',
+        'h-7 gap-1.5 rounded-sm border px-2 text-[11px] font-medium',
         active
           ? 'border-primary/35 bg-primary/14 text-primary hover:bg-primary/18 hover:text-primary'
           : 'border-border/70 bg-background/35 text-muted-foreground hover:bg-accent/8 hover:text-foreground',
