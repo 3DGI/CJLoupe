@@ -1153,7 +1153,7 @@ function App() {
                   </div>
 
                   <ScrollArea className="min-h-0 flex-1">
-                    <div className="space-y-1.5 p-3 pt-0">
+                    <div className="space-y-1.5 p-3 pt-2">
                       {filteredFeatureItems.map((item) => (
                         <FeatureListRow
                           key={item.feature.id}
