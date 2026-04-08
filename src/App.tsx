@@ -762,6 +762,18 @@ function App() {
       if (event.key.toLowerCase() === 'x' && editMode) {
         event.preventDefault()
         setHideOccludedEditEdges((current) => !current)
+        return
+      }
+
+      if (
+        event.key.toLowerCase() === 'i' &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        selectedFeatureId
+      ) {
+        event.preventDefault()
+        setIsolateSelectedFeature((current) => !current)
       }
     }
 
@@ -794,6 +806,7 @@ function App() {
           { keys: 'Ctrl/Cmd + Click', description: 'Select vertex' },
           { keys: 'J / K', description: 'Step active ring' },
           { keys: 'R', description: 'Cycle rings' },
+          { keys: 'I', description: 'Toggle isolate' },
           { keys: 'X', description: 'Toggle xray' },
           { keys: 'U', description: 'Reset feature geometry' },
         ]
@@ -803,6 +816,7 @@ function App() {
           { keys: 'Tab', description: 'Enter edit mode' },
           { keys: 'C', description: 'Center selection' },
           { keys: 'S', description: 'Toggle semantic colors' },
+          { keys: 'I', description: 'Toggle isolate' },
         ]
 
   return (
@@ -1071,7 +1085,7 @@ function App() {
                       <div>
                         <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Show errors only</p>
                         <p className="text-xs text-foreground/60">
-                          {filteredFeatures.length} of {dataset?.features.length ?? 0}
+                          Showing {filteredFeatures.length} of {dataset?.features.length ?? 0}
                         </p>
                       </div>
                       <Switch
@@ -1200,7 +1214,6 @@ function App() {
                           <span>{selectedFeatureObjectCount} obj</span>
                           <span>{selectedFeatureObjectCount > 1 ? visibleDetailErrorCount : selectedFeatureErrorCount} err</span>
                           <span>{selectedFeatureAttributeCount} attr</span>
-                          {activeObject && <span>active {activeObject.id}</span>}
                         </div>
                       </div>
 
@@ -1259,11 +1272,17 @@ function App() {
                         </div>
 
                         {showErrorTabs && (
-                          <TabsList>
-                            <TabsTrigger value="errors">
+                          <TabsList className="floating-chip w-fit rounded-sm border p-1">
+                            <TabsTrigger
+                              value="errors"
+                              className="h-8 border-transparent bg-transparent px-2.5 text-foreground/72 hover:border-transparent hover:bg-accent/8 data-[state=active]:border-transparent data-[state=active]:bg-secondary data-[state=active]:text-secondary-foreground"
+                            >
                               Errors{visibleDetailErrorCount > 0 ? ` (${visibleDetailErrorCount})` : ''}
                             </TabsTrigger>
-                            <TabsTrigger value="attributes">
+                            <TabsTrigger
+                              value="attributes"
+                              className="h-8 border-transparent bg-transparent px-2.5 text-foreground/72 hover:border-transparent hover:bg-accent/8 data-[state=active]:border-transparent data-[state=active]:bg-secondary data-[state=active]:text-secondary-foreground"
+                            >
                               Attributes ({selectedFeatureAttributeCount})
                             </TabsTrigger>
                           </TabsList>
