@@ -6,6 +6,8 @@ import {
   Camera,
   CircleHelp,
   Crosshair,
+  FileBox,
+  FileWarning,
   FolderOpen,
   Github,
   Layers3,
@@ -933,86 +935,79 @@ function App() {
                 {dataset && isFileMenuOpen && (
                   <div
                     className={cn(
-                      'floating-panel absolute z-30 w-64 border p-1.5',
+                      'floating-panel absolute z-30 w-72 border py-2 px-3',
                       isMobileLayout ? 'bottom-full left-0 mb-2' : 'left-full top-0 ml-3',
                     )}
                   >
-                    <div
-                      className={cn(
-                        'rounded-sm border px-3 py-2',
-                        'border-foreground/10 bg-foreground/4',
-                      )}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                            CityJSONL
-                          </p>
-                          <p className="mt-1 break-all text-xs leading-4.5 text-foreground/85">
-                            {dataset.sourceName}
-                          </p>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-7"
-                            onClick={triggerCityJsonInput}
-                            aria-label="Open CityJSONL file"
-                            title="Open CityJSONL file"
-                          >
-                            <FolderOpen className="size-3.5" />
-                          </Button>
-                        </div>
+                    {/* CityJSONL row */}
+                    <div className="group flex items-center gap-2.5">
+                      <FileBox className="size-4 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                          CityJSONL
+                        </p>
+                        <p className="truncate text-xs text-foreground/85">
+                          {dataset.sourceName}
+                        </p>
                       </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-6 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={triggerCityJsonInput}
+                        aria-label="Replace CityJSONL file"
+                        title="Replace CityJSONL file"
+                      >
+                        <FolderOpen className="size-3.5" />
+                      </Button>
                     </div>
-                    <div
-                      className={cn(
-                        'mt-1 rounded-sm border px-3 py-2',
-                        annotationSourceName
-                          ? 'border-destructive/25 bg-destructive/8'
-                          : 'border-foreground/10 bg-foreground/4',
-                      )}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                            Val3dity Report
-                          </p>
-                          <p
-                            className={cn(
-                              'mt-1 break-all text-xs leading-4.5',
-                              annotationSourceName ? 'text-destructive' : 'text-foreground/55',
-                            )}
-                          >
-                            {annotationSourceName ?? 'No report loaded'}
-                          </p>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-1">
+
+                    <div className="my-2 border-t border-foreground/8" />
+
+                    {/* Val3dity Report row */}
+                    <div className="group flex items-center gap-2.5">
+                      <FileWarning
+                        className={cn(
+                          'size-4 shrink-0',
+                          annotationSourceName ? 'text-destructive/70' : 'text-muted-foreground',
+                        )}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                          Val3dity Report
+                        </p>
+                        <p
+                          className={cn(
+                            'truncate text-xs',
+                            annotationSourceName ? 'text-destructive' : 'text-foreground/45',
+                          )}
+                        >
+                          {annotationSourceName ?? 'No report loaded'}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-6"
+                          onClick={triggerAnnotationInput}
+                          aria-label={annotationSourceName ? 'Replace val3dity report' : 'Load val3dity report'}
+                          title={annotationSourceName ? 'Replace val3dity report' : 'Load val3dity report'}
+                        >
+                          <FolderOpen className="size-3.5" />
+                        </Button>
+                        {annotationSourceName && (
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="size-7"
-                            onClick={triggerAnnotationInput}
-                            aria-label="Open val3dity report"
-                            title="Open val3dity report"
-                            disabled={!dataset}
+                            className="size-6 text-destructive hover:text-destructive"
+                            onClick={clearAnnotations}
+                            aria-label="Clear val3dity report"
+                            title="Clear val3dity report"
                           >
-                            <FolderOpen className="size-3.5" />
+                            <X className="size-3.5" />
                           </Button>
-                          {annotationSourceName && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="size-7"
-                              onClick={clearAnnotations}
-                              aria-label="Clear val3dity report"
-                              title="Clear val3dity report"
-                            >
-                              <Trash2 className="size-3.5" />
-                            </Button>
-                          )}
-                        </div>
+                        )}
                       </div>
                     </div>
                   </div>
