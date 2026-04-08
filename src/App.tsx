@@ -858,6 +858,7 @@ function App() {
   }, [applyFeatureVertices, centerCurrentSelection, cycleSelectedFaceRing, cycleSelectedFaceVertex, dataset, editMode, selectedFeatureId, toggleEditMode])
 
   const helpStatusText = isLoading ? 'Loading CityJSON feature sequence…' : null
+  const hasValidationReportLoaded = Boolean(annotationSourceName)
   const isErrorDialogVisible = Boolean(error && dismissedErrorMessage !== error)
   const isPaneContentVisible = isMobileLayout ? !isPaneCollapsed : true
   const isFeaturePanelVisible = !isMobileLayout || mobilePanelView === 'features'
@@ -1236,7 +1237,9 @@ function App() {
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
                           <span>{selectedFeatureObjectCount} objects</span>
-                          <span>{selectedFeatureObjectCount > 1 ? visibleDetailErrorCount : selectedFeatureErrorCount} errors</span>
+                          {hasValidationReportLoaded && (
+                            <span>{selectedFeatureObjectCount > 1 ? visibleDetailErrorCount : selectedFeatureErrorCount} errors</span>
+                          )}
                           <span>{selectedFeatureAttributeCount} attributes</span>
                         </div>
                       </div>
