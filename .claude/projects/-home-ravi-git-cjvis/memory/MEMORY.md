@@ -1,1 +1,0 @@
-- [Use nix develop and bun](feedback_nix_bun.md) — use `nix develop -c` and `bun` instead of npm for all commands
