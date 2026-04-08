@@ -1,4 +1,6 @@
 import {
+  Box,
+  Layers,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -10,7 +12,6 @@ import {
   FileWarning,
   FolderOpen,
   Github,
-  Layers3,
   LocateFixed,
   Maximize2,
   Minimize2,
@@ -1109,7 +1110,7 @@ function App() {
                       <div>
                         <div>
                           <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-                            <Layers3 className="size-4 text-muted-foreground" />
+                            <Layers className="size-4 text-muted-foreground" />
                             Features ({dataset?.features.length ?? 0})
                           </h1>
                         </div>
@@ -1185,8 +1186,8 @@ function App() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="inline-flex size-6 items-center justify-center rounded-sm text-muted-foreground">
-                            <Search className="size-3.5" />
+                          <span className="inline-flex items-center justify-center text-muted-foreground">
+                            <Box className="size-3.5" />
                           </span>
                           <p className="min-w-0 truncate text-sm font-semibold text-foreground">
                             {selectedFeature?.label ?? 'No feature selected'}
@@ -1198,9 +1199,9 @@ function App() {
                           )}
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
-                          <span>{selectedFeatureObjectCount} obj</span>
-                          <span>{selectedFeatureObjectCount > 1 ? visibleDetailErrorCount : selectedFeatureErrorCount} err</span>
-                          <span>{selectedFeatureAttributeCount} attr</span>
+                          <span>{selectedFeatureObjectCount} objects</span>
+                          <span>{selectedFeatureObjectCount > 1 ? visibleDetailErrorCount : selectedFeatureErrorCount} errors</span>
+                          <span>{selectedFeatureAttributeCount} attributes</span>
                         </div>
                       </div>
 
@@ -1258,22 +1259,6 @@ function App() {
                           ))}
                         </div>
 
-                        {showErrorTabs && (
-                          <TabsList className="floating-chip w-fit rounded-sm border p-1">
-                            <TabsTrigger
-                              value="errors"
-                              className="h-8 border-transparent bg-transparent px-2.5 text-foreground/72 hover:border-transparent hover:bg-accent/8 data-[state=active]:border-transparent data-[state=active]:bg-secondary data-[state=active]:text-secondary-foreground"
-                            >
-                              Errors{visibleDetailErrorCount > 0 ? ` (${visibleDetailErrorCount})` : ''}
-                            </TabsTrigger>
-                            <TabsTrigger
-                              value="attributes"
-                              className="h-8 border-transparent bg-transparent px-2.5 text-foreground/72 hover:border-transparent hover:bg-accent/8 data-[state=active]:border-transparent data-[state=active]:bg-secondary data-[state=active]:text-secondary-foreground"
-                            >
-                              Attributes ({selectedFeatureAttributeCount})
-                            </TabsTrigger>
-                          </TabsList>
-                        )}
                       </>
                     )}
                   </div>
@@ -1285,82 +1270,96 @@ function App() {
                           <>
                             {showErrorTabs ? (
                               <>
+                                <div className="flex items-center gap-3">
+                                  <TabsList className="floating-chip shrink-0 rounded-sm border p-1">
+                                    <TabsTrigger
+                                      value="errors"
+                                      className="h-8 border-transparent bg-transparent px-2.5 text-foreground/72 hover:border-transparent hover:bg-accent/8 data-[state=active]:border-transparent data-[state=active]:bg-secondary data-[state=active]:text-secondary-foreground"
+                                    >
+                                      Errors{visibleDetailErrorCount > 0 ? ` (${visibleDetailErrorCount})` : ''}
+                                    </TabsTrigger>
+                                    <TabsTrigger
+                                      value="attributes"
+                                      className="h-8 border-transparent bg-transparent px-2.5 text-foreground/72 hover:border-transparent hover:bg-accent/8 data-[state=active]:border-transparent data-[state=active]:bg-secondary data-[state=active]:text-secondary-foreground"
+                                    >
+                                      Attributes ({selectedFeatureAttributeCount})
+                                    </TabsTrigger>
+                                  </TabsList>
+                                  <div className="detail-rule h-px flex-1" />
+                                </div>
+
                                 <TabsContent value="errors">
-                                  <DetailSection title="Errors">
-                                    <div className="space-y-3">
-                                      {visibleDetailErrorCount > 0 ? (
-                                        <div className="grid gap-2">
-                                          {visibleDetailErrors.map((error) => {
-                                            const color = errorColor(error.code)
-                                            return (
-                                              <div
-                                                key={`${error.id}-${error.code}`}
-                                                className="flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-sm border px-3 py-2.5 text-left transition"
-                                                style={{
-                                                  borderColor: `${color}30`,
-                                                  backgroundColor: `${color}18`,
-                                                }}
-                                              >
-                                                <div className="min-w-0 flex-1 overflow-hidden">
-                                                  <div className="flex min-w-0 items-start justify-between gap-3">
-                                                    <div className="flex min-w-0 items-start gap-2.5">
-                                                      <span
-                                                        className="mt-1 h-3 w-3 shrink-0 rounded-sm"
-                                                        style={{ backgroundColor: color }}
-                                                      />
-                                                      <div className="min-w-0 overflow-hidden">
-                                                        <p className="truncate text-sm font-semibold text-foreground/90">{error.description}</p>
-                                                        <a
-                                                          href={getVal3dityErrorUrl(error)}
-                                                          target="_blank"
-                                                          rel="noreferrer"
-                                                          className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground underline decoration-muted-foreground/35 underline-offset-3 transition hover:text-foreground"
-                                                        >
-                                                          code {error.code}
-                                                        </a>
-                                                      </div>
-                                                    </div>
-                                                    {error.faceIndex != null && (
-                                                      <Badge
-                                                        variant="outline"
-                                                        className="shrink-0 text-foreground/70"
-                                                        style={{ borderColor: `${color}50`, backgroundColor: `${color}20` }}
+                                  <div className="space-y-3">
+                                    {visibleDetailErrorCount > 0 ? (
+                                      <div className="grid gap-2">
+                                        {visibleDetailErrors.map((error) => {
+                                          const color = errorColor(error.code)
+                                          return (
+                                            <div
+                                              key={`${error.id}-${error.code}`}
+                                              className="flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-sm border px-3 py-2.5 text-left transition"
+                                              style={{
+                                                borderColor: `${color}30`,
+                                                backgroundColor: `${color}18`,
+                                              }}
+                                            >
+                                              <div className="min-w-0 flex-1 overflow-hidden">
+                                                <div className="flex min-w-0 items-start justify-between gap-3">
+                                                  <div className="flex min-w-0 items-start gap-2.5">
+                                                    <span
+                                                      className="mt-1 h-3 w-3 shrink-0 rounded-sm"
+                                                      style={{ backgroundColor: color }}
+                                                    />
+                                                    <div className="min-w-0 overflow-hidden">
+                                                      <p className="truncate text-sm font-semibold text-foreground/90">{error.description}</p>
+                                                      <a
+                                                        href={getVal3dityErrorUrl(error)}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground underline decoration-muted-foreground/35 underline-offset-3 transition hover:text-foreground"
                                                       >
-                                                        face {error.faceIndex}
-                                                      </Badge>
-                                                    )}
+                                                        code {error.code}
+                                                      </a>
+                                                    </div>
                                                   </div>
-                                                  <p className="mt-1.5 break-words font-mono text-[10px] text-muted-foreground">
-                                                    {error.id}
-                                                  </p>
-                                                  {error.info && (
-                                                    <p className="mt-1.5 text-sm text-foreground/65">{error.info}</p>
+                                                  {error.faceIndex != null && (
+                                                    <Badge
+                                                      variant="outline"
+                                                      className="shrink-0 text-foreground/70"
+                                                      style={{ borderColor: `${color}50`, backgroundColor: `${color}20` }}
+                                                    >
+                                                      face {error.faceIndex}
+                                                    </Badge>
                                                   )}
                                                 </div>
-                                                <Button
-                                                  type="button"
-                                                  variant="ghost"
-                                                  size="icon"
-                                                  className="h-8 w-8 shrink-0 self-center"
-                                                  aria-label={`Center ${error.description}`}
-                                                  title={`Center ${error.description}`}
-                                                  onClick={() => centerValidationError(error)}
-                                                >
-                                                  <Crosshair className="size-4" />
-                                                </Button>
+                                                <p className="mt-1.5 break-words font-mono text-[10px] text-muted-foreground">
+                                                  {error.id}
+                                                </p>
+                                                {error.info && (
+                                                  <p className="mt-1.5 text-sm text-foreground/65">{error.info}</p>
+                                                )}
                                               </div>
-                                            )
-                                          })}
-                                        </div>
-                                      ) : null}
-                                    </div>
-                                  </DetailSection>
+                                              <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-8 w-8 shrink-0 self-center"
+                                                aria-label={`Center ${error.description}`}
+                                                title={`Center ${error.description}`}
+                                                onClick={() => centerValidationError(error)}
+                                              >
+                                                <Crosshair className="size-4" />
+                                              </Button>
+                                            </div>
+                                          )
+                                        })}
+                                      </div>
+                                    ) : null}
+                                  </div>
                                 </TabsContent>
 
                                 <TabsContent value="attributes">
-                                  <DetailSection title="Attributes">
-                                    <AttributeList attributes={selectedFeature.attributes} />
-                                  </DetailSection>
+                                  <AttributeList attributes={selectedFeature.attributes} />
                                 </TabsContent>
                               </>
                             ) : (
