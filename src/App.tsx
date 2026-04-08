@@ -20,7 +20,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
 
 import { Badge } from '@/components/ui/badge'
@@ -43,6 +43,7 @@ import { cn } from '@/lib/utils'
 import type {
   Vec3,
   ViewerDataset,
+  ViewerFeature,
   ViewerFocusTarget,
   ViewerSemanticSurface,
   ViewerValidationError,
@@ -57,6 +58,14 @@ const DEFAULT_CAMERA_FOCAL_LENGTH = 50
 type DetailPaneMode = 'split' | 'collapsed' | 'fullscreen'
 type MobileInspectMode = 'object' | 'surface'
 type MobilePanelView = 'features' | 'details'
+
+type FeatureListItem = {
+  feature: ViewerFeature
+  errorCodeSummary: string
+  errorCount: number
+  isInvalid: boolean
+  searchText: string
+}
 
 function App() {
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -155,15 +164,33 @@ function App() {
   const visibleDetailErrorCount = visibleDetailErrors.length
   const showErrorTabs = visibleDetailErrorCount > 0
 
-  const filteredFeatures = useMemo(() => {
+  const featureListItems = useMemo<FeatureListItem[]>(() => {
     if (!dataset) {
       return []
     }
 
+    return dataset.features.map((feature) => ({
+      feature,
+      errorCodeSummary: [...new Set(feature.errors.map((error) => error.code))].join(', '),
+      errorCount: feature.errors.length,
+      isInvalid: feature.validity === false,
+      searchText: [
+        feature.id,
+        feature.label,
+        feature.type,
+        ...Object.values(feature.attributes),
+      ]
+        .filter((value): value is string => typeof value === 'string')
+        .join(' ')
+        .toLowerCase(),
+    }))
+  }, [dataset])
+
+  const filteredFeatureItems = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
 
-    return dataset.features.filter((feature) => {
-      if (showOnlyInvalidFeatures && feature.errors.length === 0) {
+    return featureListItems.filter((item) => {
+      if (showOnlyInvalidFeatures && item.errorCount === 0) {
         return false
       }
 
@@ -171,19 +198,9 @@ function App() {
         return true
       }
 
-      const haystack = [
-        feature.id,
-        feature.label,
-        feature.type,
-        ...Object.values(feature.attributes),
-      ]
-        .filter((value) => typeof value === 'string')
-        .join(' ')
-        .toLowerCase()
-
-      return haystack.includes(query)
+      return item.searchText.includes(query)
     })
-  }, [dataset, searchQuery, showOnlyInvalidFeatures])
+  }, [featureListItems, searchQuery, showOnlyInvalidFeatures])
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(max-width: 900px)')
@@ -476,15 +493,21 @@ function App() {
   }
 
   function toggleDetailPaneCollapse() {
-    setDetailPaneMode((current) => (current === 'collapsed' ? 'split' : 'collapsed'))
+    startTransition(() => {
+      setDetailPaneMode((current) => (current === 'collapsed' ? 'split' : 'collapsed'))
+    })
   }
 
   function toggleDetailPaneFullscreen() {
-    setDetailPaneMode((current) => (current === 'fullscreen' ? 'split' : 'fullscreen'))
+    startTransition(() => {
+      setDetailPaneMode((current) => (current === 'fullscreen' ? 'split' : 'fullscreen'))
+    })
   }
 
   function toggleSidebarVisibility() {
-    setIsPaneCollapsed((current) => !current)
+    startTransition(() => {
+      setIsPaneCollapsed((current) => !current)
+    })
   }
 
   const handleSelectSemanticSurface = useCallback((surface: {
@@ -602,15 +625,30 @@ function App() {
       return
     }
 
-    if (isMobileLayout) {
-      setMobilePanelView('details')
-    }
-    setSelectedFeatureId(featureId)
-    setActiveObjectId(objectId ?? feature.objects[0]?.id ?? null)
-    setSelectedFaceIndex(null)
-    setSelectedFaceRingIndex(0)
-    setSelectedVertexIndex(null)
+    startTransition(() => {
+      if (isMobileLayout) {
+        setMobilePanelView('details')
+      }
+      setSelectedFeatureId(featureId)
+      setActiveObjectId(objectId ?? feature.objects[0]?.id ?? null)
+      setSelectedFaceIndex(null)
+      setSelectedFaceRingIndex(0)
+      setSelectedVertexIndex(null)
+    })
   }, [featureMap, isMobileLayout])
+
+  const handleSearchQueryChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(event.target.value)
+  }, [])
+
+  const handleShowOnlyInvalidFeaturesChange = useCallback((checked: boolean) => {
+    setShowOnlyInvalidFeatures(checked)
+  }, [])
+
+  const handleCenterFeature = useCallback((featureId: string) => {
+    handleSelectFeature(featureId)
+    centerFeatureById(featureId)
+  }, [centerFeatureById, handleSelectFeature])
 
   const handleSelectFace = useCallback((faceIndex: number | null) => {
     setSelectedFaceIndex(faceIndex)
@@ -1010,8 +1048,14 @@ function App() {
             </div>
           </div>
 
-          {!isPaneCollapsed && (
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {(isMobileLayout ? !isPaneCollapsed : true) && (
+            <div
+              aria-hidden={!isMobileLayout && isPaneCollapsed}
+              className={cn(
+                'flex min-h-0 min-w-0 flex-1 flex-col',
+                !isMobileLayout && isPaneCollapsed && 'pointer-events-none w-0 min-w-0 shrink overflow-hidden opacity-0',
+              )}
+            >
               {isMobileLayout && (
                 <div className="flex items-center gap-2 border-b border-border px-3 py-2">
                   <div className="floating-chip flex items-center gap-1 rounded-sm border p-1">
@@ -1049,11 +1093,16 @@ function App() {
                 </div>
               )}
 
-              {(isMobileLayout ? mobilePanelView === 'features' : detailPaneMode !== 'fullscreen') && (
+              {(isMobileLayout ? mobilePanelView === 'features' : true) && (
                 <section
+                  aria-hidden={!isMobileLayout && detailPaneMode === 'fullscreen'}
                   className={cn(
                     'flex min-h-0 flex-col border-b border-border',
-                    isMobileLayout ? 'flex-1' : 'flex-[1.05]',
+                    isMobileLayout
+                      ? 'flex-1'
+                      : detailPaneMode === 'fullscreen'
+                        ? 'pointer-events-none h-0 shrink overflow-hidden border-b-0 opacity-0'
+                        : 'flex-[1.05]',
                   )}
                 >
                   <div className="space-y-3 p-4 pb-3">
@@ -1074,7 +1123,7 @@ function App() {
                     <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       value={searchQuery}
-                      onChange={(event) => setSearchQuery(event.target.value)}
+                      onChange={handleSearchQueryChange}
                       placeholder="Search features"
                       className="h-9 pl-8"
                     />
@@ -1085,12 +1134,12 @@ function App() {
                       <div>
                         <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Show errors only</p>
                         <p className="text-xs text-foreground/60">
-                          Showing {filteredFeatures.length} of {dataset?.features.length ?? 0}
+                          Showing {filteredFeatureItems.length} of {dataset?.features.length ?? 0}
                         </p>
                       </div>
                       <Switch
                         checked={showOnlyInvalidFeatures}
-                        onCheckedChange={setShowOnlyInvalidFeatures}
+                        onCheckedChange={handleShowOnlyInvalidFeaturesChange}
                         className="shrink-0"
                         aria-label="Show only features with validation errors"
                       />
@@ -1100,77 +1149,17 @@ function App() {
 
                   <ScrollArea className="min-h-0 flex-1">
                     <div className="space-y-1.5 p-3 pt-0">
-                      {filteredFeatures.map((feature) => {
-                        const isSelected = feature.id === selectedFeatureId
-                        const errorCount = feature.errors.length
-                        const isInvalid = feature.validity === false
-                        return (
-                          <div
-                            key={feature.id}
-                            className={cn(
-                              'flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-sm border px-2.5 py-2 transition',
-                              isSelected
-                                ? 'border-accent/40 bg-accent/10 text-foreground shadow-[0_0_0_1px] shadow-accent/25'
-                                : isInvalid
-                                  ? 'border-destructive/20 bg-destructive/8 text-foreground/88 hover:border-destructive/28 hover:bg-destructive/12'
-                                  : 'border-foreground/8 bg-foreground/3 text-foreground/78 hover:border-foreground/16 hover:bg-foreground/6',
-                            )}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => handleSelectFeature(feature.id)}
-                              className="min-w-0 flex-1 overflow-hidden text-left"
-                            >
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                  <div className="flex items-center gap-1.5">
-                                    <p className="truncate text-sm font-medium">{feature.label}</p>
-                                    <Badge
-                                      variant="outline"
-                                      className={cn(
-                                        'shrink-0 px-1.5 py-0 text-[10px]',
-                                        isSelected
-                                          ? 'border-accent/30 bg-accent/10 text-accent'
-                                          : isInvalid
-                                            ? 'border-destructive/30 bg-destructive/12 text-destructive'
-                                            : 'border-foreground/10 bg-foreground/5 text-foreground/60',
-                                      )}
-                                    >
-                                      {feature.type}
-                                    </Badge>
-                                  </div>
-                                </div>
-                              </div>
-                              <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
-                                <span>{feature.objects.length} obj</span>
-                                <span>{feature.vertices.length} vtx</span>
-                                {errorCount > 0 && (
-                                  <span className="text-destructive">
-                                    {errorCount} err ({[...new Set(feature.errors.map((e) => e.code))].join(', ')})
-                                  </span>
-                                )}
-                              </div>
-                            </button>
+                      {filteredFeatureItems.map((item) => (
+                        <FeatureListRow
+                          key={item.feature.id}
+                          item={item}
+                          selected={item.feature.id === selectedFeatureId}
+                          onCenterFeature={handleCenterFeature}
+                          onSelectFeature={handleSelectFeature}
+                        />
+                      ))}
 
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 shrink-0 self-center"
-                              aria-label={`Center ${feature.label}`}
-                              title={`Center ${feature.label}`}
-                              onClick={() => {
-                                handleSelectFeature(feature.id)
-                                centerFeatureById(feature.id)
-                              }}
-                            >
-                              <Crosshair className="size-4" />
-                            </Button>
-                          </div>
-                        )
-                      })}
-
-                      {!isLoading && filteredFeatures.length === 0 && (
+                      {!isLoading && filteredFeatureItems.length === 0 && (
                         <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-4 py-6 text-sm text-muted-foreground">
                           No features matched the current filter.
                         </div>
@@ -1292,7 +1281,7 @@ function App() {
                   </div>
 
                   {detailPaneMode !== 'collapsed' && (
-                    <ScrollArea key={selectedFeatureId} className="min-h-0 min-w-0 flex-1">
+                    <ScrollArea className="min-h-0 min-w-0 flex-1">
                       <div className="min-w-0 space-y-4 p-4 pt-0">
                         {selectedFeature ? (
                           <>
@@ -1784,7 +1773,82 @@ function App() {
   )
 }
 
-function DetailSection({
+const FeatureListRow = memo(function FeatureListRow({
+  item,
+  selected,
+  onCenterFeature,
+  onSelectFeature,
+}: {
+  item: FeatureListItem
+  selected: boolean
+  onCenterFeature: (featureId: string) => void
+  onSelectFeature: (featureId: string, objectId?: string | null) => void
+}) {
+  const { feature, errorCodeSummary, errorCount, isInvalid } = item
+
+  return (
+    <div
+      className={cn(
+        'flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-sm border px-2.5 py-2 transition',
+        selected
+          ? 'border-accent/40 bg-accent/10 text-foreground shadow-[0_0_0_1px] shadow-accent/25'
+          : isInvalid
+            ? 'border-destructive/20 bg-destructive/8 text-foreground/88 hover:border-destructive/28 hover:bg-destructive/12'
+            : 'border-foreground/8 bg-foreground/3 text-foreground/78 hover:border-foreground/16 hover:bg-foreground/6',
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => onSelectFeature(feature.id)}
+        className="min-w-0 flex-1 overflow-hidden text-left"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <p className="truncate text-sm font-medium">{feature.label}</p>
+              <Badge
+                variant="outline"
+                className={cn(
+                  'shrink-0 px-1.5 py-0 text-[10px]',
+                  selected
+                    ? 'border-accent/30 bg-accent/10 text-accent'
+                    : isInvalid
+                      ? 'border-destructive/30 bg-destructive/12 text-destructive'
+                      : 'border-foreground/10 bg-foreground/5 text-foreground/60',
+                )}
+              >
+                {feature.type}
+              </Badge>
+            </div>
+          </div>
+        </div>
+        <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
+          <span>{feature.objects.length} obj</span>
+          <span>{feature.vertices.length} vtx</span>
+          {errorCount > 0 && (
+            <span className="text-destructive">
+              {errorCount} err ({errorCodeSummary})
+            </span>
+          )}
+        </div>
+      </button>
+
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8 shrink-0 self-center"
+        aria-label={`Center ${feature.label}`}
+        title={`Center ${feature.label}`}
+        onClick={() => onCenterFeature(feature.id)}
+      >
+        <Crosshair className="size-4" />
+      </Button>
+    </div>
+  )
+})
+
+const DetailSection = memo(function DetailSection({
   title,
   children,
 }: {
@@ -1800,7 +1864,7 @@ function DetailSection({
       {children}
     </section>
   )
-}
+})
 
 function ToolbarToggleButton({
   active,
@@ -1838,7 +1902,7 @@ function ToolbarToggleButton({
   )
 }
 
-function AttributeList({ attributes }: { attributes: Record<string, unknown> }) {
+const AttributeList = memo(function AttributeList({ attributes }: { attributes: Record<string, unknown> }) {
   return (
     <dl className="m-0 min-w-0 space-y-2">
       {Object.entries(attributes).map(([key, value]) => (
@@ -1860,7 +1924,7 @@ function AttributeList({ attributes }: { attributes: Record<string, unknown> }) 
       ))}
     </dl>
   )
-}
+})
 
 function formatValue(value: unknown) {
   if (value == null) {
