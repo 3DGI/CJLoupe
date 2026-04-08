@@ -6,6 +6,8 @@ It was built specifically to inspect errors in CityJSONL geometries, with the ab
 
 This app was built almost entirely through vibe coding, mostly with Codex 5.4, though I still spent more than three full days supervising and scrutinizing the agent to make sure it worked the way I wanted.
 
+![CJLoupe screenshot](./Screenshot.png)
+
 ## Development
 
 ```bash
