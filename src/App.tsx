@@ -1112,7 +1112,7 @@ function App() {
                         : 'flex-[1.05]',
                   )}
                 >
-                  <div className="space-y-3 p-4 pb-3">
+                  <div className="panel-header-surface space-y-3 border-b p-4 pb-3">
                   {!isMobileLayout && (
                     <>
                       <div>
@@ -1190,7 +1190,7 @@ function App() {
                         : 'min-h-0 flex-1',
                   )}
                 >
-                  <div className="space-y-3 p-4 pb-3">
+                  <div className="panel-header-surface space-y-2.5 p-4 pb-2.5">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
@@ -1242,22 +1242,22 @@ function App() {
                     </div>
 
                     {detailPaneMode !== 'collapsed' && selectedFeature && (
-                      <>
+                      <div className="-mt-1">
                         <ObjectCarousel
                           objects={selectedFeature.objects}
                           activeObjectId={activeObject?.id ?? null}
                           onSelectObject={handleSelectDetailObject}
                         />
-                      </>
+                      </div>
                     )}
                   </div>
 
                   {detailPaneMode !== 'collapsed' && (
                     <ScrollArea className="min-h-0 min-w-0 flex-1">
-                      <div className="min-w-0 space-y-4 p-4 pt-0">
+                      <div className="min-w-0 space-y-2 p-4 pt-0">
                         {selectedFeature ? (
                           <>
-                            <div className="flex items-center">
+                            <div className="panel-header-surface sticky top-0 z-10 -mx-4 px-4 pt-1.5 pb-0 relative backdrop-blur-none">
                               <TabsList className="floating-chip shrink-0 rounded-sm border p-1">
                                 {showErrorTabs && (
                                   <TabsTrigger
@@ -1274,7 +1274,7 @@ function App() {
                                   Attributes ({selectedFeatureAttributeCount})
                                 </TabsTrigger>
                               </TabsList>
-                              <div className="detail-rule -ml-px h-px flex-1" />
+                              <div className="detail-rule absolute inset-x-0 bottom-0 h-px" />
                             </div>
 
                             {showErrorTabs ? (
