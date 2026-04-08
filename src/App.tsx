@@ -1787,8 +1787,18 @@ const FeatureListRow = memo(function FeatureListRow({
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelectFeature(feature.id)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onSelectFeature(feature.id)
+        }
+      }}
+      aria-pressed={selected}
       className={cn(
-        'flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-sm border px-2.5 py-2 transition',
+        'flex w-full min-w-0 cursor-pointer items-center gap-2 overflow-hidden rounded-sm border px-2.5 py-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30',
         selected
           ? 'border-accent/40 bg-accent/10 text-foreground shadow-[0_0_0_1px] shadow-accent/25'
           : isInvalid
@@ -1796,11 +1806,7 @@ const FeatureListRow = memo(function FeatureListRow({
             : 'border-foreground/8 bg-foreground/3 text-foreground/78 hover:border-foreground/16 hover:bg-foreground/6',
       )}
     >
-      <button
-        type="button"
-        onClick={() => onSelectFeature(feature.id)}
-        className="min-w-0 flex-1 overflow-hidden text-left"
-      >
+      <div className="min-w-0 flex-1 overflow-hidden text-left">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
@@ -1830,7 +1836,7 @@ const FeatureListRow = memo(function FeatureListRow({
             </span>
           )}
         </div>
-      </button>
+      </div>
 
       <Button
         type="button"
@@ -1839,7 +1845,10 @@ const FeatureListRow = memo(function FeatureListRow({
         className="h-8 w-8 shrink-0 self-center"
         aria-label={`Center ${feature.label}`}
         title={`Center ${feature.label}`}
-        onClick={() => onCenterFeature(feature.id)}
+        onClick={(event) => {
+          event.stopPropagation()
+          onCenterFeature(feature.id)
+        }}
       >
         <Crosshair className="size-4" />
       </Button>
