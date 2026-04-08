@@ -1438,7 +1438,7 @@ function App() {
         {editMode && activeObject && (
           <div className={cn(
             'pointer-events-none absolute z-10',
-            isMobileLayout ? 'bottom-20 left-3 right-3' : 'bottom-24 left-4 max-w-md',
+            isMobileLayout ? 'bottom-20 left-3 right-3' : 'bottom-20 left-4 max-w-md',
           )}>
             <div className="space-y-2">
               {selectedVertex && (
