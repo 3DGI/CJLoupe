@@ -643,6 +643,7 @@ function App() {
       const next = !current
       if (next) {
         setIsolateSelectedFeature(true)
+        setShowSemanticSurfaces(false)
       } else {
         setIsolateSelectedFeature(false)
         setSelectedFaceIndex(null)
