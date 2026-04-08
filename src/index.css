@@ -168,10 +168,6 @@
     background: color-mix(in oklch, var(--background) 97%, var(--foreground) 3%);
   }
 
-  .detail-tabs {
-    gap: 0;
-  }
-
   .detail-tab {
     height: 2rem;
     padding-inline: 0.625rem;

@@ -95,7 +95,7 @@ function App() {
   const [focusRevision, setFocusRevision] = useState(0)
   const [focusTarget, setFocusTarget] = useState<ViewerFocusTarget>(null)
   const [annotationSourceName, setAnnotationSourceName] = useState<string | null>(null)
-  const [cameraFocalLength, setCameraFocalLength] = useState(50)
+  const [cameraFocalLength, setCameraFocalLength] = useState(DEFAULT_CAMERA_FOCAL_LENGTH)
   const [hideOccludedEditEdges, setHideOccludedEditEdges] = useState(true)
   const [showOnlyInvalidFeatures, setShowOnlyInvalidFeatures] = useState(false)
   const [showSemanticSurfaces, setShowSemanticSurfaces] = useState(false)
@@ -835,6 +835,10 @@ function App() {
 
   const helpStatusText = isLoading ? 'Loading CityJSON feature sequence…' : null
   const isErrorDialogVisible = Boolean(error && dismissedErrorMessage !== error)
+  const mobilePanelTabs: Array<{ view: MobilePanelView; label: string; disabled?: boolean }> = [
+    { view: 'features', label: 'Features' },
+    { view: 'details', label: 'Details', disabled: !selectedFeature },
+  ]
   const helpItems = isMobileLayout
     ? [
         {
@@ -1066,25 +1070,19 @@ function App() {
               {isMobileLayout && (
                 <div className="flex items-center gap-2 border-b border-border px-3 py-2">
                   <div className="floating-chip flex items-center gap-1 rounded-sm border p-1">
-                    <Button
-                      type="button"
-                      variant={mobilePanelView === 'features' ? 'secondary' : 'ghost'}
-                      size="sm"
-                      className="h-8 px-2.5"
-                      onClick={() => setMobilePanelView('features')}
-                    >
-                      Features
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={mobilePanelView === 'details' ? 'secondary' : 'ghost'}
-                      size="sm"
-                      className="h-8 px-2.5"
-                      onClick={() => setMobilePanelView('details')}
-                      disabled={!selectedFeature}
-                    >
-                      Details
-                    </Button>
+                    {mobilePanelTabs.map(({ view, label, disabled = false }) => (
+                      <Button
+                        key={view}
+                        type="button"
+                        variant={mobilePanelView === view ? 'secondary' : 'ghost'}
+                        size="sm"
+                        className="h-8 px-2.5"
+                        onClick={() => setMobilePanelView(view)}
+                        disabled={disabled}
+                      >
+                        {label}
+                      </Button>
+                    ))}
                   </div>
                   <Button
                     type="button"
@@ -1253,7 +1251,7 @@ function App() {
 
                     {detailPaneMode !== 'collapsed' && selectedFeature && showErrorTabs && (
                       <div className="-mx-4 -mb-2.5 border-b border-border px-4 pt-1.5">
-                        <TabsList className="detail-tabs">
+                        <TabsList className="gap-0">
                           <TabsTrigger value="errors" className="detail-tab">
                             Errors
                           </TabsTrigger>
