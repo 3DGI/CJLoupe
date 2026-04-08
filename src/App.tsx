@@ -23,7 +23,7 @@ import {
   X,
 } from 'lucide-react'
 import { Suspense, lazy, memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent, ReactNode } from 'react'
+import type { ChangeEvent, ReactNode, RefObject } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { errorColor } from '@/lib/error-palette'
@@ -79,6 +79,7 @@ function App() {
   const annotationInputRef = useRef<HTMLInputElement>(null)
   const fileActionMenuRef = useRef<HTMLDivElement>(null)
   const originalVerticesRef = useRef<Map<string, Vec3[]>>(new Map())
+  const selectedFeatureRowRef = useRef<HTMLDivElement | null>(null)
 
   const [dataset, setDataset] = useState<ViewerDataset | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -226,6 +227,20 @@ function App() {
     mediaQuery.addEventListener('change', updateLayout)
     return () => mediaQuery.removeEventListener('change', updateLayout)
   }, [])
+
+  useEffect(() => {
+    const paneContentVisible = isMobileLayout ? !isPaneCollapsed : true
+    const featurePanelVisible = !isMobileLayout || mobilePanelView === 'features'
+
+    if (!selectedFeatureId || !paneContentVisible || !featurePanelVisible) {
+      return
+    }
+
+    selectedFeatureRowRef.current?.scrollIntoView({
+      block: 'nearest',
+      inline: 'nearest',
+    })
+  }, [isMobileLayout, isPaneCollapsed, mobilePanelView, selectedFeatureId])
 
   useEffect(() => {
     if (!isMobileLayout) {
@@ -1173,6 +1188,7 @@ function App() {
                           key={item.feature.id}
                           item={item}
                           selected={item.feature.id === selectedFeatureId}
+                          rowRef={item.feature.id === selectedFeatureId ? selectedFeatureRowRef : undefined}
                           onCenterFeature={handleCenterFeature}
                           onSelectFeature={handleSelectFeature}
                         />
@@ -2012,11 +2028,13 @@ const ObjectCarousel = memo(function ObjectCarousel({
 const FeatureListRow = memo(function FeatureListRow({
   item,
   selected,
+  rowRef,
   onCenterFeature,
   onSelectFeature,
 }: {
   item: FeatureListItem
   selected: boolean
+  rowRef?: RefObject<HTMLDivElement | null>
   onCenterFeature: (featureId: string) => void
   onSelectFeature: (featureId: string, objectId?: string | null) => void
 }) {
@@ -2024,6 +2042,7 @@ const FeatureListRow = memo(function FeatureListRow({
 
   return (
     <div
+      ref={rowRef}
       role="button"
       tabIndex={0}
       onClick={() => onSelectFeature(feature.id)}
