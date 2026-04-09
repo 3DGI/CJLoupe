@@ -1061,7 +1061,6 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [applyFeatureVertices, centerCurrentSelection, cycleGeometryDisplayMode, cycleSelectedFaceRing, cycleSelectedFaceVertex, dataset, editMode, selectedFeatureId, toggleEditMode])
 
-  const helpStatusText = isLoading ? 'Loading CityJSON feature sequence…' : null
   const hasValidationReportLoaded = Boolean(annotationSourceName)
   const isErrorDialogVisible = Boolean(error && dismissedErrorMessage !== error)
   const isPaneContentVisible = !isPaneCollapsed
@@ -1686,7 +1685,6 @@ function App() {
             isCollapsed={isHelpCollapsed}
             subtitle={editMode ? 'Edit mode controls' : 'Navigation and selection'}
             helpItems={helpItems}
-            helpStatusText={helpStatusText}
             onToggleCollapsed={() => setIsHelpCollapsed((current) => !current)}
           />
         )}
@@ -1706,6 +1704,23 @@ function App() {
         className="hidden"
         onChange={handleAnnotationSelection}
       />
+
+      {isLoading && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-background/42 backdrop-blur-md">
+          <div className="w-full max-w-lg rounded-sm border border-border/40 bg-background/94 p-5 shadow-[0_28px_100px_rgb(0_0_0_/_0.28)]">
+            <div className="flex items-start gap-4">
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary">
+                  Loading
+                </p>
+                <p className="mt-2 text-sm leading-6 text-foreground/92">
+                  Loading...
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isErrorDialogVisible && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/42 backdrop-blur-md">
@@ -2065,13 +2080,11 @@ function ViewportHelpPanel({
   isCollapsed,
   subtitle,
   helpItems,
-  helpStatusText,
   onToggleCollapsed,
 }: {
   isCollapsed: boolean
   subtitle: string
   helpItems: HelpItem[]
-  helpStatusText: string | null
   onToggleCollapsed: () => void
 }) {
   return (
@@ -2103,12 +2116,6 @@ function ViewportHelpPanel({
                 </div>
               ))}
             </div>
-
-            {helpStatusText && (
-              <p className="border-t border-border pt-2 text-xs leading-5 text-muted-foreground">
-                {helpStatusText}
-              </p>
-            )}
           </div>
         )}
 
