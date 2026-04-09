@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- LoD support
 - feature labels now use the feature ID directly, trimming a leading `NL.IMBAG.Pand.` prefix
 - feature list is now virtualized for better sidebar performance with large datasets
 - feature panel header was compacted
