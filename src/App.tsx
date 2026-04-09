@@ -11,6 +11,7 @@ import {
   FileWarning,
   FolderOpen,
   Github,
+  Layers,
   LocateFixed,
   Maximize2,
   Minimize2,
@@ -2503,7 +2504,7 @@ const FeatureListPanel = memo(function FeatureListPanel({
         {showDesktopHeading && (
           <div>
             <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-              <Box className="size-4 text-muted-foreground" />
+              <Layers className="size-4 text-muted-foreground" />
               Features ({datasetFeatureCount})
             </h1>
           </div>
