@@ -68,8 +68,6 @@ const FEATURE_LIST_ROW_GAP = 6
 const FEATURE_LIST_TOP_PADDING = 8
 const FEATURE_LIST_BOTTOM_PADDING = 12
 const FEATURE_LIST_OVERSCAN = 6
-const PANEL_CONTAIN_STYLE = { contain: 'layout paint style' } as const
-const PANEL_BODY_CONTAIN_STYLE = { contain: 'layout paint' } as const
 
 const CityViewport = lazy(() =>
   import('@/components/viewer/city-viewport').then((module) => ({ default: module.CityViewport })),
@@ -183,6 +181,7 @@ function App() {
   const visibleDetailErrorCount = visibleDetailErrors.length
   const showErrorTabs = visibleDetailErrorCount > 0
   const resolvedDetailTab = showErrorTabs ? detailTab : 'attributes'
+  const detailSelectionKey = `${selectedFeature?.id ?? 'none'}::${activeObject?.id ?? 'none'}`
   const activeSemanticSurface = selectedSemanticSurface?.surface
     ? {
         objectId: selectedSemanticSurface.objectId,
@@ -1135,7 +1134,6 @@ function App() {
                         ? 'pointer-events-none h-0 shrink overflow-hidden border-b-0 opacity-0'
                       : 'flex-[1.05]',
                   )}
-                  style={PANEL_CONTAIN_STYLE}
                 >
                   <FeatureListPanel
                     filteredFeatureItems={filteredFeatureItems}
@@ -1167,7 +1165,6 @@ function App() {
                         ? 'min-h-0 flex-1 border-t-0'
                         : 'min-h-0 flex-1',
                   )}
-                  style={PANEL_CONTAIN_STYLE}
                 >
                   <div className="panel-header-surface space-y-2.5 p-4 pb-2.5">
                     <div className="flex items-start justify-between gap-3">
@@ -1247,13 +1244,13 @@ function App() {
                   </div>
 
                   {detailPaneMode !== 'collapsed' && (
-                    <ScrollArea className="min-h-0 min-w-0 flex-1">
-                      <div className="panel-body-surface min-w-0 space-y-2 p-4 pt-3" style={PANEL_BODY_CONTAIN_STYLE}>
+                    <ScrollArea key={detailSelectionKey} className="min-h-0 min-w-0 flex-1">
+                      <div className="panel-body-surface min-w-0 space-y-2 p-4 pt-3">
                         {selectedFeature ? (
                           <>
                             {showErrorTabs ? (
                               <>
-                                <TabsContent value="errors">
+                                <TabsContent key={`${detailSelectionKey}::errors`} value="errors">
                                   <div className="space-y-3">
                                     {visibleDetailErrorCount > 0 ? (
                                       <div className="grid gap-2">
@@ -1323,7 +1320,7 @@ function App() {
                                   </div>
                                 </TabsContent>
 
-                                <TabsContent value="attributes">
+                                <TabsContent key={`${detailSelectionKey}::attributes`} value="attributes">
                                   <DetailAttributePanel
                                     objectAttributes={activeObject?.attributes ?? {}}
                                     parentAttributes={selectedFeature.attributes}
@@ -2214,7 +2211,7 @@ const FeatureListPanel = memo(function FeatureListPanel({
         )}
       </div>
 
-      <ScrollArea className="min-h-0 flex-1" viewportRef={viewportRef} style={PANEL_BODY_CONTAIN_STYLE}>
+      <ScrollArea className="min-h-0 flex-1" viewportRef={viewportRef}>
         {filteredFeatureItems.length > 0 ? (
           <div className="relative" style={{ height: `${contentHeight}px` }}>
             {filteredFeatureItems.slice(startIndex, endIndex).map((item, visibleIndex) => {

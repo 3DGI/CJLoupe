@@ -6,6 +6,7 @@
 - feature list is now virtualized for better sidebar performance with large datasets
 - feature panel header was compacted
 - desktop sidebar content is no longer kept mounted while the sidebar is collapsed, reducing panel toggle cost
+- detail error and attribute panels now fully reset on feature/object selection changes, preventing stale error rows from persisting across selections
 - details attributes now show both active object attributes and parent feature attributes in separate sections
 - entering edit mode now disables semantic coloring
 - details panel hides the error count when no val3dity report is loaded
