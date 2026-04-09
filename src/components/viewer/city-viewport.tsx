@@ -1712,7 +1712,6 @@ function buildEdgeSegments(
   const base: number[] = []
   const highlight: number[] = []
   const activeRing: number[] = []
-  const edgeMap = new Map<string, { positions: number[]; tier: 0 | 1 | 2 }>()
 
   for (let polyIndex = 0; polyIndex < polygons.length; polyIndex += 1) {
     const polygon = polygons[polyIndex]
@@ -1722,28 +1721,22 @@ function buildEdgeSegments(
         continue
       }
 
-      for (let index = 0; index < ring.length; index += 1) {
+      const isExplicitlyClosed = ring.length > 2 && ring[0] === ring[ring.length - 1]
+      const edgeCount = isExplicitlyClosed ? ring.length - 1 : ring.length
+
+      for (let index = 0; index < edgeCount; index += 1) {
         const startIndex = ring[index]
-        const endIndex = ring[(index + 1) % ring.length]
+        const endIndex = index + 1 < ring.length ? ring[index + 1] : ring[0]
         const start = vertices[startIndex]
         const end = vertices[endIndex]
         if (!start || !end) {
           continue
         }
-
-        const edgeKey =
-          startIndex < endIndex ? `${startIndex}:${endIndex}` : `${endIndex}:${startIndex}`
         const isSelectedFace = selectedFaceIndex === polyIndex
         const isActiveRing = isSelectedFace && ringIndex === selectedFaceRingIndex
         const touchesSelectedVertex =
           selectedVertexIndex != null &&
           (startIndex === selectedVertexIndex || endIndex === selectedVertexIndex)
-        const edgeTier: 0 | 1 | 2 =
-          isActiveRing
-            ? 2
-            : isSelectedFace || touchesSelectedVertex
-              ? 1
-              : 0
         const edgePositions = [
           start[0] - center[0],
           start[1] - center[1],
@@ -1752,26 +1745,15 @@ function buildEdgeSegments(
           end[1] - center[1],
           end[2] - center[2],
         ]
-        const existing = edgeMap.get(edgeKey)
-        if (existing) {
-          existing.tier = Math.max(existing.tier, edgeTier) as 0 | 1 | 2
+
+        if (isActiveRing) {
+          activeRing.push(...edgePositions)
+        } else if (isSelectedFace || touchesSelectedVertex) {
+          highlight.push(...edgePositions)
         } else {
-          edgeMap.set(edgeKey, {
-            positions: edgePositions,
-            tier: edgeTier,
-          })
+          base.push(...edgePositions)
         }
       }
-    }
-  }
-
-  for (const edge of edgeMap.values()) {
-    if (edge.tier === 2) {
-      activeRing.push(...edge.positions)
-    } else if (edge.tier === 1) {
-      highlight.push(...edge.positions)
-    } else {
-      base.push(...edge.positions)
     }
   }
 

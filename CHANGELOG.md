@@ -8,6 +8,7 @@
 - desktop sidebar content is no longer kept mounted while the sidebar is collapsed, reducing panel toggle cost
 - detail error and attribute panels now fully reset on feature/object selection changes, preventing stale error rows from persisting across selections
 - details attributes now show both active object attributes and parent feature attributes in separate sections
+- edit mode now cycles ordered face ring entries, including repeated vertices, and avoids duplicate closing edges on explicitly closed rings
 - entering edit mode now disables semantic coloring
 - details panel hides the error count when no val3dity report is loaded
 - validation report uploads now fail fast for invalid val3dity JSON structure or non-matching datasets

@@ -98,6 +98,7 @@ function App() {
   const [selectedFaceIndex, setSelectedFaceIndex] = useState<number | null>(null)
   const [selectedFaceRingIndex, setSelectedFaceRingIndex] = useState(0)
   const [selectedVertexIndex, setSelectedVertexIndex] = useState<number | null>(null)
+  const [selectedFaceVertexEntryIndex, setSelectedFaceVertexEntryIndex] = useState<number | null>(null)
   const [geometryRevision, setGeometryRevision] = useState(0)
   const [viewportResetRevision, setViewportResetRevision] = useState(0)
   const [focusRevision, setFocusRevision] = useState(0)
@@ -159,6 +160,16 @@ function App() {
     [activeFaceRingIndex, selectedFace],
   )
   const selectedFaceVertexCount = selectedFaceVertexIndices.length
+  const activeSelectedFaceVertexEntryIndex =
+    selectedFaceVertexEntryIndex != null &&
+    selectedFaceVertexEntryIndex >= 0 &&
+    selectedFaceVertexEntryIndex < selectedFaceVertexCount
+      ? selectedFaceVertexEntryIndex
+      : null
+  const selectedFaceVertexEntryLabel =
+    activeSelectedFaceVertexEntryIndex != null
+      ? `vtx entry   ${activeSelectedFaceVertexEntryIndex + 1}/${selectedFaceVertexCount}`
+      : null
   const selectedFaceRingLabel =
     selectedFaceRingCount === 0
       ? 'No ring selected'
@@ -250,6 +261,7 @@ function App() {
     setSelectedFaceIndex(null)
     setSelectedFaceRingIndex(0)
     setSelectedVertexIndex(null)
+    setSelectedFaceVertexEntryIndex(null)
   }, [isMobileLayout])
 
   useEffect(() => {
@@ -275,6 +287,7 @@ function App() {
         setSelectedFaceIndex(null)
         setSelectedFaceRingIndex(0)
         setSelectedVertexIndex(null)
+        setSelectedFaceVertexEntryIndex(null)
       }
       return
     }
@@ -468,6 +481,7 @@ function App() {
     setSelectedFaceIndex(null)
     setSelectedFaceRingIndex(0)
     setSelectedVertexIndex(null)
+    setSelectedFaceVertexEntryIndex(null)
     setEditMode(false)
   }, [resetViewerState])
 
@@ -548,6 +562,7 @@ function App() {
     setSelectedFaceIndex(surface?.faceIndex ?? null)
     setSelectedFaceRingIndex(0)
     setSelectedVertexIndex(null)
+    setSelectedFaceVertexEntryIndex(null)
     setSelectedSemanticSurface(surface?.surface ? surface : null)
   }, [])
 
@@ -614,6 +629,7 @@ function App() {
     setSelectedFaceRingIndex(0)
     setActiveObjectId(inferredObjectId)
     setSelectedVertexIndex(null)
+    setSelectedFaceVertexEntryIndex(null)
     setFocusTarget({
       kind: 'error',
       featureId: selectedFeature.id,
@@ -630,6 +646,7 @@ function App() {
     setSelectedFaceIndex(null)
     setSelectedFaceRingIndex(0)
     setSelectedVertexIndex(null)
+    setSelectedFaceVertexEntryIndex(null)
   }, [])
 
   const toggleEditMode = useCallback(() => {
@@ -647,10 +664,12 @@ function App() {
         setSelectedFaceIndex(null)
         setSelectedFaceRingIndex(0)
         setSelectedVertexIndex(null)
+        setSelectedFaceVertexEntryIndex(null)
       }
       if (next) {
         setSelectedFaceIndex(null)
         setSelectedFaceRingIndex(0)
+        setSelectedFaceVertexEntryIndex(null)
       }
       return next
     })
@@ -671,6 +690,7 @@ function App() {
       setSelectedFaceIndex(null)
       setSelectedFaceRingIndex(0)
       setSelectedVertexIndex(null)
+      setSelectedFaceVertexEntryIndex(null)
     })
   }, [featureMap, isMobileLayout])
 
@@ -691,17 +711,27 @@ function App() {
     setSelectedFaceIndex(faceIndex)
     setSelectedFaceRingIndex(0)
     setSelectedVertexIndex(null)
+    setSelectedFaceVertexEntryIndex(null)
   }, [])
 
-  const handleSelectVertex = useCallback((vertexIndex: number | null) => {
+  const selectFaceVertex = useCallback((vertexIndex: number | null, options?: {
+    ringIndex?: number
+    entryIndex?: number | null
+  }) => {
     setSelectedVertexIndex(vertexIndex)
+    let nextEntryIndex = options?.entryIndex ?? null
 
     if (selectedFace && vertexIndex != null) {
-      const ringIndex = selectedFace.findIndex((ring) => ring.includes(vertexIndex))
+      const ringIndex = options?.ringIndex ?? selectedFace.findIndex((ring) => ring.includes(vertexIndex))
       if (ringIndex >= 0) {
         setSelectedFaceRingIndex(ringIndex)
+        if (nextEntryIndex == null) {
+          const ringEntryIndex = selectedFace[ringIndex]?.indexOf(vertexIndex) ?? -1
+          nextEntryIndex = ringEntryIndex >= 0 ? ringEntryIndex : null
+        }
       }
     }
+    setSelectedFaceVertexEntryIndex(nextEntryIndex)
 
     if (!editMode || vertexIndex == null || !selectedFeature) {
       return
@@ -721,13 +751,19 @@ function App() {
     setFocusRevision((current) => current + 1)
   }, [activeObjectId, editMode, selectedFace, selectedFeature])
 
+  const handleSelectVertex = useCallback((vertexIndex: number | null) => {
+    selectFaceVertex(vertexIndex)
+  }, [selectFaceVertex])
+
   const cycleSelectedFaceVertex = useCallback((direction: -1 | 1) => {
     if (selectedFaceVertexIndices.length === 0) {
       return
     }
 
-    const currentIndex = selectedVertexIndex != null
-      ? selectedFaceVertexIndices.indexOf(selectedVertexIndex)
+    const currentIndex = activeSelectedFaceVertexEntryIndex != null
+      ? activeSelectedFaceVertexEntryIndex
+      : selectedVertexIndex != null
+        ? selectedFaceVertexIndices.indexOf(selectedVertexIndex)
       : -1
 
     const nextIndex =
@@ -737,8 +773,17 @@ function App() {
           : selectedFaceVertexIndices.length - 1
         : (currentIndex + direction + selectedFaceVertexIndices.length) % selectedFaceVertexIndices.length
 
-    handleSelectVertex(selectedFaceVertexIndices[nextIndex] ?? null)
-  }, [handleSelectVertex, selectedFaceVertexIndices, selectedVertexIndex])
+    selectFaceVertex(selectedFaceVertexIndices[nextIndex] ?? null, {
+      ringIndex: activeFaceRingIndex,
+      entryIndex: nextIndex,
+    })
+  }, [
+    activeFaceRingIndex,
+    activeSelectedFaceVertexEntryIndex,
+    selectFaceVertex,
+    selectedFaceVertexIndices,
+    selectedVertexIndex,
+  ])
 
   const cycleSelectedFaceRing = useCallback(() => {
     if (selectedFaceRingCount <= 1) {
@@ -747,6 +792,7 @@ function App() {
 
     setSelectedFaceRingIndex((current) => (current + 1) % selectedFaceRingCount)
     setSelectedVertexIndex(null)
+    setSelectedFaceVertexEntryIndex(null)
   }, [selectedFaceRingCount])
 
   const applyFeatureVertices = useCallback((featureId: string, vertices: Vec3[]) => {
@@ -831,6 +877,7 @@ function App() {
         event.preventDefault()
         applyFeatureVertices(selectedFeatureId, originalVertices)
         setSelectedVertexIndex(null)
+        setSelectedFaceVertexEntryIndex(null)
         return
       }
 
@@ -1398,6 +1445,7 @@ function App() {
             selectedFaceRingCount={selectedFaceRingCount}
             selectedFaceRingLabel={selectedFaceRingLabel}
             selectedFaceVertexCount={selectedFaceVertexCount}
+            selectedFaceVertexEntryLabel={selectedFaceVertexEntryLabel}
             selectedFaceHoleCount={selectedFaceHoleCount}
             onCycleSelectedFaceRing={cycleSelectedFaceRing}
             onCycleSelectedFaceVertex={cycleSelectedFaceVertex}
@@ -1523,6 +1571,7 @@ function EditSelectionOverlay({
   selectedFaceRingCount,
   selectedFaceRingLabel,
   selectedFaceVertexCount,
+  selectedFaceVertexEntryLabel,
   selectedFaceHoleCount,
   onCycleSelectedFaceRing,
   onCycleSelectedFaceVertex,
@@ -1534,6 +1583,7 @@ function EditSelectionOverlay({
   selectedFaceRingCount: number
   selectedFaceRingLabel: string
   selectedFaceVertexCount: number
+  selectedFaceVertexEntryLabel: string | null
   selectedFaceHoleCount: number
   onCycleSelectedFaceRing: () => void
   onCycleSelectedFaceVertex: (direction: -1 | 1) => void
@@ -1561,6 +1611,11 @@ function EditSelectionOverlay({
             {selectedFaceVertexCount > 0 && (
               <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
                 {selectedFaceVertexCount} vertices
+              </Badge>
+            )}
+            {selectedFaceVertexEntryLabel && (
+              <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
+                {selectedFaceVertexEntryLabel}
               </Badge>
             )}
           </div>
@@ -2433,19 +2488,7 @@ function cloneVertices(vertices: Vec3[]) {
 
 function getFaceVertexCycle(rings: number[][] | null, ringIndex: number) {
   const targetRing = rings?.[ringIndex] ?? []
-  const seen = new Set<number>()
-  const vertexIndices: number[] = []
-
-  for (const vertexIndex of targetRing) {
-    if (seen.has(vertexIndex)) {
-      continue
-    }
-
-    seen.add(vertexIndex)
-    vertexIndices.push(vertexIndex)
-  }
-
-  return vertexIndices
+  return [...targetRing]
 }
 
 function isEditableTarget(target: EventTarget | null) {
