@@ -73,7 +73,7 @@ type MobileInspectMode = 'object' | 'surface'
 type MobilePanelView = 'features' | 'details'
 type HelpItem = { keys: string; description: string }
 
-const FEATURE_LIST_ROW_HEIGHT = 70
+const FEATURE_LIST_ROW_HEIGHT = 86
 const FEATURE_LIST_ROW_GAP = 6
 const FEATURE_LIST_TOP_PADDING = 8
 const FEATURE_LIST_BOTTOM_PADDING = 12
@@ -85,6 +85,7 @@ const CityViewport = lazy(() =>
 
 type FeatureListItem = {
   feature: ViewerFeature
+  objectTypes: string[]
   errorCodeSummary: string
   errorCount: number
   isInvalid: boolean
@@ -235,13 +236,15 @@ function App() {
 
     return dataset.features.map((feature) => ({
       feature,
+      objectTypes: [...new Set(feature.objects.map((object) => object.type))],
       errorCodeSummary: [...new Set(feature.errors.map((error) => error.code))].join(', '),
       errorCount: feature.errors.length,
       isInvalid: feature.validity === false,
       searchText: [
         feature.id,
         feature.label,
-        feature.type,
+        ...feature.objects.map((object) => object.id),
+        ...feature.objects.map((object) => object.type),
         ...Object.values(feature.attributes),
       ]
         .filter((value): value is string => typeof value === 'string')
@@ -2335,7 +2338,7 @@ const FeatureListRow = memo(function FeatureListRow({
   onCenterFeature: (featureId: string) => void
   onSelectFeature: (featureId: string, objectId?: string | null) => void
 }) {
-  const { feature, errorCodeSummary, errorCount, isInvalid } = item
+  const { feature, objectTypes, errorCodeSummary, errorCount, isInvalid } = item
 
   return (
     <div
@@ -2361,31 +2364,40 @@ const FeatureListRow = memo(function FeatureListRow({
       <div className="min-w-0 flex-1 overflow-hidden text-left">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <div className="flex items-center gap-1.5">
-              <p className="truncate text-sm font-medium">{feature.label}</p>
-              <Badge
-                variant="outline"
-                className={cn(
-                  'shrink-0 px-1.5 py-0 text-[10px]',
-                  selected
-                    ? 'border-accent/30 bg-accent/10 text-accent'
-                    : isInvalid
-                      ? 'border-destructive/30 bg-destructive/12 text-destructive'
-                      : 'border-foreground/10 bg-foreground/5 text-foreground/60',
-                )}
-              >
-                {feature.type}
-              </Badge>
+            <p className="truncate text-sm font-medium">{feature.label}</p>
+            <div className="mt-1 flex flex-wrap items-center gap-1">
+              {objectTypes.length > 0 ? (
+                objectTypes.map((objectType) => (
+                  <Badge
+                    key={objectType}
+                    variant="outline"
+                    className={cn(
+                      'px-1.5 py-0 text-[10px]',
+                      selected
+                        ? 'border-accent/30 bg-accent/10 text-accent'
+                        : isInvalid
+                          ? 'border-destructive/30 bg-destructive/12 text-destructive'
+                          : 'border-foreground/10 bg-foreground/5 text-foreground/60',
+                    )}
+                  >
+                    {objectType}
+                  </Badge>
+                ))
+              ) : (
+                <span className="text-[10px] text-muted-foreground">No object types</span>
+              )}
             </div>
           </div>
         </div>
         <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
           <span>{feature.objects.length} obj</span>
           <span>{feature.vertices.length} vtx</span>
-          {errorCount > 0 && (
+          {errorCount > 0 ? (
             <span className="text-destructive">
               {errorCount} err ({errorCodeSummary})
             </span>
+          ) : (
+            <span>0 err</span>
           )}
         </div>
       </div>
