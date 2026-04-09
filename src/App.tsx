@@ -731,6 +731,12 @@ function App() {
       matchingObjectId ??
       (selectedFeature.objects.length === 1 ? selectedFeature.objects[0]?.id ?? null : activeObjectId)
 
+    if (!isMobileLayout) {
+      setEditMode(true)
+      setIsolateSelectedFeature(true)
+      setShowSemanticSurfaces(false)
+    }
+
     setSelectedFaceIndex(error.faceIndex)
     setSelectedFaceRingIndex(0)
     setActiveObjectId(inferredObjectId)
@@ -744,6 +750,7 @@ function App() {
     )
     setSelectedVertexIndex(null)
     setSelectedFaceVertexEntryIndex(null)
+    setSelectedSemanticSurface(null)
     setFocusTarget({
       kind: 'error',
       featureId: selectedFeature.id,
