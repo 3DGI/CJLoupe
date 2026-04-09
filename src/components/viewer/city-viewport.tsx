@@ -9,12 +9,20 @@ import { TransformControls } from 'three/examples/jsm/controls/TransformControls
 import type {
   PolygonRings,
   Vec3,
+  ViewerCityObject,
   ViewerDataset,
   ViewerFeature,
   ViewerFocusTarget,
+  ViewerGeometryDisplayMode,
+  ViewerObjectGeometry,
   ViewerSemanticSurface,
   ViewerValidationError,
 } from '@/types/cityjson'
+import {
+  getObjectGeometryByIndex,
+  resolveObjectGeometry,
+  resolveObjectGeometryIndex,
+} from '@/lib/object-geometry'
 import { errorColor } from '@/lib/error-palette'
 
 type Theme = 'light' | 'dark'
@@ -35,6 +43,8 @@ type CityViewportProps = {
   focusTarget: ViewerFocusTarget
   selectedFeatureId: string | null
   activeObjectId: string | null
+  geometryDisplayMode: ViewerGeometryDisplayMode
+  activeGeometryIndex: number | null
   editMode: boolean
   selectedFaceIndex: number | null
   selectedFaceRingIndex: number
@@ -48,6 +58,7 @@ type CityViewportProps = {
   onSelectSemanticSurface: (surface: {
     featureId: string
     objectId: string
+    geometryIndex: number
     faceIndex: number
     surface: ViewerSemanticSurface | null
   } | null) => void
@@ -94,6 +105,17 @@ type ObjectGeometryBlueprint = {
   polygonTriangleIndices: number[][]
 }
 
+type ViewSelection = {
+  selectedFeatureId: string | null
+  activeObjectId: string | null
+  geometryDisplayMode: ViewerGeometryDisplayMode
+  activeGeometryIndex: number | null
+  editMode: boolean
+  selectedFaceIndex: number | null
+  selectedFaceRingIndex: number
+  selectedVertexIndex: number | null
+}
+
 function CityViewport({
   data,
   cameraFocalLength,
@@ -105,6 +127,8 @@ function CityViewport({
   focusTarget,
   selectedFeatureId,
   activeObjectId,
+  geometryDisplayMode,
+  activeGeometryIndex,
   editMode,
   selectedFaceIndex,
   selectedFaceRingIndex,
@@ -129,6 +153,8 @@ function CityViewport({
   const selectionRef = useRef({
     selectedFeatureId,
     activeObjectId,
+    geometryDisplayMode,
+    activeGeometryIndex,
     editMode,
     selectedFaceIndex,
     selectedFaceRingIndex,
@@ -137,6 +163,8 @@ function CityViewport({
   const previousSelectionRef = useRef({
     selectedFeatureId,
     activeObjectId,
+    geometryDisplayMode,
+    activeGeometryIndex,
     editMode,
     selectedFaceIndex,
     selectedFaceRingIndex,
@@ -168,12 +196,14 @@ function CityViewport({
     selectionRef.current = {
       selectedFeatureId,
       activeObjectId,
+      geometryDisplayMode,
+      activeGeometryIndex,
       editMode,
       selectedFaceIndex,
       selectedFaceRingIndex,
       selectedVertexIndex,
     }
-  }, [selectedFeatureId, activeObjectId, editMode, selectedFaceIndex, selectedFaceRingIndex, selectedVertexIndex])
+  }, [selectedFeatureId, activeObjectId, geometryDisplayMode, activeGeometryIndex, editMode, selectedFaceIndex, selectedFaceRingIndex, selectedVertexIndex])
 
   useEffect(() => { onSelectFeatureRef.current = onSelectFeature }, [onSelectFeature])
   useEffect(() => { onSelectFaceRef.current = onSelectFace }, [onSelectFace])
@@ -379,6 +409,9 @@ function CityViewport({
             : null
         const activeObject =
           activeFeature?.objects.find((candidate) => candidate.id === selection.activeObjectId) ?? null
+        const activeObjectGeometry = activeFeature && activeObject
+          ? resolveDisplayedObjectGeometry(activeFeature, activeObject, selection)
+          : null
         const activeMesh =
           selection.selectedFeatureId && selection.activeObjectId
             ? activeRuntime.meshesByObjectKey.get(
@@ -386,7 +419,7 @@ function CityViewport({
               ) ?? null
             : null
 
-        if (!activeFeature || !activeObject || !activeMesh) {
+        if (!activeFeature || !activeObject || !activeObjectGeometry || !activeMesh) {
           return
         }
 
@@ -397,7 +430,7 @@ function CityViewport({
           meshHit && typeof meshHit.faceIndex === 'number'
             ? triangleFaceIndices[meshHit.faceIndex] ?? null
             : null
-        const polygon = polygonIndex != null ? activeObject.polygons[polygonIndex] ?? null : null
+        const polygon = polygonIndex != null ? activeObjectGeometry.polygons[polygonIndex] ?? null : null
         const nearestVertexIndex =
           meshHit && polygon
             ? findNearestVertexIndexOnPolygon(meshHit.point, polygon, activeFeature.vertices, currentData.center)
@@ -460,6 +493,7 @@ function CityViewport({
 
         const featureId = meshHit.object.userData.featureId as string
         const objectId = meshHit.object.userData.objectId as string
+        const geometryIndex = meshHit.object.userData.geometryIndex as number | null | undefined
         const triangleFaceIndices = (meshHit.object.userData.triangleFaceIndices as number[] | undefined) ?? []
         const faceIndex =
           typeof meshHit.faceIndex === 'number'
@@ -467,14 +501,16 @@ function CityViewport({
             : null
         const feature = currentData.features.find((candidate) => candidate.id === featureId) ?? null
         const object = feature?.objects.find((candidate) => candidate.id === objectId) ?? null
-        const surface = faceIndex != null ? object?.semanticSurfaces[faceIndex] ?? null : null
+        const geometry = getObjectGeometryByIndex(object, geometryIndex ?? null)
+        const surface = faceIndex != null ? geometry?.semanticSurfaces[faceIndex] ?? null : null
 
         onSelectFeatureRef.current(featureId, objectId)
         onSelectSemanticSurfaceRef.current(
-          faceIndex != null
+          faceIndex != null && geometryIndex != null
             ? {
                 featureId,
                 objectId,
+                geometryIndex,
                 faceIndex,
                 surface,
               }
@@ -645,7 +681,7 @@ function CityViewport({
       isolateSelectedFeatureRef.current,
     )
     renderViewport(runtime)
-  }, [geometryRevision])
+  }, [geometryRevision, geometryDisplayMode, activeGeometryIndex])
 
   useEffect(() => {
     const runtime = runtimeRef.current
@@ -670,7 +706,7 @@ function CityViewport({
     )
     renderViewport(runtime)
     previousSelectionRef.current = selection
-  }, [selectedFeatureId, activeObjectId, editMode, selectedFaceIndex, selectedFaceRingIndex, selectedVertexIndex, hideOccludedEditEdges, isolateSelectedFeature])
+  }, [selectedFeatureId, activeObjectId, geometryDisplayMode, activeGeometryIndex, editMode, selectedFaceIndex, selectedFaceRingIndex, selectedVertexIndex, hideOccludedEditEdges, isolateSelectedFeature])
 
   useEffect(() => {
     const runtime = runtimeRef.current
@@ -680,7 +716,7 @@ function CityViewport({
     }
 
     if (focusTarget.kind === 'error') {
-      centerViewOnValidationError(runtime, currentData, focusTarget)
+      centerViewOnValidationError(runtime, currentData, focusTarget, selectionRef.current)
     } else if (focusTarget.kind === 'vertex') {
       centerViewOnVertex(runtime, currentData, focusTarget)
     } else {
@@ -781,17 +817,23 @@ function CityViewport({
   return <div ref={containerRef} className="absolute inset-0" />
 }
 
+function resolveDisplayedObjectGeometry(
+  feature: ViewerFeature,
+  object: ViewerCityObject,
+  selection: ViewSelection,
+) {
+  const activeGeometryOverride =
+    selection.selectedFeatureId === feature.id && selection.activeObjectId === object.id
+      ? selection.activeGeometryIndex
+      : null
+
+  return resolveObjectGeometry(object, selection.geometryDisplayMode, activeGeometryOverride)
+}
+
 function rebuildScene(
   runtime: Runtime,
   data: ViewerDataset,
-  selection: {
-    selectedFeatureId: string | null
-    activeObjectId: string | null
-    editMode: boolean
-    selectedFaceIndex: number | null
-    selectedFaceRingIndex: number
-    selectedVertexIndex: number | null
-  },
+  selection: ViewSelection,
 ) {
   disposeSceneContents(runtime)
   runtime.featureDrafts = new Map(
@@ -818,7 +860,8 @@ function rebuildScene(
     ]
 
     for (const object of feature.objects) {
-      if (object.polygons.length === 0) {
+      const objectGeometry = resolveDisplayedObjectGeometry(feature, object, selection)
+      if (!objectGeometry) {
         continue
       }
 
@@ -826,6 +869,7 @@ function rebuildScene(
         runtime,
         feature,
         object,
+        objectGeometry,
         selection,
         draftVertices,
         featureCenter,
@@ -840,6 +884,8 @@ function rebuildScene(
         featureId: feature.id,
         objectId: object.id,
         objectType: object.type,
+        hasRenderableChildren: object.hasRenderableChildren,
+        geometryIndex: objectGeometry.index,
         featureCenter,
         triangleFaceIndices: geometry.userData.triangleFaceIndices,
         geometryBlueprint: blueprint,
@@ -854,14 +900,7 @@ function rebuildFeatureGeometry(
   runtime: Runtime,
   data: ViewerDataset,
   featureId: string,
-  selection: {
-    selectedFeatureId: string | null
-    activeObjectId: string | null
-    editMode: boolean
-    selectedFaceIndex: number | null
-    selectedFaceRingIndex: number
-    selectedVertexIndex: number | null
-  },
+  selection: ViewSelection,
 ) {
   const feature = data.features.find((candidate) => candidate.id === featureId)
   const vertices = runtime.featureDrafts.get(featureId)
@@ -875,26 +914,25 @@ function rebuildFeatureGeometry(
       continue
     }
 
+    const objectGeometry = resolveDisplayedObjectGeometry(feature, object, selection)
+    if (!objectGeometry) {
+      continue
+    }
+
     const center = (mesh.userData.featureCenter as Vec3) ?? data.center
-    const nextBlueprint = buildObjectGeometryBlueprint(object.polygons, vertices, center)
-    const { faceGroups } = resolveObjectFaceGroups(runtime, feature, object, selection)
+    const nextBlueprint = buildObjectGeometryBlueprint(objectGeometry.polygons, vertices, center)
+    const { faceGroups } = resolveObjectFaceGroups(runtime, feature, object, objectGeometry, selection)
     const nextGeometry = buildGroupedObjectGeometry(nextBlueprint, faceGroups)
     replaceMeshGeometry(mesh, nextGeometry)
     mesh.userData.geometryBlueprint = nextBlueprint
+    mesh.userData.geometryIndex = objectGeometry.index
   }
 }
 
 function updateSceneSurfacePresentation(
   runtime: Runtime,
   data: ViewerDataset,
-  selection: {
-    selectedFeatureId: string | null
-    activeObjectId: string | null
-    editMode: boolean
-    selectedFaceIndex: number | null
-    selectedFaceRingIndex: number
-    selectedVertexIndex: number | null
-  },
+  selection: ViewSelection,
 ) {
   for (const feature of data.features) {
     for (const object of feature.objects) {
@@ -906,22 +944,8 @@ function updateSceneSurfacePresentation(
 function updateSelectionSurfacePresentation(
   runtime: Runtime,
   data: ViewerDataset,
-  previousSelection: {
-    selectedFeatureId: string | null
-    activeObjectId: string | null
-    editMode: boolean
-    selectedFaceIndex: number | null
-    selectedFaceRingIndex: number
-    selectedVertexIndex: number | null
-  },
-  selection: {
-    selectedFeatureId: string | null
-    activeObjectId: string | null
-    editMode: boolean
-    selectedFaceIndex: number | null
-    selectedFaceRingIndex: number
-    selectedVertexIndex: number | null
-  },
+  previousSelection: ViewSelection,
+  selection: ViewSelection,
 ) {
   const previousObjectKey =
     previousSelection.selectedFeatureId && previousSelection.activeObjectId
@@ -932,10 +956,16 @@ function updateSelectionSurfacePresentation(
       ? objectKey(selection.selectedFeatureId, selection.activeObjectId)
       : null
   const didSelectedObjectChange = previousObjectKey !== nextObjectKey
+  const didGeometryModeChange =
+    previousSelection.geometryDisplayMode.kind !== selection.geometryDisplayMode.kind ||
+    (previousSelection.geometryDisplayMode.kind === 'lod' &&
+      selection.geometryDisplayMode.kind === 'lod' &&
+      previousSelection.geometryDisplayMode.lod !== selection.geometryDisplayMode.lod) ||
+    previousSelection.activeGeometryIndex !== selection.activeGeometryIndex
   const didSelectedFaceChange = previousSelection.selectedFaceIndex !== selection.selectedFaceIndex
   const didEditModeChange = previousSelection.editMode !== selection.editMode
 
-  if (!didSelectedObjectChange && !didSelectedFaceChange && !didEditModeChange) {
+  if (!didSelectedObjectChange && !didGeometryModeChange && !didSelectedFaceChange && !didEditModeChange) {
     return
   }
 
@@ -963,17 +993,15 @@ function updateObjectSurfacePresentation(
   runtime: Runtime,
   feature: ViewerFeature,
   object: ViewerFeature['objects'][number],
-  selection: {
-    selectedFeatureId: string | null
-    activeObjectId: string | null
-    editMode: boolean
-    selectedFaceIndex: number | null
-    selectedFaceRingIndex: number
-    selectedVertexIndex: number | null
-  },
+  selection: ViewSelection,
 ) {
   const mesh = runtime.meshesByObjectKey.get(objectKey(feature.id, object.id))
   if (!mesh) {
+    return
+  }
+
+  const objectGeometry = resolveDisplayedObjectGeometry(feature, object, selection)
+  if (!objectGeometry) {
     return
   }
 
@@ -988,6 +1016,7 @@ function updateObjectSurfacePresentation(
     runtime,
     feature,
     object,
+    objectGeometry,
     selection,
     draftVertices,
     featureCenter,
@@ -996,6 +1025,7 @@ function updateObjectSurfacePresentation(
   replaceMeshGeometry(mesh, geometry)
   replaceMeshMaterial(mesh, material)
   mesh.userData.geometryBlueprint = blueprint
+  mesh.userData.geometryIndex = objectGeometry.index
   mesh.userData.triangleFaceIndices = geometry.userData.triangleFaceIndices
 }
 
@@ -1003,20 +1033,14 @@ function buildObjectMeshPresentation(
   runtime: Runtime,
   feature: ViewerFeature,
   object: ViewerFeature['objects'][number],
-  selection: {
-    selectedFeatureId: string | null
-    activeObjectId: string | null
-    editMode: boolean
-    selectedFaceIndex: number | null
-    selectedFaceRingIndex: number
-    selectedVertexIndex: number | null
-  },
+  objectGeometry: ViewerObjectGeometry,
+  selection: ViewSelection,
   vertices: Vec3[],
   featureCenter: Vec3,
   existingBlueprint?: ObjectGeometryBlueprint,
 ) {
-  const blueprint = existingBlueprint ?? buildObjectGeometryBlueprint(object.polygons, vertices, featureCenter)
-  const { faceGroups, groupColors } = resolveObjectFaceGroups(runtime, feature, object, selection)
+  const blueprint = existingBlueprint ?? buildObjectGeometryBlueprint(objectGeometry.polygons, vertices, featureCenter)
+  const { faceGroups, groupColors } = resolveObjectFaceGroups(runtime, feature, object, objectGeometry, selection)
   const geometry = buildGroupedObjectGeometry(blueprint, faceGroups)
   const baseMaterial = createMaterial(object.type, runtime.theme, runtime.showSemanticSurfaces)
   const materials = buildMaterialArray(
@@ -1036,14 +1060,8 @@ function resolveObjectFaceGroups(
   runtime: Runtime,
   feature: ViewerFeature,
   object: ViewerFeature['objects'][number],
-  selection: {
-    selectedFeatureId: string | null
-    activeObjectId: string | null
-    editMode: boolean
-    selectedFaceIndex: number | null
-    selectedFaceRingIndex: number
-    selectedVertexIndex: number | null
-  },
+  objectGeometry: ViewerObjectGeometry,
+  selection: ViewSelection,
 ) {
   const selectedSemanticFaceIndex =
     runtime.showSemanticSurfaces &&
@@ -1054,8 +1072,8 @@ function resolveObjectFaceGroups(
       : null
 
   return runtime.showSemanticSurfaces
-    ? computeFaceSemanticGroups(object.semanticSurfaces, selectedSemanticFaceIndex)
-    : computeFaceErrorGroups(feature.errors, object.id)
+    ? computeFaceSemanticGroups(objectGeometry.semanticSurfaces, selectedSemanticFaceIndex)
+    : computeFaceErrorGroups(feature.errors, object.id, objectGeometry.index)
 }
 
 function buildObjectGeometryBlueprint(
@@ -1186,14 +1204,7 @@ function rebuildAnnotations(runtime: Runtime) {
 function syncSelection(
   runtime: Runtime,
   data: ViewerDataset,
-  selection: {
-    selectedFeatureId: string | null
-    activeObjectId: string | null
-    editMode: boolean
-    selectedFaceIndex: number | null
-    selectedFaceRingIndex: number
-    selectedVertexIndex: number | null
-  },
+  selection: ViewSelection,
   hideOccludedEditEdges: boolean,
   isolateSelectedFeature: boolean,
 ) {
@@ -1208,9 +1219,12 @@ function syncSelection(
     const featureId = mesh.userData.featureId as string
     const objectId = mesh.userData.objectId as string
     const objectType = mesh.userData.objectType as string
+    const hasRenderableChildren = (mesh.userData.hasRenderableChildren as boolean | undefined) === true
     const baseColor = baseColorForType(objectType, runtime.theme)
     const isSelectedFeature = featureId === selection.selectedFeatureId
     const isActiveObject = isSelectedFeature && objectId === selection.activeObjectId
+    const hideParentMesh =
+      selection.geometryDisplayMode.kind === 'best' && hasRenderableChildren && !isActiveObject
 
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
     for (const material of materials) {
@@ -1268,7 +1282,7 @@ function syncSelection(
       mat.transparent = false
       mat.depthWrite = true
     }
-    mesh.visible = !isolateActive || isSelectedFeature
+    mesh.visible = (!isolateActive || isSelectedFeature) && !hideParentMesh
   }
 
   rebuildHandles(runtime, data, selection, hideOccludedEditEdges)
@@ -1277,14 +1291,7 @@ function syncSelection(
 function rebuildHandles(
   runtime: Runtime,
   data: ViewerDataset,
-  selection: {
-    selectedFeatureId: string | null
-    activeObjectId: string | null
-    editMode: boolean
-    selectedFaceIndex: number | null
-    selectedFaceRingIndex: number
-    selectedVertexIndex: number | null
-  },
+  selection: ViewSelection,
   hideOccludedEditEdges: boolean,
 ) {
   hideEditWireframe(runtime)
@@ -1301,11 +1308,14 @@ function rebuildHandles(
 
   const feature = data.features.find((candidate) => candidate.id === selection.selectedFeatureId)
   const object = feature?.objects.find((candidate) => candidate.id === selection.activeObjectId)
+  const objectGeometry = feature && object
+    ? resolveDisplayedObjectGeometry(feature, object, selection)
+    : null
   const draftVertices = selection.selectedFeatureId
     ? runtime.featureDrafts.get(selection.selectedFeatureId)
     : undefined
 
-  if (!feature || !object || !draftVertices) {
+  if (!feature || !object || !objectGeometry || !draftVertices) {
     return
   }
 
@@ -1336,7 +1346,7 @@ function rebuildHandles(
   )
 
   runtime.editPoints = buildEditPoints(
-    object.vertexIndices,
+    objectGeometry.vertexIndices,
     draftVertices,
     editPivot,
     getViewportPalette(runtime.theme).editPoint,
@@ -1375,14 +1385,7 @@ function rebuildHandles(
 function rebuildEditWireframe(
   runtime: Runtime,
   data: ViewerDataset,
-  selection: {
-    selectedFeatureId: string | null
-    activeObjectId: string | null
-    editMode: boolean
-    selectedFaceIndex: number | null
-    selectedFaceRingIndex: number
-    selectedVertexIndex: number | null
-  },
+  selection: ViewSelection,
   hideOccludedEditEdges: boolean,
 ) {
   if (!selection.editMode || !selection.selectedFeatureId || !selection.activeObjectId) {
@@ -1391,15 +1394,18 @@ function rebuildEditWireframe(
 
   const feature = data.features.find((candidate) => candidate.id === selection.selectedFeatureId)
   const object = feature?.objects.find((candidate) => candidate.id === selection.activeObjectId)
+  const objectGeometry = feature && object
+    ? resolveDisplayedObjectGeometry(feature, object, selection)
+    : null
   const draftVertices = runtime.featureDrafts.get(selection.selectedFeatureId)
 
-  if (!feature || !object || !draftVertices) {
+  if (!feature || !object || !objectGeometry || !draftVertices) {
     return
   }
 
   const edgeCenter = runtime.editPivot ?? data.center
   const edgeSegments = buildEdgeSegments(
-    object.polygons,
+    objectGeometry.polygons,
     draftVertices,
     edgeCenter,
     selection.selectedFaceIndex,
@@ -1577,13 +1583,7 @@ function buildEditPoints(
 function syncEditPointGeometry(
   runtime: Runtime,
   data: ViewerDataset,
-  selection: {
-    selectedFeatureId: string | null
-    activeObjectId: string | null
-    editMode: boolean
-    selectedFaceIndex: number | null
-    selectedVertexIndex: number | null
-  },
+  selection: ViewSelection,
 ) {
   if (!selection.selectedFeatureId || !selection.activeObjectId) {
     return
@@ -1591,13 +1591,16 @@ function syncEditPointGeometry(
 
   const feature = data.features.find((candidate) => candidate.id === selection.selectedFeatureId)
   const object = feature?.objects.find((candidate) => candidate.id === selection.activeObjectId)
+  const objectGeometry = feature && object
+    ? resolveDisplayedObjectGeometry(feature, object, selection)
+    : null
   const draftVertices = runtime.featureDrafts.get(selection.selectedFeatureId)
-  if (!feature || !object || !draftVertices) {
+  if (!feature || !object || !objectGeometry || !draftVertices) {
     return
   }
 
   const pointCenter = runtime.editPivot ?? data.center
-  updatePointPositions(runtime.editPoints, object.vertexIndices, draftVertices, pointCenter)
+  updatePointPositions(runtime.editPoints, objectGeometry.vertexIndices, draftVertices, pointCenter)
   updatePointPositions(
     runtime.selectedEditPoint,
     selection.selectedVertexIndex != null ? [selection.selectedVertexIndex] : [],
@@ -1642,24 +1645,21 @@ function updatePointPositions(
 function updateEditPointRaycastThreshold(
   runtime: Runtime,
   data: ViewerDataset,
-  selection: {
-    selectedFeatureId: string | null
-    activeObjectId: string | null
-    editMode: boolean
-    selectedFaceIndex: number | null
-    selectedVertexIndex: number | null
-  },
+  selection: ViewSelection,
 ) {
   const feature = selection.selectedFeatureId
     ? data.features.find((candidate) => candidate.id === selection.selectedFeatureId)
     : null
   const object = feature?.objects.find((candidate) => candidate.id === selection.activeObjectId) ?? null
-  if (!feature || !object) {
+  const objectGeometry = feature && object
+    ? resolveDisplayedObjectGeometry(feature, object, selection)
+    : null
+  if (!feature || !objectGeometry) {
     runtime.raycaster.params.Points.threshold = 1
     return
   }
 
-  const objectExtent = extentFromVertexIndices(object.vertexIndices, feature.vertices)
+  const objectExtent = extentFromVertexIndices(objectGeometry.vertexIndices, feature.vertices)
   const viewportHeight = runtime.renderer.domElement.clientHeight
   if (!objectExtent || viewportHeight <= 0) {
     runtime.raycaster.params.Points.threshold = 1
@@ -1879,6 +1879,7 @@ function centerViewOnValidationError(
   runtime: Runtime,
   data: ViewerDataset,
   focusTarget: Extract<ViewerFocusTarget, { kind: 'error' }>,
+  selection: ViewSelection,
 ) {
   const feature = data.features.find((candidate) => candidate.id === focusTarget.featureId)
   if (!feature) {
@@ -1888,14 +1889,26 @@ function centerViewOnValidationError(
   const object = focusTarget.objectId
     ? feature.objects.find((candidate) => candidate.id === focusTarget.objectId)
     : null
+  const focusedGeometryIndex =
+    object
+      ? focusTarget.geometryIndex ??
+        resolveObjectGeometryIndex(
+          object,
+          selection.geometryDisplayMode,
+          selection.selectedFeatureId === focusTarget.featureId && selection.activeObjectId === focusTarget.objectId
+            ? selection.activeGeometryIndex
+            : null,
+        )
+      : null
+  const objectGeometry = getObjectGeometryByIndex(object, focusedGeometryIndex)
 
   const face =
-    object && focusTarget.faceIndex != null ? object.polygons[focusTarget.faceIndex] ?? null : null
+    objectGeometry && focusTarget.faceIndex != null ? objectGeometry.polygons[focusTarget.faceIndex] ?? null : null
   const faceExtent = face
     ? extentFromVertexIndices(uniqueVertexIndices(face), feature.vertices)
     : null
   const objectExtent =
-    object ? extentFromVertexIndices(object.vertexIndices, feature.vertices) : null
+    objectGeometry ? extentFromVertexIndices(objectGeometry.vertexIndices, feature.vertices) : null
   const featureSize = extentMaxDimension(feature.extent)
   const objectSize = objectExtent ? extentMaxDimension(objectExtent) : featureSize
   const preserveCameraOffset = focusTarget.preserveCameraOffset === true
@@ -2151,6 +2164,7 @@ function getViewportPalette(theme: Theme) {
 function computeFaceErrorGroups(
   errors: ViewerValidationError[],
   objectId: string,
+  geometryIndex: number,
 ): { faceGroups: Map<number, number>; groupColors: Map<number, string> } {
   const codeToGroup = new Map<number, number>()
   let nextGroup = 1
@@ -2158,7 +2172,11 @@ function computeFaceErrorGroups(
   const groupColors = new Map<number, string>()
 
   for (const error of errors) {
-    if (error.cityObjectId !== objectId || error.faceIndex == null) {
+    if (
+      error.cityObjectId !== objectId ||
+      error.faceIndex == null ||
+      (error.geometryIndex != null && error.geometryIndex !== geometryIndex)
+    ) {
       continue
     }
     if (faceGroups.has(error.faceIndex)) {

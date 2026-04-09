@@ -1,6 +1,15 @@
 export type Vec3 = [number, number, number]
 export type PolygonRings = number[][]
 
+export type ViewerGeometryDisplayMode =
+  | {
+      kind: 'best'
+    }
+  | {
+      kind: 'lod'
+      lod: string
+    }
+
 export interface ViewerSemanticSurface {
   surfaceIndex: number
   type: string
@@ -34,6 +43,7 @@ export type ViewerFocusTarget =
       kind: 'error'
       featureId: string
       objectId: string | null
+      geometryIndex: number | null
       faceIndex: number | null
       location: Vec3 | null
       preserveCameraOffset?: boolean
@@ -61,13 +71,20 @@ export interface ViewerFeature {
   extent: [number, number, number, number, number, number]
 }
 
-export interface ViewerCityObject {
-  id: string
-  type: string
-  attributes: Record<string, unknown>
+export interface ViewerObjectGeometry {
+  index: number
   geometryType: string | null
   lod: string | null
   polygons: PolygonRings[]
   semanticSurfaces: Array<ViewerSemanticSurface | null>
   vertexIndices: number[]
+}
+
+export interface ViewerCityObject {
+  id: string
+  type: string
+  attributes: Record<string, unknown>
+  geometries: ViewerObjectGeometry[]
+  bestGeometryIndex: number | null
+  hasRenderableChildren: boolean
 }

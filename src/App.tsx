@@ -1,6 +1,5 @@
 import {
   Box,
-  Layers,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -26,6 +25,14 @@ import { Suspense, lazy, memo, startTransition, useCallback, useEffect, useMemo,
 import type { ChangeEvent, ReactNode } from 'react'
 
 import { Badge } from '@/components/ui/badge'
+import {
+  collectAvailableLods,
+  formatGeometryLabel,
+  getGeometryDisplayModeKey,
+  getObjectGeometryByIndex,
+  normalizeObjectGeometryIndex,
+  resolveObjectGeometryIndex,
+} from '@/lib/object-geometry'
 import { errorColor } from '@/lib/error-palette'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -48,6 +55,8 @@ import type {
   ViewerDataset,
   ViewerFeature,
   ViewerFocusTarget,
+  ViewerGeometryDisplayMode,
+  ViewerObjectGeometry,
   ViewerSemanticSurface,
   ViewerValidationError,
 } from '@/types/cityjson'
@@ -95,6 +104,8 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null)
   const [activeObjectId, setActiveObjectId] = useState<string | null>(null)
+  const [geometryDisplayMode, setGeometryDisplayMode] = useState<ViewerGeometryDisplayMode>({ kind: 'best' })
+  const [activeGeometryIndex, setActiveGeometryIndex] = useState<number | null>(null)
   const [selectedFaceIndex, setSelectedFaceIndex] = useState<number | null>(null)
   const [selectedFaceRingIndex, setSelectedFaceRingIndex] = useState(0)
   const [selectedVertexIndex, setSelectedVertexIndex] = useState<number | null>(null)
@@ -121,6 +132,7 @@ function App() {
   const [selectedSemanticSurface, setSelectedSemanticSurface] = useState<{
     featureId: string
     objectId: string
+    geometryIndex: number
     faceIndex: number
     surface: ViewerSemanticSurface | null
   } | null>(null)
@@ -133,21 +145,24 @@ function App() {
 
   const selectedFeature = selectedFeatureId ? featureMap.get(selectedFeatureId) ?? null : null
   const selectedFeatureObjectCount = selectedFeature?.objects.length ?? 0
-  const selectedFeatureErrorCount = selectedFeature?.errors.length ?? 0
+  const availableLods = useMemo(() => collectAvailableLods(dataset), [dataset])
   const activeObject =
     selectedFeature?.objects.find((object) => object.id === activeObjectId) ??
     selectedFeature?.objects[0] ??
     null
-  const selectedFeatureAttributeCount = selectedFeature ? Object.keys(selectedFeature.attributes).length : 0
+  const resolvedActiveGeometryIndex = activeObject
+    ? resolveObjectGeometryIndex(activeObject, geometryDisplayMode, activeGeometryIndex)
+    : null
+  const activeObjectGeometry = getObjectGeometryByIndex(activeObject, resolvedActiveGeometryIndex)
+  const activeObjectGeometryCount = activeObject?.geometries.length ?? 0
   const activeObjectAttributeCount = activeObject ? Object.keys(activeObject.attributes).length : 0
-  const displayedDetailAttributeCount = activeObject ? activeObjectAttributeCount + selectedFeatureAttributeCount : selectedFeatureAttributeCount
   const selectedVertex =
     selectedFeature && selectedVertexIndex != null
       ? selectedFeature.vertices[selectedVertexIndex] ?? null
       : null
   const selectedFace =
-    activeObject && selectedFaceIndex != null
-      ? activeObject.polygons[selectedFaceIndex] ?? null
+    activeObjectGeometry && selectedFaceIndex != null
+      ? activeObjectGeometry.polygons[selectedFaceIndex] ?? null
       : null
   const selectedFaceRingCount = selectedFace?.length ?? 0
   const selectedFaceHoleCount = Math.max(selectedFaceRingCount - 1, 0)
@@ -182,20 +197,31 @@ function App() {
     }
 
     return selectedFeature.errors.filter((error) => {
-      if (!activeObjectId || selectedFeature.objects.length <= 1) {
-        return true
+      if (activeObjectId && error.cityObjectId && error.cityObjectId !== activeObjectId) {
+        return false
       }
 
-      return !error.cityObjectId || error.cityObjectId === activeObjectId
+      if (
+        activeObjectId &&
+        resolvedActiveGeometryIndex != null &&
+        error.cityObjectId === activeObjectId &&
+        error.geometryIndex != null &&
+        error.geometryIndex !== resolvedActiveGeometryIndex
+      ) {
+        return false
+      }
+
+      return true
     })
-  }, [activeObjectId, selectedFeature])
+  }, [activeObjectId, resolvedActiveGeometryIndex, selectedFeature])
   const visibleDetailErrorCount = visibleDetailErrors.length
   const showErrorTabs = visibleDetailErrorCount > 0
   const resolvedDetailTab = showErrorTabs ? detailTab : 'attributes'
-  const detailSelectionKey = `${selectedFeature?.id ?? 'none'}::${activeObject?.id ?? 'none'}`
+  const detailSelectionKey = `${selectedFeature?.id ?? 'none'}::${activeObject?.id ?? 'none'}::${resolvedActiveGeometryIndex ?? 'none'}`
   const activeSemanticSurface = selectedSemanticSurface?.surface
     ? {
         objectId: selectedSemanticSurface.objectId,
+        geometryIndex: selectedSemanticSurface.geometryIndex,
         faceIndex: selectedSemanticSurface.faceIndex,
         surface: selectedSemanticSurface.surface,
       }
@@ -281,6 +307,78 @@ function App() {
   }, [error])
 
   useEffect(() => {
+    if (geometryDisplayMode.kind === 'lod' && !availableLods.includes(geometryDisplayMode.lod)) {
+      setGeometryDisplayMode({ kind: 'best' })
+    }
+  }, [availableLods, geometryDisplayMode])
+
+  useEffect(() => {
+    if (!activeObject) {
+      if (activeGeometryIndex != null) {
+        setActiveGeometryIndex(null)
+      }
+      return
+    }
+
+    const normalizedGeometryIndex = normalizeObjectGeometryIndex(activeObject, activeGeometryIndex)
+    if (normalizedGeometryIndex !== activeGeometryIndex) {
+      setActiveGeometryIndex(normalizedGeometryIndex)
+    }
+  }, [activeGeometryIndex, activeObject])
+
+  useEffect(() => {
+    if (!activeObjectGeometry) {
+      setSelectedFaceIndex(null)
+      setSelectedFaceRingIndex(0)
+      setSelectedVertexIndex(null)
+      setSelectedFaceVertexEntryIndex(null)
+      setSelectedSemanticSurface(null)
+      return
+    }
+
+    const activeVertexIndices = new Set(activeObjectGeometry.vertexIndices)
+    if (selectedFaceIndex != null && !activeObjectGeometry.polygons[selectedFaceIndex]) {
+      setSelectedFaceIndex(null)
+      setSelectedFaceRingIndex(0)
+      setSelectedVertexIndex(null)
+      setSelectedFaceVertexEntryIndex(null)
+    } else if (selectedVertexIndex != null && !activeVertexIndices.has(selectedVertexIndex)) {
+      setSelectedVertexIndex(null)
+      setSelectedFaceVertexEntryIndex(null)
+    }
+
+    setSelectedSemanticSurface((current) => {
+      if (!current) {
+        return current
+      }
+
+      if (
+        current.featureId !== selectedFeatureId ||
+        current.objectId !== activeObjectId ||
+        current.geometryIndex !== activeObjectGeometry.index
+      ) {
+        return null
+      }
+
+      const surface = activeObjectGeometry.semanticSurfaces[current.faceIndex] ?? null
+      if (!surface) {
+        return null
+      }
+
+      return {
+        ...current,
+        surface,
+      }
+    })
+  }, [
+    activeObjectGeometry,
+    activeObjectId,
+    selectedFaceIndex,
+    selectedFeatureId,
+    selectedVertexIndex,
+  ])
+
+  useEffect(() => {
     if (!showSemanticSurfaces || editMode || !dataset) {
       setSelectedSemanticSurface(null)
       if (!editMode) {
@@ -303,7 +401,8 @@ function App() {
 
       const feature = dataset.features.find((candidate) => candidate.id === current.featureId)
       const object = feature?.objects.find((candidate) => candidate.id === current.objectId)
-      const surface = object?.semanticSurfaces[current.faceIndex] ?? null
+      const geometry = getObjectGeometryByIndex(object, current.geometryIndex)
+      const surface = geometry?.semanticSurfaces[current.faceIndex] ?? null
       if (!surface) {
         return null
       }
@@ -456,6 +555,8 @@ function App() {
 
   const resetViewerState = useCallback(() => {
     setCameraFocalLength(DEFAULT_CAMERA_FOCAL_LENGTH)
+    setGeometryDisplayMode({ kind: 'best' })
+    setActiveGeometryIndex(null)
     setHideOccludedEditEdges(true)
     setShowOnlyInvalidFeatures(false)
     setShowSemanticSurfaces(false)
@@ -478,6 +579,7 @@ function App() {
     const firstFeature = nextDataset.features[0] ?? null
     setSelectedFeatureId(firstFeature?.id ?? null)
     setActiveObjectId(firstFeature?.objects[0]?.id ?? null)
+    setActiveGeometryIndex(null)
     setSelectedFaceIndex(null)
     setSelectedFaceRingIndex(0)
     setSelectedVertexIndex(null)
@@ -556,9 +658,11 @@ function App() {
   const handleSelectSemanticSurface = useCallback((surface: {
     featureId: string
     objectId: string
+    geometryIndex: number
     faceIndex: number
     surface: ViewerSemanticSurface | null
   } | null) => {
+    setActiveGeometryIndex(surface?.geometryIndex ?? null)
     setSelectedFaceIndex(surface?.faceIndex ?? null)
     setSelectedFaceRingIndex(0)
     setSelectedVertexIndex(null)
@@ -600,6 +704,7 @@ function App() {
         kind: 'error',
         featureId: selectedFeature.id,
         objectId: activeObjectId,
+        geometryIndex: resolvedActiveGeometryIndex,
         faceIndex: editMode ? selectedFaceIndex : null,
         location: null,
         preserveCameraOffset: editMode,
@@ -609,7 +714,7 @@ function App() {
     }
 
     centerFeatureById(selectedFeature.id)
-  }, [activeObjectId, centerFeatureById, editMode, selectedFaceIndex, selectedFeature, selectedVertexIndex])
+  }, [activeObjectId, centerFeatureById, editMode, resolvedActiveGeometryIndex, selectedFaceIndex, selectedFeature, selectedVertexIndex])
 
   function centerValidationError(error: ViewerValidationError) {
     if (!selectedFeature) {
@@ -628,12 +733,21 @@ function App() {
     setSelectedFaceIndex(error.faceIndex)
     setSelectedFaceRingIndex(0)
     setActiveObjectId(inferredObjectId)
+    setActiveGeometryIndex(
+      inferredObjectId
+        ? normalizeObjectGeometryIndex(
+            selectedFeature.objects.find((object) => object.id === inferredObjectId) ?? null,
+            error.geometryIndex,
+          )
+        : null,
+    )
     setSelectedVertexIndex(null)
     setSelectedFaceVertexEntryIndex(null)
     setFocusTarget({
       kind: 'error',
       featureId: selectedFeature.id,
       objectId: inferredObjectId,
+      geometryIndex: error.geometryIndex,
       faceIndex: error.faceIndex,
       location: error.location,
       preserveCameraOffset: editMode,
@@ -643,11 +757,40 @@ function App() {
 
   const handleSelectDetailObject = useCallback((objectId: string) => {
     setActiveObjectId(objectId)
+    setActiveGeometryIndex(null)
     setSelectedFaceIndex(null)
     setSelectedFaceRingIndex(0)
     setSelectedVertexIndex(null)
     setSelectedFaceVertexEntryIndex(null)
   }, [])
+
+  const handleSelectGeometryDisplayMode = useCallback((mode: ViewerGeometryDisplayMode) => {
+    setGeometryDisplayMode(mode)
+    setActiveGeometryIndex(null)
+    setSelectedFaceIndex(null)
+    setSelectedFaceRingIndex(0)
+    setSelectedVertexIndex(null)
+    setSelectedFaceVertexEntryIndex(null)
+    setSelectedSemanticSurface(null)
+  }, [])
+
+  const cycleGeometryDisplayMode = useCallback(() => {
+    const modes: ViewerGeometryDisplayMode[] = [
+      { kind: 'best' },
+      ...availableLods.map((lod) => ({ kind: 'lod', lod }) satisfies ViewerGeometryDisplayMode),
+    ]
+    if (modes.length <= 1) {
+      return
+    }
+
+    const currentIndex = modes.findIndex((mode) => getGeometryDisplayModeKey(mode) === getGeometryDisplayModeKey(geometryDisplayMode))
+    const nextMode = modes[(currentIndex + 1 + modes.length) % modes.length]
+    if (!nextMode) {
+      return
+    }
+
+    handleSelectGeometryDisplayMode(nextMode)
+  }, [availableLods, geometryDisplayMode, handleSelectGeometryDisplayMode])
 
   const toggleEditMode = useCallback(() => {
     if (isMobileLayout) {
@@ -687,6 +830,7 @@ function App() {
       }
       setSelectedFeatureId(featureId)
       setActiveObjectId(objectId ?? feature.objects[0]?.id ?? null)
+      setActiveGeometryIndex(null)
       setSelectedFaceIndex(null)
       setSelectedFaceRingIndex(0)
       setSelectedVertexIndex(null)
@@ -846,6 +990,19 @@ function App() {
         return
       }
 
+      if (
+        event.key.toLowerCase() === 'l' &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        !editMode &&
+        dataset
+      ) {
+        event.preventDefault()
+        cycleGeometryDisplayMode()
+        return
+      }
+
       if (editMode && event.key.toLowerCase() === 'j') {
         event.preventDefault()
         cycleSelectedFaceVertex(-1)
@@ -901,7 +1058,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [applyFeatureVertices, centerCurrentSelection, cycleSelectedFaceRing, cycleSelectedFaceVertex, dataset, editMode, selectedFeatureId, toggleEditMode])
+  }, [applyFeatureVertices, centerCurrentSelection, cycleGeometryDisplayMode, cycleSelectedFaceRing, cycleSelectedFaceVertex, dataset, editMode, selectedFeatureId, toggleEditMode])
 
   const helpStatusText = isLoading ? 'Loading CityJSON feature sequence…' : null
   const hasValidationReportLoaded = Boolean(annotationSourceName)
@@ -911,6 +1068,9 @@ function App() {
   const isDetailPanelVisible = !isMobileLayout || mobilePanelView === 'details'
   const detailOverlayPositionClass = isMobileLayout ? 'bottom-20 left-3 right-3' : 'bottom-20 left-4 max-w-md'
   const viewportToolbarPositionClass = isMobileLayout ? 'left-3 right-3 top-4' : 'bottom-4 left-4 right-4'
+  const viewportGeometryBarPositionClass = isMobileLayout
+    ? 'right-3 top-20'
+    : 'bottom-20 right-4'
   const mobilePanelTabs: Array<{ view: MobilePanelView; label: string; disabled?: boolean }> = [
     { view: 'features', label: 'Features' },
     { view: 'details', label: 'Details', disabled: !selectedFeature },
@@ -947,6 +1107,7 @@ function App() {
           { keys: 'Double Click', description: 'Recenter navigation' },
           { keys: 'Tab', description: 'Enter edit mode' },
           { keys: 'C', description: 'Center selection' },
+          { keys: 'L', description: 'Cycle LoDs' },
           { keys: 'S', description: 'Toggle semantic colors' },
           { keys: 'I', description: 'Toggle isolate' },
         ]
@@ -1231,10 +1392,11 @@ function App() {
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
                           <span>{selectedFeatureObjectCount} objects</span>
+                          {activeObject && <span>{activeObjectGeometryCount} geometries</span>}
                           {hasValidationReportLoaded && (
-                            <span>{selectedFeatureObjectCount > 1 ? visibleDetailErrorCount : selectedFeatureErrorCount} errors</span>
+                            <span>{visibleDetailErrorCount} errors</span>
                           )}
-                          <span>{displayedDetailAttributeCount} attributes</span>
+                          <span>{activeObjectAttributeCount} attributes</span>
                         </div>
                       </div>
 
@@ -1267,12 +1429,18 @@ function App() {
                     </div>
 
                     {detailPaneMode !== 'collapsed' && selectedFeature && (
-                      <div className="-mt-1">
+                      <div className="-mt-1 space-y-2">
                         <ObjectCarousel
                           objects={selectedFeature.objects}
                           activeObjectId={activeObject?.id ?? null}
                           onSelectObject={handleSelectDetailObject}
                         />
+                        {activeObject && (
+                          <GeometryList
+                            geometries={activeObject.geometries}
+                            activeGeometryIndex={resolvedActiveGeometryIndex}
+                          />
+                        )}
                       </div>
                     )}
 
@@ -1370,14 +1538,12 @@ function App() {
                                 <TabsContent key={`${detailSelectionKey}::attributes`} value="attributes">
                                   <DetailAttributePanel
                                     objectAttributes={activeObject?.attributes ?? {}}
-                                    parentAttributes={selectedFeature.attributes}
                                   />
                                 </TabsContent>
                               </>
                             ) : (
                               <DetailAttributePanel
                                 objectAttributes={activeObject?.attributes ?? {}}
-                                parentAttributes={selectedFeature.attributes}
                               />
                             )}
                           </>
@@ -1405,6 +1571,8 @@ function App() {
             cameraFocalLength={cameraFocalLength}
             hideOccludedEditEdges={hideOccludedEditEdges}
             isolateSelectedFeature={isolateSelectedFeature}
+            geometryDisplayMode={geometryDisplayMode}
+            activeGeometryIndex={resolvedActiveGeometryIndex}
             geometryRevision={geometryRevision}
             viewportResetRevision={viewportResetRevision}
             focusRevision={focusRevision}
@@ -1436,7 +1604,7 @@ function App() {
           </div>
         </div>
 
-        {editMode && activeObject && (
+        {editMode && activeObject && activeObjectGeometry && (
           <EditSelectionOverlay
             positionClassName={detailOverlayPositionClass}
             selectedVertex={selectedVertex}
@@ -1482,7 +1650,7 @@ function App() {
               activeObjectId={activeObject?.id ?? null}
               editMode={editMode}
               xrayActive={!hideOccludedEditEdges}
-              xrayDisabled={!editMode || !activeObject}
+              xrayDisabled={!editMode || !activeObjectGeometry}
               hasSelectedFeature={Boolean(selectedFeature)}
               showSemanticSurfaces={showSemanticSurfaces}
               isolateSelectedFeature={isolateSelectedFeature}
@@ -1496,6 +1664,21 @@ function App() {
             />
           )}
         </div>
+
+        {Boolean(selectedFeature) && !editMode && (
+          <div
+            className={cn(
+              'pointer-events-none absolute z-10',
+              viewportGeometryBarPositionClass,
+            )}
+          >
+            <ViewportGeometryModeBar
+              geometryDisplayMode={geometryDisplayMode}
+              availableLods={availableLods}
+              onSelectGeometryDisplayMode={handleSelectGeometryDisplayMode}
+            />
+          </div>
+        )}
 
         {!isMobileLayout && (
           <ViewportHelpPanel
@@ -1664,6 +1847,7 @@ function SemanticSurfaceOverlay({
   positionClassName: string
   semanticSurface: {
     objectId: string
+    geometryIndex: number
     faceIndex: number
     surface: ViewerSemanticSurface
   }
@@ -1687,6 +1871,9 @@ function SemanticSurfaceOverlay({
           </Badge>
           <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
             {semanticSurface.objectId}
+          </Badge>
+          <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
+            geom {semanticSurface.geometryIndex}
           </Badge>
           <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
             face {semanticSurface.faceIndex}
@@ -1731,7 +1918,7 @@ function MobileViewportToolbar({
   onCenterCurrentSelection: () => void
 }) {
   return (
-    <div className="floating-panel pointer-events-auto flex items-center gap-2 rounded-sm border px-2 py-2">
+    <div className="floating-panel pointer-events-auto flex max-w-[min(100vw-2rem,28rem)] flex-wrap items-center gap-2 rounded-sm border px-2 py-2">
       {hasSelectedFeature && (
         <Button
           variant={showSemanticSurfaces ? 'secondary' : 'ghost'}
@@ -2036,6 +2223,92 @@ const ObjectCarousel = memo(function ObjectCarousel({
   )
 })
 
+const GeometryList = memo(function GeometryList({
+  geometries,
+  activeGeometryIndex,
+}: {
+  geometries: ViewerObjectGeometry[]
+  activeGeometryIndex: number | null
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 py-0.5">
+      {geometries.map((geometry) => {
+        const isActive = geometry.index === activeGeometryIndex
+
+        return (
+          <div
+            key={geometry.index}
+            className={cn(
+              'flex shrink-0 items-center gap-1.5 rounded-sm border px-2 py-1 text-left text-xs transition',
+              isActive
+                ? 'border-primary/40 bg-primary/10 text-foreground'
+                : 'border-foreground/8 bg-foreground/3 text-foreground/70',
+            )}
+          >
+            <span className="font-medium">{formatGeometryLabel(geometry)}</span>
+            <span className="shrink-0 text-[10px] text-muted-foreground">
+              {geometry.geometryType ?? `geom ${geometry.index}`}
+            </span>
+          </div>
+        )
+      })}
+      {geometries.length === 0 && (
+        <span className="text-xs text-muted-foreground">No geometries</span>
+      )}
+    </div>
+  )
+})
+
+function ViewportGeometryModeBar({
+  geometryDisplayMode,
+  availableLods,
+  onSelectGeometryDisplayMode,
+}: {
+  geometryDisplayMode: ViewerGeometryDisplayMode
+  availableLods: string[]
+  onSelectGeometryDisplayMode: (mode: ViewerGeometryDisplayMode) => void
+}) {
+  const modeKey = getGeometryDisplayModeKey(geometryDisplayMode)
+  const modes: Array<{ key: string; label: string; mode: ViewerGeometryDisplayMode }> = [
+    { key: 'best', label: 'Best', mode: { kind: 'best' } },
+    ...availableLods.map((lod) => ({
+      key: `lod:${lod}`,
+      label: lod,
+      mode: { kind: 'lod', lod } satisfies ViewerGeometryDisplayMode,
+    })),
+  ]
+
+  return (
+    <div className="floating-panel pointer-events-auto flex flex-col items-stretch gap-1.5 rounded-sm border px-2 py-2">
+      <div className="flex items-center justify-center">
+        <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">LoD</span>
+      </div>
+      <div className="flex flex-col items-stretch gap-1">
+        {modes.map((entry) => {
+          const isActive = entry.key === modeKey
+
+          return (
+            <button
+              key={entry.key}
+              type="button"
+              onClick={() => onSelectGeometryDisplayMode(entry.mode)}
+              className={cn(
+                'rounded-sm px-2 py-1 text-[11px] text-left transition',
+                isActive
+                  ? 'bg-primary/12 text-primary'
+                  : 'text-muted-foreground hover:bg-foreground/6 hover:text-foreground',
+              )}
+              title={entry.label}
+            >
+              {entry.label}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 const FeatureListRow = memo(function FeatureListRow({
   item,
   selected,
@@ -2230,7 +2503,7 @@ const FeatureListPanel = memo(function FeatureListPanel({
         {showDesktopHeading && (
           <div>
             <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-              <Layers className="size-4 text-muted-foreground" />
+              <Box className="size-4 text-muted-foreground" />
               Features ({datasetFeatureCount})
             </h1>
           </div>
@@ -2341,35 +2614,25 @@ function ToolbarToggleButton({
 
 const DetailAttributePanel = memo(function DetailAttributePanel({
   objectAttributes,
-  parentAttributes,
 }: {
   objectAttributes: Record<string, unknown>
-  parentAttributes: Record<string, unknown>
 }) {
   const hasObjectAttributes = Object.keys(objectAttributes).length > 0
-  const hasParentAttributes = Object.keys(parentAttributes).length > 0
 
-  if (!hasObjectAttributes && !hasParentAttributes) {
+  if (!hasObjectAttributes) {
     return (
       <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-4 py-6 text-sm text-muted-foreground">
-        No attributes available for the selected object or its parent feature.
+        No attributes available for the selected object.
       </div>
     )
   }
 
   return (
-    <div className="space-y-4">
-      <AttributeSection
-        title="Object Attributes"
-        attributes={objectAttributes}
-        emptyText="No attributes on the active object."
-      />
-      <AttributeSection
-        title="Parent Attributes"
-        attributes={parentAttributes}
-        emptyText="No attributes on the parent feature."
-      />
-    </div>
+    <AttributeSection
+      title="Object Attributes"
+      attributes={objectAttributes}
+      emptyText="No attributes on the active object."
+    />
   )
 })
 

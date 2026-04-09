@@ -4,6 +4,7 @@ import type {
   ViewerCityObject,
   ViewerDataset,
   ViewerFeature,
+  ViewerObjectGeometry,
   ViewerSemanticSurface,
   ViewerValidationError,
 } from '@/types/cityjson'
@@ -269,11 +270,7 @@ export function mergeValidationAnnotations(
 
 function createRenderableObjects(cityObjects: Record<string, CityJsonObject>) {
   const objects = Object.entries(cityObjects).map(([id, object]) => {
-    const geometry = pickBestGeometry(object.geometry ?? [])
-    const polygons = geometry ? extractPolygons(geometry.type ?? '', geometry.boundaries) : []
-    const semanticSurfaces = geometry
-      ? extractSemanticSurfaces(geometry.type ?? '', geometry.semantics, polygons.length)
-      : []
+    const geometries = extractRenderableGeometries(object.geometry ?? [])
 
     return {
       id,
@@ -282,26 +279,27 @@ function createRenderableObjects(cityObjects: Record<string, CityJsonObject>) {
         id,
         type: object.type ?? 'CityObject',
         attributes: object.attributes ?? {},
-        geometryType: geometry?.type ?? null,
-        lod: geometry?.lod ?? null,
-        polygons,
-        semanticSurfaces,
-        vertexIndices: uniqueVertexIndices(polygons),
+        geometries,
+        bestGeometryIndex: pickBestGeometryIndex(geometries),
+        hasRenderableChildren: false,
       } satisfies ViewerCityObject,
     }
   })
 
   const parsedById = new Map(objects.map((entry) => [entry.id, entry]))
-  const renderableLeafObjects = objects
-    .filter((entry) => entry.parsed.polygons.length > 0)
-    .filter((entry) => !hasRenderableChild(entry.object, parsedById))
-    .map((entry) => entry.parsed)
+  const renderableObjects = objects
+    .filter((entry) => entry.parsed.geometries.length > 0)
+    .map((entry) => ({
+      ...entry.parsed,
+      hasRenderableChildren: hasRenderableChild(entry.object, parsedById),
+    }))
 
-  if (renderableLeafObjects.length > 0) {
-    return renderableLeafObjects
-  }
+  const renderableLeafObjects = renderableObjects.filter((entry) => !entry.hasRenderableChildren)
+  const renderableParentObjects = renderableObjects.filter((entry) => entry.hasRenderableChildren)
 
-  return objects.filter((entry) => entry.parsed.polygons.length > 0).map((entry) => entry.parsed)
+  return renderableLeafObjects.length > 0
+    ? [...renderableLeafObjects, ...renderableParentObjects]
+    : renderableObjects
 }
 
 function hasRenderableChild(
@@ -314,7 +312,7 @@ function hasRenderableChild(
       continue
     }
 
-    if (child.parsed.polygons.length > 0 || hasRenderableChild(child.object, parsedById)) {
+    if (child.parsed.geometries.length > 0 || hasRenderableChild(child.object, parsedById)) {
       return true
     }
   }
@@ -322,27 +320,46 @@ function hasRenderableChild(
   return false
 }
 
-function pickBestGeometry(geometries: CityJsonGeometry[]) {
-  let bestGeometry: CityJsonGeometry | null = null
+function extractRenderableGeometries(geometries: CityJsonGeometry[]) {
+  return geometries.flatMap((geometry, index) => {
+    const polygons = extractPolygons(geometry.type ?? '', geometry.boundaries)
+    if (polygons.length === 0) {
+      return []
+    }
+
+    const semanticSurfaces = extractSemanticSurfaces(
+      geometry.type ?? '',
+      geometry.semantics,
+      polygons.length,
+    )
+
+    return [{
+      index,
+      geometryType: geometry.type ?? null,
+      lod: geometry.lod ?? null,
+      polygons,
+      semanticSurfaces,
+      vertexIndices: uniqueVertexIndices(polygons),
+    } satisfies ViewerObjectGeometry]
+  })
+}
+
+function pickBestGeometryIndex(geometries: ViewerObjectGeometry[]) {
+  let bestGeometryIndex: number | null = null
   let bestScore = -Infinity
 
   for (const geometry of geometries) {
-    const polygons = extractPolygons(geometry.type ?? '', geometry.boundaries)
-    if (polygons.length === 0) {
-      continue
-    }
-
     const lodScore = Number.parseFloat(geometry.lod ?? '0') || 0
-    const typeScore = geometry.type?.includes('Solid') ? 1 : 0
+    const typeScore = geometry.geometryType?.includes('Solid') ? 1 : 0
     const score = lodScore * 10 + typeScore
 
     if (score > bestScore) {
-      bestGeometry = geometry
+      bestGeometryIndex = geometry.index
       bestScore = score
     }
   }
 
-  return bestGeometry
+  return bestGeometryIndex
 }
 
 function extractPolygons(geometryType: string, boundaries: unknown): PolygonRings[] {
