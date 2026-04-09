@@ -23,7 +23,7 @@ import {
   X,
 } from 'lucide-react'
 import { Suspense, lazy, memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent, ReactNode, RefObject } from 'react'
+import type { ChangeEvent, ReactNode } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { errorColor } from '@/lib/error-palette'
@@ -63,6 +63,14 @@ type MobileInspectMode = 'object' | 'surface'
 type MobilePanelView = 'features' | 'details'
 type HelpItem = { keys: string; description: string }
 
+const FEATURE_LIST_ROW_HEIGHT = 70
+const FEATURE_LIST_ROW_GAP = 6
+const FEATURE_LIST_TOP_PADDING = 8
+const FEATURE_LIST_BOTTOM_PADDING = 12
+const FEATURE_LIST_OVERSCAN = 6
+const PANEL_CONTAIN_STYLE = { contain: 'layout paint style' } as const
+const PANEL_BODY_CONTAIN_STYLE = { contain: 'layout paint' } as const
+
 const CityViewport = lazy(() =>
   import('@/components/viewer/city-viewport').then((module) => ({ default: module.CityViewport })),
 )
@@ -80,7 +88,6 @@ function App() {
   const annotationInputRef = useRef<HTMLInputElement>(null)
   const fileActionMenuRef = useRef<HTMLDivElement>(null)
   const originalVerticesRef = useRef<Map<string, Vec3[]>>(new Map())
-  const selectedFeatureRowRef = useRef<HTMLDivElement | null>(null)
 
   const [dataset, setDataset] = useState<ViewerDataset | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -230,20 +237,6 @@ function App() {
     mediaQuery.addEventListener('change', updateLayout)
     return () => mediaQuery.removeEventListener('change', updateLayout)
   }, [])
-
-  useEffect(() => {
-    const paneContentVisible = isMobileLayout ? !isPaneCollapsed : true
-    const featurePanelVisible = !isMobileLayout || mobilePanelView === 'features'
-
-    if (!selectedFeatureId || !paneContentVisible || !featurePanelVisible) {
-      return
-    }
-
-    selectedFeatureRowRef.current?.scrollIntoView({
-      block: 'nearest',
-      inline: 'nearest',
-    })
-  }, [isMobileLayout, isPaneCollapsed, mobilePanelView, selectedFeatureId])
 
   useEffect(() => {
     if (!isMobileLayout) {
@@ -867,7 +860,7 @@ function App() {
   const helpStatusText = isLoading ? 'Loading CityJSON feature sequence…' : null
   const hasValidationReportLoaded = Boolean(annotationSourceName)
   const isErrorDialogVisible = Boolean(error && dismissedErrorMessage !== error)
-  const isPaneContentVisible = isMobileLayout ? !isPaneCollapsed : true
+  const isPaneContentVisible = !isPaneCollapsed
   const isFeaturePanelVisible = !isMobileLayout || mobilePanelView === 'features'
   const isDetailPanelVisible = !isMobileLayout || mobilePanelView === 'details'
   const detailOverlayPositionClass = isMobileLayout ? 'bottom-20 left-3 right-3' : 'bottom-20 left-4 max-w-md'
@@ -1098,11 +1091,7 @@ function App() {
 
           {isPaneContentVisible && (
             <div
-              aria-hidden={!isMobileLayout && isPaneCollapsed}
-              className={cn(
-                'flex min-h-0 min-w-0 flex-1 flex-col',
-                !isMobileLayout && isPaneCollapsed && 'pointer-events-none w-0 min-w-0 shrink overflow-hidden opacity-0',
-              )}
+              className="flex min-h-0 min-w-0 flex-1 flex-col"
             >
               {isMobileLayout && (
                 <div className="flex items-center gap-2 border-b border-border px-3 py-2">
@@ -1144,71 +1133,24 @@ function App() {
                       ? 'flex-1'
                       : detailPaneMode === 'fullscreen'
                         ? 'pointer-events-none h-0 shrink overflow-hidden border-b-0 opacity-0'
-                        : 'flex-[1.05]',
+                      : 'flex-[1.05]',
                   )}
+                  style={PANEL_CONTAIN_STYLE}
                 >
-                  <div className="panel-header-surface space-y-3 border-b p-4 pb-3">
-                  {!isMobileLayout && (
-                    <>
-                      <div>
-                        <div>
-                          <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-                            <Layers className="size-4 text-muted-foreground" />
-                            Features ({dataset?.features.length ?? 0})
-                          </h1>
-                        </div>
-                      </div>
-                    </>
-                  )}
-
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      value={searchQuery}
-                      onChange={handleSearchQueryChange}
-                      placeholder="Search features"
-                      className="h-9 pl-8"
-                    />
-                  </div>
-
-                  {annotationSourceName && (
-                    <div className="flex items-center justify-between rounded-sm border border-border bg-foreground/4 px-3 py-2">
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Show errors only</p>
-                        <p className="text-xs text-foreground/60">
-                          Showing {filteredFeatureItems.length} of {dataset?.features.length ?? 0}
-                        </p>
-                      </div>
-                      <Switch
-                        checked={showOnlyInvalidFeatures}
-                        onCheckedChange={handleShowOnlyInvalidFeaturesChange}
-                        className="shrink-0"
-                        aria-label="Show only features with validation errors"
-                      />
-                    </div>
-                  )}
-                  </div>
-
-                  <ScrollArea className="min-h-0 flex-1">
-                    <div className="space-y-1.5 p-3 pt-2">
-                      {filteredFeatureItems.map((item) => (
-                        <FeatureListRow
-                          key={item.feature.id}
-                          item={item}
-                          selected={item.feature.id === selectedFeatureId}
-                          rowRef={item.feature.id === selectedFeatureId ? selectedFeatureRowRef : undefined}
-                          onCenterFeature={handleCenterFeature}
-                          onSelectFeature={handleSelectFeature}
-                        />
-                      ))}
-
-                      {!isLoading && filteredFeatureItems.length === 0 && (
-                        <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-4 py-6 text-sm text-muted-foreground">
-                          No features matched the current filter.
-                        </div>
-                      )}
-                    </div>
-                  </ScrollArea>
+                  <FeatureListPanel
+                    filteredFeatureItems={filteredFeatureItems}
+                    isLoading={isLoading}
+                    annotationSourceName={annotationSourceName}
+                    datasetFeatureCount={dataset?.features.length ?? 0}
+                    showDesktopHeading={!isMobileLayout}
+                    searchQuery={searchQuery}
+                    selectedFeatureId={selectedFeatureId}
+                    showOnlyInvalidFeatures={showOnlyInvalidFeatures}
+                    onSearchQueryChange={handleSearchQueryChange}
+                    onShowOnlyInvalidFeaturesChange={handleShowOnlyInvalidFeaturesChange}
+                    onCenterFeature={handleCenterFeature}
+                    onSelectFeature={handleSelectFeature}
+                  />
                 </section>
               )}
 
@@ -1225,6 +1167,7 @@ function App() {
                         ? 'min-h-0 flex-1 border-t-0'
                         : 'min-h-0 flex-1',
                   )}
+                  style={PANEL_CONTAIN_STYLE}
                 >
                   <div className="panel-header-surface space-y-2.5 p-4 pb-2.5">
                     <div className="flex items-start justify-between gap-3">
@@ -1305,7 +1248,7 @@ function App() {
 
                   {detailPaneMode !== 'collapsed' && (
                     <ScrollArea className="min-h-0 min-w-0 flex-1">
-                      <div className="panel-body-surface min-w-0 space-y-2 p-4 pt-3">
+                      <div className="panel-body-surface min-w-0 space-y-2 p-4 pt-3" style={PANEL_BODY_CONTAIN_STYLE}>
                         {selectedFeature ? (
                           <>
                             {showErrorTabs ? (
@@ -2044,13 +1987,11 @@ const ObjectCarousel = memo(function ObjectCarousel({
 const FeatureListRow = memo(function FeatureListRow({
   item,
   selected,
-  rowRef,
   onCenterFeature,
   onSelectFeature,
 }: {
   item: FeatureListItem
   selected: boolean
-  rowRef?: RefObject<HTMLDivElement | null>
   onCenterFeature: (featureId: string) => void
   onSelectFeature: (featureId: string, objectId?: string | null) => void
 }) {
@@ -2058,7 +1999,6 @@ const FeatureListRow = memo(function FeatureListRow({
 
   return (
     <div
-      ref={rowRef}
       role="button"
       tabIndex={0}
       onClick={() => onSelectFeature(feature.id)}
@@ -2070,7 +2010,7 @@ const FeatureListRow = memo(function FeatureListRow({
       }}
       aria-pressed={selected}
       className={cn(
-        'flex w-full min-w-0 cursor-pointer items-center gap-2 overflow-hidden rounded-sm border px-2.5 py-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30',
+        'flex h-full w-full min-w-0 cursor-pointer items-center gap-2 overflow-hidden rounded-sm border px-2.5 py-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30',
         selected
           ? 'border-accent/40 bg-accent/10 text-foreground shadow-[0_0_0_1px] shadow-accent/25'
           : isInvalid
@@ -2125,6 +2065,189 @@ const FeatureListRow = memo(function FeatureListRow({
         <Crosshair className="size-4" />
       </Button>
     </div>
+  )
+})
+
+const FeatureListPanel = memo(function FeatureListPanel({
+  filteredFeatureItems,
+  isLoading,
+  annotationSourceName,
+  datasetFeatureCount,
+  showDesktopHeading,
+  searchQuery,
+  selectedFeatureId,
+  showOnlyInvalidFeatures,
+  onSearchQueryChange,
+  onShowOnlyInvalidFeaturesChange,
+  onCenterFeature,
+  onSelectFeature,
+}: {
+  filteredFeatureItems: FeatureListItem[]
+  isLoading: boolean
+  annotationSourceName: string | null
+  datasetFeatureCount: number
+  showDesktopHeading: boolean
+  searchQuery: string
+  selectedFeatureId: string | null
+  showOnlyInvalidFeatures: boolean
+  onSearchQueryChange: (event: ChangeEvent<HTMLInputElement>) => void
+  onShowOnlyInvalidFeaturesChange: (checked: boolean) => void
+  onCenterFeature: (featureId: string) => void
+  onSelectFeature: (featureId: string, objectId?: string | null) => void
+}) {
+  const viewportRef = useRef<HTMLDivElement | null>(null)
+  const [scrollTop, setScrollTop] = useState(0)
+  const [viewportHeight, setViewportHeight] = useState(0)
+
+  const selectedIndex = useMemo(
+    () => filteredFeatureItems.findIndex((item) => item.feature.id === selectedFeatureId),
+    [filteredFeatureItems, selectedFeatureId],
+  )
+
+  useEffect(() => {
+    const viewport = viewportRef.current
+    if (!viewport) {
+      return
+    }
+
+    const updateMetrics = () => {
+      setScrollTop(viewport.scrollTop)
+      setViewportHeight(viewport.clientHeight)
+    }
+
+    updateMetrics()
+    viewport.addEventListener('scroll', updateMetrics, { passive: true })
+
+    const resizeObserver = new ResizeObserver(updateMetrics)
+    resizeObserver.observe(viewport)
+
+    return () => {
+      viewport.removeEventListener('scroll', updateMetrics)
+      resizeObserver.disconnect()
+    }
+  }, [])
+
+  const scrollSelectedFeatureIntoView = useCallback(() => {
+    const viewport = viewportRef.current
+    if (!viewport || selectedIndex < 0) {
+      return
+    }
+
+    const rowStart = FEATURE_LIST_TOP_PADDING + selectedIndex * (FEATURE_LIST_ROW_HEIGHT + FEATURE_LIST_ROW_GAP)
+    const rowEnd = rowStart + FEATURE_LIST_ROW_HEIGHT
+    const viewportStart = viewport.scrollTop
+    const viewportEnd = viewportStart + viewport.clientHeight
+
+    if (rowStart >= viewportStart && rowEnd <= viewportEnd) {
+      return
+    }
+
+    const nextTop =
+      rowStart < viewportStart
+        ? Math.max(rowStart - FEATURE_LIST_ROW_GAP, 0)
+        : rowEnd - viewport.clientHeight + FEATURE_LIST_ROW_GAP
+
+    viewport.scrollTo({
+      top: Math.max(nextTop, 0),
+      behavior: 'auto',
+    })
+  }, [selectedIndex])
+
+  useEffect(() => {
+    if (selectedIndex < 0) {
+      return
+    }
+
+    scrollSelectedFeatureIntoView()
+  }, [scrollSelectedFeatureIntoView, selectedIndex])
+
+  const rowStride = FEATURE_LIST_ROW_HEIGHT + FEATURE_LIST_ROW_GAP
+  const contentHeight =
+    FEATURE_LIST_TOP_PADDING +
+    Math.max(filteredFeatureItems.length * rowStride - FEATURE_LIST_ROW_GAP, 0) +
+    FEATURE_LIST_BOTTOM_PADDING
+  const startIndex = Math.max(Math.floor(scrollTop / rowStride) - FEATURE_LIST_OVERSCAN, 0)
+  const endIndex = Math.min(
+    filteredFeatureItems.length,
+    Math.ceil((scrollTop + viewportHeight) / rowStride) + FEATURE_LIST_OVERSCAN,
+  )
+
+  return (
+    <>
+      <div className="panel-header-surface space-y-2.5 border-b p-4 pb-3">
+        {showDesktopHeading && (
+          <div>
+            <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
+              <Layers className="size-4 text-muted-foreground" />
+              Features ({datasetFeatureCount})
+            </h1>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={onSearchQueryChange}
+              placeholder="Search features"
+              className="h-9 pl-8"
+            />
+          </div>
+        </div>
+
+        {annotationSourceName && (
+          <div className="flex items-center justify-between rounded-sm bg-foreground/4 px-3 py-2">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Show errors only</p>
+              <p className="text-xs text-foreground/60">
+                Showing {filteredFeatureItems.length} of {datasetFeatureCount}
+              </p>
+            </div>
+            <Switch
+              checked={showOnlyInvalidFeatures}
+              onCheckedChange={onShowOnlyInvalidFeaturesChange}
+              className="shrink-0"
+              aria-label="Show only features with validation errors"
+            />
+          </div>
+        )}
+      </div>
+
+      <ScrollArea className="min-h-0 flex-1" viewportRef={viewportRef} style={PANEL_BODY_CONTAIN_STYLE}>
+        {filteredFeatureItems.length > 0 ? (
+          <div className="relative" style={{ height: `${contentHeight}px` }}>
+            {filteredFeatureItems.slice(startIndex, endIndex).map((item, visibleIndex) => {
+              const itemIndex = startIndex + visibleIndex
+              const top = FEATURE_LIST_TOP_PADDING + itemIndex * rowStride
+
+              return (
+                <div
+                  key={item.feature.id}
+                  className="absolute left-3 right-3"
+                  style={{ top: `${top}px`, height: `${FEATURE_LIST_ROW_HEIGHT}px` }}
+                >
+                  <FeatureListRow
+                    item={item}
+                    selected={item.feature.id === selectedFeatureId}
+                    onCenterFeature={onCenterFeature}
+                    onSelectFeature={onSelectFeature}
+                  />
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          !isLoading && (
+            <div className="p-3 pt-2">
+              <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-4 py-6 text-sm text-muted-foreground">
+                No features matched the current filter.
+              </div>
+            </div>
+          )
+        )}
+      </ScrollArea>
+    </>
   )
 })
 

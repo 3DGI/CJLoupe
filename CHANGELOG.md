@@ -3,6 +3,10 @@
 ## Unreleased
 
 - feature labels now use the feature ID directly, trimming a leading `NL.IMBAG.Pand.` prefix
+- feature list is now virtualized for better sidebar performance with large datasets
+- feature panel header was compacted
+- desktop sidebar content is no longer kept mounted while the sidebar is collapsed, reducing panel toggle cost
+- details attributes now show both active object attributes and parent feature attributes in separate sections
 - entering edit mode now disables semantic coloring
 - details panel hides the error count when no val3dity report is loaded
 - validation report uploads now fail fast for invalid val3dity JSON structure or non-matching datasets
