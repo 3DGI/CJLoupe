@@ -1129,7 +1129,7 @@ function App() {
       ? [
           { keys: 'Tab', description: 'Exit edit mode' },
           { keys: 'P', description: `Cycle picking (${getPickingModeLabel(effectivePickingMode)})` },
-          { keys: 'Click', description: getPickingModeDescription(effectivePickingMode, true) },
+          { keys: 'Click', description: getPickingModeDescription(effectivePickingMode) },
           { keys: 'C', description: 'Center selection' },
           { keys: 'S', description: 'Toggle semantic colors' },
           { keys: 'J / K', description: 'Step active ring' },
@@ -1140,7 +1140,7 @@ function App() {
         ]
       : [
           { keys: 'P', description: `Cycle picking (${getPickingModeLabel(effectivePickingMode)})` },
-          { keys: 'Click', description: getPickingModeDescription(effectivePickingMode, false) },
+          { keys: 'Click', description: getPickingModeDescription(effectivePickingMode) },
           { keys: 'Double Click', description: 'Recenter navigation' },
           { keys: 'Tab', description: 'Enter edit mode' },
           { keys: 'C', description: 'Center selection' },
@@ -3200,16 +3200,16 @@ function getPickingModeLabel(mode: ViewerPickingMode) {
   }
 }
 
-function getPickingModeDescription(mode: ViewerPickingMode, editMode: boolean) {
+function getPickingModeDescription(mode: ViewerPickingMode) {
   switch (mode) {
     case 'none':
       return 'Picking disabled'
     case 'object':
-      return editMode ? 'Object picking unavailable in edit mode' : 'Pick object'
+      return 'Pick object'
     case 'face':
-      return editMode ? 'Pick face' : 'Pick face'
+      return 'Pick face'
     case 'vertex':
-      return editMode ? 'Pick vertex' : 'Vertex picking unavailable'
+      return 'Pick vertex'
   }
 }
 

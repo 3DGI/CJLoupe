@@ -90,6 +90,7 @@ type Runtime = {
   editBaseEdges: LineSegments2 | null
   editHighlightEdges: LineSegments2 | null
   editActiveRingEdges: LineSegments2 | null
+  editVertexEdges: LineSegments2 | null
   annotationVertexMarkers: THREE.Points[]
   featureDrafts: Map<string, Vec3[]>
   sceneScale: number
@@ -329,6 +330,7 @@ function CityViewport({
       editBaseEdges: null,
       editHighlightEdges: null,
       editActiveRingEdges: null,
+      editVertexEdges: null,
       annotationVertexMarkers: [],
       featureDrafts: new Map(),
       sceneScale: 1,
@@ -1600,6 +1602,7 @@ function rebuildEditWireframe(
   }
 
   const edgeCenter = runtime.editPivot ?? data.center
+  const palette = getViewportPalette(runtime.theme)
   const edgeSegments = buildEdgeSegments(
     objectGeometry.polygons,
     draftVertices,
@@ -1607,6 +1610,12 @@ function rebuildEditWireframe(
     selection.selectedFaceIndex,
     selection.selectedFaceRingIndex,
     selection.selectedVertexIndex,
+    {
+      base: new THREE.Color(palette.editBaseEdge),
+      highlight: new THREE.Color(palette.editHighlightEdge),
+      activeRing: new THREE.Color(palette.editActiveRingEdge),
+      vertexEdge: new THREE.Color(palette.editVertexEdge),
+    },
   )
   ensureEditWireframeObjects(runtime)
 
@@ -1631,6 +1640,7 @@ function rebuildEditWireframe(
   setEditWireframeGeometry(runtime.editBaseEdges, edgeSegments.base)
   setEditWireframeGeometry(runtime.editHighlightEdges, edgeSegments.highlight)
   setEditWireframeGeometry(runtime.editActiveRingEdges, edgeSegments.activeRing)
+  setEditWireframeGeometry(runtime.editVertexEdges, edgeSegments.vertexEdge, edgeSegments.vertexEdgeInstanceColors)
 }
 
 function ensureEditWireframeObjects(runtime: Runtime) {
@@ -1642,7 +1652,7 @@ function ensureEditWireframeObjects(runtime: Runtime) {
       opacity: palette.editBaseOpacity,
       depthTest: true,
       depthWrite: false,
-      linewidth: 3.2,
+      linewidth: 2.2,
     })
     const edgeLines = new LineSegments2(new LineSegmentsGeometry(), edgeMaterial)
     edgeLines.renderOrder = 20
@@ -1659,7 +1669,7 @@ function ensureEditWireframeObjects(runtime: Runtime) {
       opacity: palette.editHighlightOpacity,
       depthTest: true,
       depthWrite: false,
-      linewidth: 4.8,
+      linewidth: 3.4,
     })
     const highlightLines = new LineSegments2(new LineSegmentsGeometry(), highlightMaterial)
     highlightLines.renderOrder = 21
@@ -1676,13 +1686,31 @@ function ensureEditWireframeObjects(runtime: Runtime) {
       opacity: palette.editActiveRingOpacity,
       depthTest: false,
       depthWrite: false,
-      linewidth: 5.2,
+      linewidth: 3.8,
     })
     const activeRingLines = new LineSegments2(new LineSegmentsGeometry(), activeRingMaterial)
     activeRingLines.renderOrder = 22
     activeRingLines.visible = false
     runtime.edgeGroup.add(activeRingLines)
     runtime.editActiveRingEdges = activeRingLines
+  }
+
+  if (!runtime.editVertexEdges) {
+    const palette = getViewportPalette(runtime.theme)
+    const vertexEdgeMaterial = new LineMaterial({
+      color: 0xffffff,
+      vertexColors: true,
+      transparent: true,
+      opacity: palette.editVertexEdgeOpacity,
+      depthTest: false,
+      depthWrite: false,
+      linewidth: 2.2,
+    })
+    const vertexEdgeLines = new LineSegments2(new LineSegmentsGeometry(), vertexEdgeMaterial)
+    vertexEdgeLines.renderOrder = 23
+    vertexEdgeLines.visible = false
+    runtime.edgeGroup.add(vertexEdgeLines)
+    runtime.editVertexEdges = vertexEdgeLines
   }
 
   updateEditWireframeResolution(runtime)
@@ -1703,9 +1731,13 @@ function updateEditWireframeResolution(runtime: Runtime) {
   if (runtime.editActiveRingEdges) {
     ;(runtime.editActiveRingEdges.material as LineMaterial).resolution.set(width, height)
   }
+
+  if (runtime.editVertexEdges) {
+    ;(runtime.editVertexEdges.material as LineMaterial).resolution.set(width, height)
+  }
 }
 
-function setEditWireframeGeometry(line: LineSegments2 | null, positions: number[]) {
+function setEditWireframeGeometry(line: LineSegments2 | null, positions: number[], instanceColors?: number[]) {
   if (!line) {
     return
   }
@@ -1713,6 +1745,9 @@ function setEditWireframeGeometry(line: LineSegments2 | null, positions: number[
   const nextGeometry = new LineSegmentsGeometry()
   if (positions.length > 0) {
     nextGeometry.setPositions(positions)
+    if (instanceColors && instanceColors.length > 0) {
+      nextGeometry.setColors(instanceColors)
+    }
     line.visible = true
   } else {
     line.visible = false
@@ -1733,6 +1768,10 @@ function hideEditWireframe(runtime: Runtime) {
 
   if (runtime.editActiveRingEdges) {
     runtime.editActiveRingEdges.visible = false
+  }
+
+  if (runtime.editVertexEdges) {
+    runtime.editVertexEdges.visible = false
   }
 }
 
@@ -1904,10 +1943,18 @@ function buildEdgeSegments(
   selectedFaceIndex: number | null,
   selectedFaceRingIndex: number,
   selectedVertexIndex: number | null,
+  edgeColors: {
+    base: THREE.Color
+    highlight: THREE.Color
+    activeRing: THREE.Color
+    vertexEdge: THREE.Color
+  },
 ) {
   const base: number[] = []
   const highlight: number[] = []
   const activeRing: number[] = []
+  const vertexEdge: number[] = []
+  const vertexEdgeInstanceColors: number[] = []
 
   for (let polyIndex = 0; polyIndex < polygons.length; polyIndex += 1) {
     const polygon = polygons[polyIndex]
@@ -1942,9 +1989,21 @@ function buildEdgeSegments(
           end[2] - center[2],
         ]
 
-        if (isActiveRing) {
+        if (touchesSelectedVertex) {
+          const farColor = isActiveRing
+            ? edgeColors.activeRing
+            : isSelectedFace
+              ? edgeColors.highlight
+              : edgeColors.base
+          const startIsSelected = startIndex === selectedVertexIndex
+          const nearColor = edgeColors.vertexEdge
+          const c0 = startIsSelected ? nearColor : farColor
+          const c1 = startIsSelected ? farColor : nearColor
+          vertexEdge.push(...edgePositions)
+          vertexEdgeInstanceColors.push(c0.r, c0.g, c0.b, c1.r, c1.g, c1.b)
+        } else if (isActiveRing) {
           activeRing.push(...edgePositions)
-        } else if (isSelectedFace || touchesSelectedVertex) {
+        } else if (isSelectedFace) {
           highlight.push(...edgePositions)
         } else {
           base.push(...edgePositions)
@@ -1953,7 +2012,7 @@ function buildEdgeSegments(
     }
   }
 
-  return { base, highlight, activeRing }
+  return { base, highlight, activeRing, vertexEdge, vertexEdgeInstanceColors }
 }
 
 function triangulatePolygon(rings: Vec3[][]) {
@@ -2277,6 +2336,12 @@ function applyViewportTheme(runtime: Runtime, theme: Theme) {
     activeRingMaterial.opacity = palette.editActiveRingOpacity
     activeRingMaterial.needsUpdate = true
   }
+
+  const vertexEdgeMaterial = runtime.editVertexEdges?.material as LineMaterial | undefined
+  if (vertexEdgeMaterial) {
+    vertexEdgeMaterial.opacity = palette.editVertexEdgeOpacity
+    vertexEdgeMaterial.needsUpdate = true
+  }
 }
 
 function getViewportPalette(theme: Theme) {
@@ -2310,12 +2375,14 @@ function getViewportPalette(theme: Theme) {
       errorSelectedIntensity: 0.05,
       editPoint: '#f8fafc',
       selectedEditPoint: '#06b6d4',
-      editBaseEdge: '#e2e8f0',
+      editBaseEdge: '#1a1a1a',
       editBaseOpacity: 0.72,
-      editHighlightEdge: '#d6d3c7',
+      editHighlightEdge: '#606060',
       editHighlightOpacity: 0.96,
-      editActiveRingEdge: '#475569',
+      editActiveRingEdge: '#3a3a3a',
       editActiveRingOpacity: 1,
+      editVertexEdge: '#d4a017',
+      editVertexEdgeOpacity: 1,
     }
   }
 
@@ -2348,12 +2415,14 @@ function getViewportPalette(theme: Theme) {
     errorSelectedIntensity: 0.05,
     editPoint: '#f8fafc',
     selectedEditPoint: '#06b6d4',
-    editBaseEdge: '#f8fafc',
+    editBaseEdge: '#1a1a1a',
     editBaseOpacity: 0.45,
-    editHighlightEdge: '#d6d3c7',
+    editHighlightEdge: '#606060',
     editHighlightOpacity: 0.95,
-    editActiveRingEdge: '#475569',
+    editActiveRingEdge: '#3a3a3a',
     editActiveRingOpacity: 1,
+    editVertexEdge: '#d4a017',
+    editVertexEdgeOpacity: 1,
   }
 }
 
@@ -2675,6 +2744,7 @@ function disposeSceneContents(runtime: Runtime) {
   runtime.editBaseEdges = null
   runtime.editHighlightEdges = null
   runtime.editActiveRingEdges = null
+  runtime.editVertexEdges = null
 }
 
 export { CityViewport }

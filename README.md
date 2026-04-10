@@ -4,7 +4,7 @@ CityJSONL 3D viewer and inspection tool with support for val3dity annotations.
 
 It was built specifically to inspect errors in CityJSONL geometries, with the ability to investigate how the geometry is actually structured down to the vertex level.
 
-This app was built almost entirely through vibe coding, mostly with Codex 5.4, though I still spent more than three full days supervising and scrutinizing the agent to make sure it worked the way I wanted.
+This app was built almost entirely through vibe coding, though I still spent many dozens of hours instructing, supervising and scrutinizing the agent.
 
 ![CJLoupe screenshot](./Screenshot.png)
 
