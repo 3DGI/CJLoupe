@@ -1582,7 +1582,7 @@ function App() {
             hideOccludedEditEdges={hideOccludedEditEdges}
             isolateSelectedFeature={isolateSelectedFeature}
             geometryDisplayMode={geometryDisplayMode}
-            activeGeometryIndex={resolvedActiveGeometryIndex}
+            activeGeometryIndex={activeGeometryIndex}
             geometryRevision={geometryRevision}
             viewportResetRevision={viewportResetRevision}
             focusRevision={focusRevision}
