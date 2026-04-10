@@ -1053,7 +1053,7 @@ function App() {
         return
       }
 
-      if (editMode && event.key.toLowerCase() === 'r') {
+      if (editMode && event.key.toLowerCase() === 'r' && !event.ctrlKey && !event.metaKey) {
         event.preventDefault()
         cycleSelectedFaceRing()
         return
