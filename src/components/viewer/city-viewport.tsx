@@ -15,6 +15,7 @@ import type {
   ViewerFocusTarget,
   ViewerGeometryDisplayMode,
   ViewerObjectGeometry,
+  ViewerPickingMode,
   ViewerSemanticSurface,
   ViewerValidationError,
 } from '@/types/cityjson'
@@ -50,6 +51,8 @@ type CityViewportProps = {
   selectedFaceRingIndex: number
   selectedVertexIndex: number | null
   showSemanticSurfaces: boolean
+  pickingMode: ViewerPickingMode
+  showVertexGizmo: boolean
   mobileInteraction: boolean
   mobileSelectionMode: 'object' | 'surface'
   onSelectFeature: (featureId: string, objectId?: string | null) => void
@@ -135,6 +138,8 @@ function CityViewport({
   selectedFaceRingIndex,
   selectedVertexIndex,
   showSemanticSurfaces,
+  pickingMode,
+  showVertexGizmo,
   mobileInteraction,
   mobileSelectionMode,
   onSelectFeature,
@@ -179,8 +184,11 @@ function CityViewport({
   const onVertexCommitRef = useRef(onVertexCommit)
   const themeRef = useRef(theme)
   const showSemanticSurfacesRef = useRef(showSemanticSurfaces)
+  const pickingModeRef = useRef(pickingMode)
+  const showVertexGizmoRef = useRef(showVertexGizmo)
   const mobileInteractionRef = useRef(mobileInteraction)
   const mobileSelectionModeRef = useRef(mobileSelectionMode)
+  const pointerDownRef = useRef<{ x: number; y: number } | null>(null)
 
   useEffect(() => {
     dataRef.current = data
@@ -214,6 +222,8 @@ function CityViewport({
   useEffect(() => { onVertexCommitRef.current = onVertexCommit }, [onVertexCommit])
   useEffect(() => { themeRef.current = theme }, [theme])
   useEffect(() => { showSemanticSurfacesRef.current = showSemanticSurfaces }, [showSemanticSurfaces])
+  useEffect(() => { pickingModeRef.current = pickingMode }, [pickingMode])
+  useEffect(() => { showVertexGizmoRef.current = showVertexGizmo }, [showVertexGizmo])
   useEffect(() => { mobileInteractionRef.current = mobileInteraction }, [mobileInteraction])
   useEffect(() => { mobileSelectionModeRef.current = mobileSelectionMode }, [mobileSelectionMode])
 
@@ -375,6 +385,13 @@ function CityViewport({
       requestRender()
     }
 
+    const handlePointerDown = (event: PointerEvent) => {
+      pointerDownRef.current = {
+        x: event.clientX,
+        y: event.clientY,
+      }
+    }
+
     const handleClick = (event: MouseEvent) => {
       const activeRuntime = runtimeRef.current
       const currentData = dataRef.current
@@ -382,108 +399,159 @@ function CityViewport({
         return
       }
 
-      updateRaycastPointer(activeRuntime, event)
-
-      const selection = selectionRef.current
-      const isVertexSelectionModifier = event.ctrlKey || event.metaKey
-      if (selection.editMode && isVertexSelectionModifier) {
-        updateEditPointRaycastThreshold(activeRuntime, currentData, selection)
-        const handleTargets = [activeRuntime.selectedEditPoint, activeRuntime.editPoints].filter(
-          (entry): entry is THREE.Points => entry != null,
-        )
-        const handleHits = activeRuntime.raycaster.intersectObjects(handleTargets, false)
-        const handleHit = handleHits[0]
-        if (handleHit && typeof handleHit.index === 'number') {
-          const indices = (handleHit.object.userData.vertexIndices as number[] | undefined) ?? []
-          const vertexIndex = indices[handleHit.index]
-          if (vertexIndex != null) {
-            onSelectVertexRef.current(vertexIndex)
-            return
-          }
-        }
-
-        if (handleHit) {
-          return
-        }
-
-        const activeFeature =
-          selection.selectedFeatureId
-            ? currentData.features.find((candidate) => candidate.id === selection.selectedFeatureId) ?? null
-            : null
-        const activeObject =
-          activeFeature?.objects.find((candidate) => candidate.id === selection.activeObjectId) ?? null
-        const activeObjectGeometry = activeFeature && activeObject
-          ? resolveDisplayedObjectGeometry(activeFeature, activeObject, selection)
-          : null
-        const activeMesh =
-          selection.selectedFeatureId && selection.activeObjectId
-            ? activeRuntime.meshesByObjectKey.get(
-                objectKey(selection.selectedFeatureId, selection.activeObjectId),
-              ) ?? null
-            : null
-
-        if (!activeFeature || !activeObject || !activeObjectGeometry || !activeMesh) {
-          return
-        }
-
-        const meshHits = activeRuntime.raycaster.intersectObject(activeMesh, false)
-        const meshHit = meshHits[0]
-        const triangleFaceIndices = (activeMesh.userData.triangleFaceIndices as number[] | undefined) ?? []
-        const polygonIndex =
-          meshHit && typeof meshHit.faceIndex === 'number'
-            ? triangleFaceIndices[meshHit.faceIndex] ?? null
-            : null
-        const polygon = polygonIndex != null ? activeObjectGeometry.polygons[polygonIndex] ?? null : null
-        const nearestVertexIndex =
-          meshHit && polygon
-            ? findNearestVertexIndexOnPolygon(meshHit.point, polygon, activeFeature.vertices, currentData.center)
-            : null
-
-        if (nearestVertexIndex != null) {
-          onSelectVertexRef.current(nearestVertexIndex)
-        }
+      const pointerDown = pointerDownRef.current
+      pointerDownRef.current = null
+      if (
+        pointerDown &&
+        Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y) > 4
+      ) {
         return
       }
 
+      updateRaycastPointer(activeRuntime, event)
+
+      const selection = selectionRef.current
       const usesMobileTapSelection = mobileInteractionRef.current
       const mobileSurfaceSelection =
         usesMobileTapSelection &&
         showSemanticSurfacesRef.current &&
         mobileSelectionModeRef.current === 'surface'
 
-      if (selection.editMode) {
-        if (!event.shiftKey) {
+      if (!usesMobileTapSelection) {
+        const pickingMode = pickingModeRef.current
+
+        if (selection.editMode && pickingMode === 'vertex') {
+          updateEditPointRaycastThreshold(activeRuntime, currentData, selection)
+          const handleTargets = [activeRuntime.selectedEditPoint, activeRuntime.editPoints].filter(
+            (entry): entry is THREE.Points => entry != null,
+          )
+          const handleHits = activeRuntime.raycaster.intersectObjects(handleTargets, false)
+          const handleHit = handleHits[0]
+          if (handleHit && typeof handleHit.index === 'number') {
+            const indices = (handleHit.object.userData.vertexIndices as number[] | undefined) ?? []
+            const vertexIndex = indices[handleHit.index]
+            if (vertexIndex != null) {
+              onSelectVertexRef.current(vertexIndex)
+              return
+            }
+          }
+
+          if (handleHit) {
+            return
+          }
+
+          const activeFeature =
+            selection.selectedFeatureId
+              ? currentData.features.find((candidate) => candidate.id === selection.selectedFeatureId) ?? null
+              : null
+          const activeObject =
+            activeFeature?.objects.find((candidate) => candidate.id === selection.activeObjectId) ?? null
+          const activeObjectGeometry = activeFeature && activeObject
+            ? resolveDisplayedObjectGeometry(activeFeature, activeObject, selection)
+            : null
+          const activeMesh =
+            selection.selectedFeatureId && selection.activeObjectId
+              ? activeRuntime.meshesByObjectKey.get(
+                  objectKey(selection.selectedFeatureId, selection.activeObjectId),
+                ) ?? null
+              : null
+
+          if (!activeFeature || !activeObject || !activeObjectGeometry || !activeMesh) {
+            return
+          }
+
+          const meshHits = activeRuntime.raycaster.intersectObject(activeMesh, false)
+          const meshHit = meshHits[0]
+          const triangleFaceIndices = (activeMesh.userData.triangleFaceIndices as number[] | undefined) ?? []
+          const polygonIndex =
+            meshHit && typeof meshHit.faceIndex === 'number'
+              ? triangleFaceIndices[meshHit.faceIndex] ?? null
+              : null
+          const polygon = polygonIndex != null ? activeObjectGeometry.polygons[polygonIndex] ?? null : null
+          const nearestVertexIndex =
+            meshHit && polygon
+              ? findNearestVertexIndexOnPolygon(meshHit.point, polygon, activeFeature.vertices, currentData.center)
+              : null
+
+          if (nearestVertexIndex != null) {
+            onSelectVertexRef.current(nearestVertexIndex)
+          }
           return
         }
 
-        const activeMesh =
-          selection.selectedFeatureId && selection.activeObjectId
-            ? activeRuntime.meshesByObjectKey.get(
-                objectKey(selection.selectedFeatureId, selection.activeObjectId),
-              ) ?? null
-            : null
+        if (selection.editMode) {
+          if (pickingMode !== 'face') {
+            return
+          }
 
-        if (!activeMesh) {
+          const activeMesh =
+            selection.selectedFeatureId && selection.activeObjectId
+              ? activeRuntime.meshesByObjectKey.get(
+                  objectKey(selection.selectedFeatureId, selection.activeObjectId),
+                ) ?? null
+              : null
+
+          if (!activeMesh) {
+            return
+          }
+
+          const meshHits = activeRuntime.raycaster.intersectObject(activeMesh, false)
+          const meshHit = meshHits[0]
+          const triangleFaceIndices = (activeMesh.userData.triangleFaceIndices as number[] | undefined) ?? []
+          const faceIndex =
+            meshHit && typeof meshHit.faceIndex === 'number'
+              ? triangleFaceIndices[meshHit.faceIndex] ?? null
+              : null
+
+          onSelectFaceRef.current(faceIndex)
           return
         }
 
-        const meshHits = activeRuntime.raycaster.intersectObject(activeMesh, false)
-        const meshHit = meshHits[0]
-        const triangleFaceIndices = (activeMesh.userData.triangleFaceIndices as number[] | undefined) ?? []
-        const faceIndex =
-          meshHit && typeof meshHit.faceIndex === 'number'
-            ? triangleFaceIndices[meshHit.faceIndex] ?? null
-            : null
+        if (pickingMode === 'face') {
+          const meshHits = activeRuntime.raycaster.intersectObjects(
+            [...activeRuntime.meshesByObjectKey.values()],
+            false,
+          )
+          const meshHit = meshHits[0]
+          if (!meshHit) {
+            onSelectSemanticSurfaceRef.current(null)
+            return
+          }
 
-        onSelectFaceRef.current(faceIndex)
-        return
+          const featureId = meshHit.object.userData.featureId as string
+          const objectId = meshHit.object.userData.objectId as string
+          const geometryIndex = meshHit.object.userData.geometryIndex as number | null | undefined
+          const triangleFaceIndices = (meshHit.object.userData.triangleFaceIndices as number[] | undefined) ?? []
+          const faceIndex =
+            typeof meshHit.faceIndex === 'number'
+              ? triangleFaceIndices[meshHit.faceIndex] ?? null
+              : null
+
+          const feature = currentData.features.find((candidate) => candidate.id === featureId) ?? null
+          const object = feature?.objects.find((candidate) => candidate.id === objectId) ?? null
+          const geometry = getObjectGeometryByIndex(object, geometryIndex ?? null)
+          const surface = faceIndex != null ? geometry?.semanticSurfaces[faceIndex] ?? null : null
+
+          onSelectSemanticSurfaceRef.current(
+            faceIndex != null && geometryIndex != null
+              ? {
+                  featureId,
+                  objectId,
+                  geometryIndex,
+                  faceIndex,
+                  surface,
+                }
+              : null,
+          )
+          return
+        }
+
+        if (pickingMode !== 'object') {
+          return
+        }
       }
 
-      if (showSemanticSurfacesRef.current && (mobileSurfaceSelection || event.shiftKey)) {
-        if (!usesMobileTapSelection && !event.shiftKey) {
-          return
-        }
-
+      if (mobileSurfaceSelection) {
         const meshHits = activeRuntime.raycaster.intersectObjects(
           [...activeRuntime.meshesByObjectKey.values()],
           false,
@@ -502,12 +570,20 @@ function CityViewport({
           typeof meshHit.faceIndex === 'number'
             ? triangleFaceIndices[meshHit.faceIndex] ?? null
             : null
+        const isClickedObjectSelected =
+          selection.selectedFeatureId === featureId && selection.activeObjectId === objectId
+
+        if (!isClickedObjectSelected) {
+          onSelectSemanticSurfaceRef.current(null)
+          onSelectFeatureRef.current(featureId, objectId)
+          return
+        }
+
         const feature = currentData.features.find((candidate) => candidate.id === featureId) ?? null
         const object = feature?.objects.find((candidate) => candidate.id === objectId) ?? null
         const geometry = getObjectGeometryByIndex(object, geometryIndex ?? null)
         const surface = faceIndex != null ? geometry?.semanticSurfaces[faceIndex] ?? null : null
 
-        onSelectFeatureRef.current(featureId, objectId)
         onSelectSemanticSurfaceRef.current(
           faceIndex != null && geometryIndex != null
             ? {
@@ -519,10 +595,6 @@ function CityViewport({
               }
             : null,
         )
-        return
-      }
-
-      if (!usesMobileTapSelection && !event.shiftKey) {
         return
       }
 
@@ -622,6 +694,7 @@ function CityViewport({
     const resizeObserver = new ResizeObserver(handleResize)
     resizeObserver.observe(container)
     window.addEventListener('resize', handleResize)
+    renderer.domElement.addEventListener('pointerdown', handlePointerDown)
     renderer.domElement.addEventListener('click', handleClick)
     renderer.domElement.addEventListener('dblclick', handleDoubleClick)
     handleResize()
@@ -631,6 +704,7 @@ function CityViewport({
         window.cancelAnimationFrame(pendingRenderFrame)
       }
       arcball.removeEventListener('change', requestRender)
+      renderer.domElement.removeEventListener('pointerdown', handlePointerDown)
       renderer.domElement.removeEventListener('click', handleClick)
       renderer.domElement.removeEventListener('dblclick', handleDoubleClick)
       resizeObserver.disconnect()
@@ -663,6 +737,7 @@ function CityViewport({
       selectionRef.current,
       hideOccludedEditEdgesRef.current,
       isolateSelectedFeatureRef.current,
+      showVertexGizmoRef.current,
     )
     previousSelectionRef.current = selectionRef.current
     previousIsolateSelectedFeatureRef.current = isolateSelectedFeatureRef.current
@@ -684,6 +759,7 @@ function CityViewport({
       selectionRef.current,
       hideOccludedEditEdgesRef.current,
       isolateSelectedFeatureRef.current,
+      showVertexGizmoRef.current,
     )
     previousSelectionRef.current = selectionRef.current
     previousIsolateSelectedFeatureRef.current = isolateSelectedFeatureRef.current
@@ -713,11 +789,12 @@ function CityViewport({
       hideOccludedEditEdgesRef.current,
       previousIsolateSelectedFeature,
       isolateSelectedFeatureRef.current,
+      showVertexGizmoRef.current,
     )
     renderViewport(runtime)
     previousSelectionRef.current = selection
     previousIsolateSelectedFeatureRef.current = isolateSelectedFeatureRef.current
-  }, [selectedFeatureId, activeObjectId, editMode, selectedFaceIndex, selectedFaceRingIndex, selectedVertexIndex, hideOccludedEditEdges, isolateSelectedFeature])
+  }, [selectedFeatureId, activeObjectId, editMode, selectedFaceIndex, selectedFaceRingIndex, selectedVertexIndex, hideOccludedEditEdges, isolateSelectedFeature, showVertexGizmo])
 
   useEffect(() => {
     const runtime = runtimeRef.current
@@ -759,6 +836,7 @@ function CityViewport({
         selectionRef.current,
         hideOccludedEditEdgesRef.current,
         isolateSelectedFeatureRef.current,
+        showVertexGizmoRef.current,
       )
     }
     renderViewport(runtime)
@@ -781,6 +859,7 @@ function CityViewport({
         selectionRef.current,
         hideOccludedEditEdgesRef.current,
         isolateSelectedFeatureRef.current,
+        showVertexGizmoRef.current,
       )
     }
 
@@ -1227,9 +1306,10 @@ function syncSelection(
   selection: ViewSelection,
   hideOccludedEditEdges: boolean,
   isolateSelectedFeature: boolean,
+  showVertexGizmo: boolean,
 ) {
   applySelectionAppearance(runtime, selection, isolateSelectedFeature, runtime.meshesByObjectKey.values())
-  rebuildHandles(runtime, data, selection, hideOccludedEditEdges)
+  rebuildHandles(runtime, data, selection, hideOccludedEditEdges, showVertexGizmo)
 }
 
 function syncSelectionDelta(
@@ -1240,6 +1320,7 @@ function syncSelectionDelta(
   hideOccludedEditEdges: boolean,
   previousIsolateSelectedFeature: boolean,
   isolateSelectedFeature: boolean,
+  showVertexGizmo: boolean,
 ) {
   const previousIsolateActive = previousIsolateSelectedFeature && previousSelection.selectedFeatureId != null
   const isolateActive = isolateSelectedFeature && selection.selectedFeatureId != null
@@ -1252,7 +1333,7 @@ function syncSelectionDelta(
     previousIsolateActive !== isolateActive ||
     previousSemanticObjectSelectionActive !== semanticObjectSelectionActive
   ) {
-    syncSelection(runtime, data, selection, hideOccludedEditEdges, isolateSelectedFeature)
+    syncSelection(runtime, data, selection, hideOccludedEditEdges, isolateSelectedFeature, showVertexGizmo)
     return
   }
 
@@ -1262,7 +1343,7 @@ function syncSelectionDelta(
     isolateSelectedFeature,
     collectAffectedFeatureMeshes(runtime, previousSelection.selectedFeatureId, selection.selectedFeatureId),
   )
-  rebuildHandles(runtime, data, selection, hideOccludedEditEdges)
+  rebuildHandles(runtime, data, selection, hideOccludedEditEdges, showVertexGizmo)
 }
 
 function applySelectionAppearance(
@@ -1405,6 +1486,7 @@ function rebuildHandles(
   data: ViewerDataset,
   selection: ViewSelection,
   hideOccludedEditEdges: boolean,
+  showVertexGizmo: boolean,
 ) {
   hideEditWireframe(runtime)
   clearEditPointOverlays(runtime)
@@ -1480,16 +1562,18 @@ function rebuildHandles(
       )
       runtime.handleGroup.add(runtime.selectedEditPoint)
 
-      runtime.transformProxy = new THREE.Object3D()
-      runtime.transformProxy.position.set(
-        selectedVertex[0] - editPivot[0],
-        selectedVertex[1] - editPivot[1],
-        selectedVertex[2] - editPivot[2],
-      )
-      runtime.handleGroup.add(runtime.transformProxy)
-      runtime.transform.attach(runtime.transformProxy)
-      runtime.transform.enabled = true
-      runtime.transform.setSize(0.8)
+      if (showVertexGizmo) {
+        runtime.transformProxy = new THREE.Object3D()
+        runtime.transformProxy.position.set(
+          selectedVertex[0] - editPivot[0],
+          selectedVertex[1] - editPivot[1],
+          selectedVertex[2] - editPivot[2],
+        )
+        runtime.handleGroup.add(runtime.transformProxy)
+        runtime.transform.attach(runtime.transformProxy)
+        runtime.transform.enabled = true
+        runtime.transform.setSize(0.8)
+      }
     }
   }
 }
@@ -2225,7 +2309,7 @@ function getViewportPalette(theme: Theme) {
       errorIntensity: 0.08,
       errorSelectedIntensity: 0.05,
       editPoint: '#f8fafc',
-      selectedEditPoint: '#f59e0b',
+      selectedEditPoint: '#06b6d4',
       editBaseEdge: '#e2e8f0',
       editBaseOpacity: 0.72,
       editHighlightEdge: '#d6d3c7',
@@ -2263,7 +2347,7 @@ function getViewportPalette(theme: Theme) {
     errorIntensity: 0.08,
     errorSelectedIntensity: 0.05,
     editPoint: '#f8fafc',
-    selectedEditPoint: '#f59e0b',
+    selectedEditPoint: '#06b6d4',
     editBaseEdge: '#f8fafc',
     editBaseOpacity: 0.45,
     editHighlightEdge: '#d6d3c7',

@@ -60,6 +60,7 @@ import type {
   ViewerFocusTarget,
   ViewerGeometryDisplayMode,
   ViewerObjectGeometry,
+  ViewerPickingMode,
   ViewerSemanticSurface,
   ViewerValidationError,
 } from '@/types/cityjson'
@@ -75,6 +76,10 @@ type DetailPaneMode = 'split' | 'collapsed' | 'fullscreen'
 type MobileInspectMode = 'object' | 'surface'
 type MobilePanelView = 'features' | 'details'
 type HelpItem = { keys: string; description: string }
+
+const VIEW_PICKING_MODES: ViewerPickingMode[] = ['none', 'object']
+const SEMANTICS_PICKING_MODES: ViewerPickingMode[] = ['none', 'object', 'face']
+const EDIT_PICKING_MODES: ViewerPickingMode[] = ['none', 'face', 'vertex']
 
 const FEATURE_LIST_ROW_HEIGHT = 58
 const FEATURE_LIST_ROW_GAP = 6
@@ -134,6 +139,8 @@ function App() {
   const [mobileInspectMode, setMobileInspectMode] = useState<MobileInspectMode>('object')
   const [mobilePanelView, setMobilePanelView] = useState<MobilePanelView>('features')
   const [dismissedErrorMessage, setDismissedErrorMessage] = useState<string | null>(null)
+  const [pickingMode, setPickingMode] = useState<ViewerPickingMode>('object')
+  const [showVertexGizmo, setShowVertexGizmo] = useState(false)
   const [selectedSemanticSurface, setSelectedSemanticSurface] = useState<{
     featureId: string
     objectId: string
@@ -196,6 +203,7 @@ function App() {
       : activeFaceRingIndex === 0
         ? 'Outer ring'
         : `Hole ${activeFaceRingIndex}`
+  const effectivePickingMode = normalizePickingMode(pickingMode, editMode, showSemanticSurfaces)
   const visibleDetailErrors = useMemo(() => {
     if (!selectedFeature) {
       return []
@@ -294,6 +302,10 @@ function App() {
     setSelectedVertexIndex(null)
     setSelectedFaceVertexEntryIndex(null)
   }, [isMobileLayout])
+
+  useEffect(() => {
+    setPickingMode((current) => normalizePickingMode(current, editMode, showSemanticSurfaces))
+  }, [editMode, showSemanticSurfaces])
 
   useEffect(() => {
     if (!showSemanticSurfaces) {
@@ -570,6 +582,8 @@ function App() {
     setDetailPaneMode('split')
     setSearchQuery('')
     setFocusTarget(null)
+    setPickingMode('object')
+    setShowVertexGizmo(false)
     setSelectedSemanticSurface(null)
     setViewportResetRevision((current) => current + 1)
   }, [])
@@ -667,6 +681,10 @@ function App() {
     faceIndex: number
     surface: ViewerSemanticSurface | null
   } | null) => {
+    if (surface) {
+      setSelectedFeatureId(surface.featureId)
+      setActiveObjectId(surface.objectId)
+    }
     setActiveGeometryIndex(surface?.geometryIndex ?? null)
     setSelectedFaceIndex(surface?.faceIndex ?? null)
     setSelectedFaceRingIndex(0)
@@ -795,6 +813,10 @@ function App() {
     handleSelectGeometryDisplayMode(nextMode)
   }, [availableLods, geometryDisplayMode, handleSelectGeometryDisplayMode])
 
+  const cyclePickingMode = useCallback(() => {
+    setPickingMode((current) => nextPickingMode(current, editMode, showSemanticSurfaces))
+  }, [editMode, showSemanticSurfaces])
+
   const toggleEditMode = useCallback(() => {
     if (isMobileLayout) {
       return
@@ -811,6 +833,7 @@ function App() {
         setSelectedFaceRingIndex(0)
         setSelectedVertexIndex(null)
         setSelectedFaceVertexEntryIndex(null)
+        setShowVertexGizmo(false)
       }
       if (next) {
         setSelectedFaceIndex(null)
@@ -971,6 +994,17 @@ function App() {
       }
 
       if (
+        event.key.toLowerCase() === 'p' &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey
+      ) {
+        event.preventDefault()
+        cyclePickingMode()
+        return
+      }
+
+      if (
         event.key.toLowerCase() === 'c' &&
         !event.ctrlKey &&
         !event.metaKey &&
@@ -1061,7 +1095,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [applyFeatureVertices, centerCurrentSelection, cycleGeometryDisplayMode, cycleSelectedFaceRing, cycleSelectedFaceVertex, dataset, editMode, selectedFeatureId, toggleEditMode])
+  }, [applyFeatureVertices, centerCurrentSelection, cycleGeometryDisplayMode, cyclePickingMode, cycleSelectedFaceRing, cycleSelectedFaceVertex, dataset, editMode, selectedFeatureId, toggleEditMode])
 
   const hasValidationReportLoaded = Boolean(annotationSourceName)
   const isErrorDialogVisible = Boolean(error && dismissedErrorMessage !== error)
@@ -1094,10 +1128,10 @@ function App() {
     : editMode
       ? [
           { keys: 'Tab', description: 'Exit edit mode' },
+          { keys: 'P', description: `Cycle picking (${getPickingModeLabel(effectivePickingMode)})` },
+          { keys: 'Click', description: getPickingModeDescription(effectivePickingMode, true) },
           { keys: 'C', description: 'Center selection' },
           { keys: 'S', description: 'Toggle semantic colors' },
-          { keys: 'Shift + Click', description: 'Select face' },
-          { keys: 'Ctrl/Cmd + Click', description: 'Select vertex' },
           { keys: 'J / K', description: 'Step active ring' },
           { keys: 'R', description: 'Cycle rings' },
           { keys: 'I', description: 'Toggle isolate' },
@@ -1105,7 +1139,8 @@ function App() {
           { keys: 'U', description: 'Reset feature geometry' },
         ]
       : [
-          { keys: 'Shift + Click', description: 'Select geometry' },
+          { keys: 'P', description: `Cycle picking (${getPickingModeLabel(effectivePickingMode)})` },
+          { keys: 'Click', description: getPickingModeDescription(effectivePickingMode, false) },
           { keys: 'Double Click', description: 'Recenter navigation' },
           { keys: 'Tab', description: 'Enter edit mode' },
           { keys: 'C', description: 'Center selection' },
@@ -1594,6 +1629,8 @@ function App() {
             selectedFaceRingIndex={activeFaceRingIndex}
             selectedVertexIndex={selectedVertexIndex}
             showSemanticSurfaces={showSemanticSurfaces}
+            pickingMode={effectivePickingMode}
+            showVertexGizmo={showVertexGizmo}
             mobileInteraction={isMobileLayout}
             mobileSelectionMode={mobileInspectMode}
             onSelectFeature={handleSelectFeature}
@@ -1663,9 +1700,14 @@ function App() {
               xrayDisabled={!editMode || !activeObjectGeometry}
               hasSelectedFeature={Boolean(selectedFeature)}
               showSemanticSurfaces={showSemanticSurfaces}
+              pickingMode={effectivePickingMode}
+              showVertexGizmo={showVertexGizmo}
+              hasSelectedVertex={selectedVertexIndex != null}
               isolateSelectedFeature={isolateSelectedFeature}
               cameraFocalLength={cameraFocalLength}
               onToggleEditMode={toggleEditMode}
+              onCyclePickingMode={cyclePickingMode}
+              onToggleVertexGizmo={() => setShowVertexGizmo((current) => !current)}
               onToggleXray={() => setHideOccludedEditEdges((current) => !current)}
               onToggleSemanticSurfaces={() => setShowSemanticSurfaces((current) => !current)}
               onToggleIsolateSelectedFeature={() => setIsolateSelectedFeature((current) => !current)}
@@ -1988,9 +2030,14 @@ function DesktopViewportToolbar({
   xrayDisabled,
   hasSelectedFeature,
   showSemanticSurfaces,
+  pickingMode,
+  showVertexGizmo,
+  hasSelectedVertex,
   isolateSelectedFeature,
   cameraFocalLength,
   onToggleEditMode,
+  onCyclePickingMode,
+  onToggleVertexGizmo,
   onToggleXray,
   onToggleSemanticSurfaces,
   onToggleIsolateSelectedFeature,
@@ -2004,9 +2051,14 @@ function DesktopViewportToolbar({
   xrayDisabled: boolean
   hasSelectedFeature: boolean
   showSemanticSurfaces: boolean
+  pickingMode: ViewerPickingMode
+  showVertexGizmo: boolean
+  hasSelectedVertex: boolean
   isolateSelectedFeature: boolean
   cameraFocalLength: number
   onToggleEditMode: () => void
+  onCyclePickingMode: () => void
+  onToggleVertexGizmo: () => void
   onToggleXray: () => void
   onToggleSemanticSurfaces: () => void
   onToggleIsolateSelectedFeature: () => void
@@ -2030,6 +2082,14 @@ function DesktopViewportToolbar({
             <Move3D className="size-3.5" />
             {editMode ? 'Exit edit' : 'Edit'}
           </Button>
+          <ToolbarToggleButton
+            active={showVertexGizmo}
+            disabled={!editMode || !hasSelectedVertex}
+            onClick={onToggleVertexGizmo}
+            ariaLabel="Toggle vertex gizmo"
+          >
+            Gizmo
+          </ToolbarToggleButton>
           <ToolbarToggleButton
             active={xrayActive}
             disabled={xrayDisabled}
@@ -2055,6 +2115,7 @@ function DesktopViewportToolbar({
             >
               Isolate
             </ToolbarToggleButton>
+            <ToolbarPickingButton mode={pickingMode} onClick={onCyclePickingMode} />
             <Button
               variant="ghost"
               size="icon"
@@ -2953,6 +3014,35 @@ function ToolbarToggleButton({
   )
 }
 
+function ToolbarPickingButton({
+  mode,
+  onClick,
+}: {
+  mode: ViewerPickingMode
+  onClick: () => void
+}) {
+  const active = mode !== 'none'
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      onClick={onClick}
+      aria-label={`Cycle picking mode, currently ${getPickingModeLabel(mode).toLowerCase()}`}
+      className={cn(
+        'h-7 gap-1.5 rounded-sm border px-2 text-[11px] font-medium',
+        active
+          ? 'border-primary/35 bg-primary/14 text-primary hover:bg-primary/18 hover:text-primary'
+          : 'border-border/70 bg-background/35 text-muted-foreground hover:bg-accent/8 hover:text-foreground',
+      )}
+    >
+      <Crosshair className="size-3.5" />
+      <span>{`Pick: ${getPickingModeLabel(mode)}`}</span>
+    </Button>
+  )
+}
+
 const DetailAttributePanel = memo(function DetailAttributePanel({
   objectAttributes,
 }: {
@@ -3074,6 +3164,54 @@ const AttributeList = memo(function AttributeList({ attributes }: { attributes: 
     </dl>
   )
 })
+
+function getAvailablePickingModes(editMode: boolean, showSemanticSurfaces: boolean) {
+  if (editMode) return EDIT_PICKING_MODES
+  if (showSemanticSurfaces) return SEMANTICS_PICKING_MODES
+  return VIEW_PICKING_MODES
+}
+
+function normalizePickingMode(mode: ViewerPickingMode, editMode: boolean, showSemanticSurfaces: boolean): ViewerPickingMode {
+  const modes = getAvailablePickingModes(editMode, showSemanticSurfaces)
+  if (modes.includes(mode)) {
+    return mode
+  }
+
+  return editMode ? 'face' : 'object'
+}
+
+function nextPickingMode(mode: ViewerPickingMode, editMode: boolean, showSemanticSurfaces: boolean): ViewerPickingMode {
+  const modes = getAvailablePickingModes(editMode, showSemanticSurfaces)
+  const normalizedMode = normalizePickingMode(mode, editMode, showSemanticSurfaces)
+  const currentIndex = modes.indexOf(normalizedMode)
+  return modes[(currentIndex + 1) % modes.length] ?? modes[0]
+}
+
+function getPickingModeLabel(mode: ViewerPickingMode) {
+  switch (mode) {
+    case 'none':
+      return 'Off'
+    case 'object':
+      return 'Object'
+    case 'face':
+      return 'Face'
+    case 'vertex':
+      return 'Vertex'
+  }
+}
+
+function getPickingModeDescription(mode: ViewerPickingMode, editMode: boolean) {
+  switch (mode) {
+    case 'none':
+      return 'Picking disabled'
+    case 'object':
+      return editMode ? 'Object picking unavailable in edit mode' : 'Pick object'
+    case 'face':
+      return editMode ? 'Pick face' : 'Pick face'
+    case 'vertex':
+      return editMode ? 'Pick vertex' : 'Vertex picking unavailable'
+  }
+}
 
 function formatValue(value: unknown) {
   if (value == null) {

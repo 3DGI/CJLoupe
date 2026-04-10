@@ -10,6 +10,8 @@ export type ViewerGeometryDisplayMode =
       lod: string
     }
 
+export type ViewerPickingMode = 'none' | 'object' | 'face' | 'vertex'
+
 export interface ViewerSemanticSurface {
   surfaceIndex: number
   type: string
