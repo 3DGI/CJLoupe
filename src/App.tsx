@@ -16,7 +16,7 @@ import {
   Maximize2,
   Minimize2,
   Moon,
-  Move3D,
+  SplinePointer,
   Search,
   ScrollText,
   SquareMousePointer,
@@ -1128,7 +1128,7 @@ function App() {
       ]
     : editMode
       ? [
-          { keys: 'Tab', description: 'Exit edit mode' },
+          { keys: 'Tab', description: 'Exit inspect mode' },
           { keys: '0-3', description: `Picking (${getPickingModeLabel(effectivePickingMode)})` },
           { keys: 'Click', description: getPickingModeDescription(effectivePickingMode) },
           { keys: 'C', description: 'Center selection' },
@@ -1143,7 +1143,7 @@ function App() {
           { keys: '0-3', description: `Picking (${getPickingModeLabel(effectivePickingMode)})` },
           { keys: 'Click', description: getPickingModeDescription(effectivePickingMode) },
           { keys: 'Double Click', description: 'Recenter navigation' },
-          { keys: 'Tab', description: 'Enter edit mode' },
+          { keys: 'Tab', description: 'Enter inspect mode' },
           { keys: 'C', description: 'Center selection' },
           { keys: 'L', description: 'Cycle LoDs' },
           { keys: 'S', description: 'Toggle semantic colors' },
@@ -1736,7 +1736,7 @@ function App() {
         {!isMobileLayout && (
           <ViewportHelpPanel
             isCollapsed={isHelpCollapsed}
-            subtitle={editMode ? 'Edit mode controls' : 'Navigation and selection'}
+            subtitle={editMode ? 'Inspect mode controls' : 'Navigation and selection'}
             helpItems={helpItems}
             onToggleCollapsed={() => setIsHelpCollapsed((current) => !current)}
           />
@@ -2080,16 +2080,16 @@ function DesktopViewportToolbar({
       <div className="ml-auto flex flex-wrap items-center gap-1.5">
         <div className="floating-chip flex items-center gap-1 rounded-sm border p-1">
           <Button variant="ghost" size="sm" className="h-7 gap-1.5 px-2" onClick={onToggleEditMode}>
-            <Move3D className="size-3.5" />
-            {editMode ? 'Exit edit' : 'Edit'}
+            <SplinePointer className="size-3.5" />
+            {editMode ? 'Exit inspect' : 'Inspect'}
           </Button>
           <ToolbarToggleButton
             active={showVertexGizmo}
-            disabled={!editMode || !hasSelectedVertex}
+              disabled={!editMode || !hasSelectedVertex}
             onClick={onToggleVertexGizmo}
-            ariaLabel="Toggle vertex gizmo"
+            ariaLabel="Toggle move vertex"
           >
-            Gizmo
+            Move vertex
           </ToolbarToggleButton>
           <ToolbarToggleButton
             active={xrayActive}
