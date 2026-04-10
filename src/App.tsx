@@ -18,9 +18,11 @@ import {
   Moon,
   Move3D,
   Search,
+  ScrollText,
   SquareMousePointer,
   Sun,
   X,
+  TriangleAlert,
 } from 'lucide-react'
 import { Suspense, lazy, memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
@@ -28,7 +30,6 @@ import type { ChangeEvent, ReactNode } from 'react'
 import { Badge } from '@/components/ui/badge'
 import {
   collectAvailableLods,
-  formatGeometryLabel,
   getGeometryDisplayModeKey,
   getObjectGeometryByIndex,
   normalizeObjectGeometryIndex,
@@ -36,6 +37,7 @@ import {
 } from '@/lib/object-geometry'
 import { errorColor } from '@/lib/error-palette'
 import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Switch } from '@/components/ui/switch'
@@ -67,13 +69,14 @@ const SAMPLE_REPORT_URL = `${import.meta.env.BASE_URL}samples/val-report.json`
 const VAL3DITY_ERRORS_URL = 'https://val3dity.readthedocs.io/2.6.0/errors/'
 const GITHUB_REPO_URL = 'https://github.com/3DGI/CJLoupe'
 const DEFAULT_CAMERA_FOCAL_LENGTH = 50
+const BAG_BUILDING_ID_PREFIX = 'NL.IMBAG.Pand.'
 
 type DetailPaneMode = 'split' | 'collapsed' | 'fullscreen'
 type MobileInspectMode = 'object' | 'surface'
 type MobilePanelView = 'features' | 'details'
 type HelpItem = { keys: string; description: string }
 
-const FEATURE_LIST_ROW_HEIGHT = 86
+const FEATURE_LIST_ROW_HEIGHT = 58
 const FEATURE_LIST_ROW_GAP = 6
 const FEATURE_LIST_TOP_PADDING = 8
 const FEATURE_LIST_BOTTOM_PADDING = 12
@@ -203,23 +206,21 @@ function App() {
         return false
       }
 
-      if (
-        activeObjectId &&
-        resolvedActiveGeometryIndex != null &&
-        error.cityObjectId === activeObjectId &&
-        error.geometryIndex != null &&
-        error.geometryIndex !== resolvedActiveGeometryIndex
-      ) {
-        return false
-      }
-
       return true
     })
-  }, [activeObjectId, resolvedActiveGeometryIndex, selectedFeature])
+  }, [activeObjectId, selectedFeature])
   const visibleDetailErrorCount = visibleDetailErrors.length
-  const showErrorTabs = visibleDetailErrorCount > 0
-  const resolvedDetailTab = showErrorTabs ? detailTab : 'attributes'
-  const detailSelectionKey = `${selectedFeature?.id ?? 'none'}::${activeObject?.id ?? 'none'}::${resolvedActiveGeometryIndex ?? 'none'}`
+  const hasDetailErrors = visibleDetailErrorCount > 0
+  const hasDetailAttributes = activeObjectAttributeCount > 0
+  const hasDetailGeometries = activeObjectGeometryCount > 0
+  const availableDetailTabs = [
+    hasDetailErrors ? 'errors' : null,
+    hasDetailAttributes ? 'attributes' : null,
+    hasDetailGeometries ? 'geometries' : null,
+  ].filter((value): value is string => value !== null)
+  const hasDetailContent = availableDetailTabs.length > 0
+  const resolvedDetailTab = availableDetailTabs.includes(detailTab) ? detailTab : (availableDetailTabs[0] ?? 'attributes')
+  const detailSelectionKey = `${selectedFeature?.id ?? 'none'}::${activeObject?.id ?? 'none'}`
   const activeSemanticSurface = selectedSemanticSurface?.surface
     ? {
         objectId: selectedSemanticSurface.objectId,
@@ -765,15 +766,6 @@ function App() {
     })
     setFocusRevision((current) => current + 1)
   }
-
-  const handleSelectDetailObject = useCallback((objectId: string) => {
-    setActiveObjectId(objectId)
-    setActiveGeometryIndex(null)
-    setSelectedFaceIndex(null)
-    setSelectedFaceRingIndex(0)
-    setSelectedVertexIndex(null)
-    setSelectedFaceVertexEntryIndex(null)
-  }, [])
 
   const handleSelectGeometryDisplayMode = useCallback((mode: ViewerGeometryDisplayMode) => {
     setGeometryDisplayMode(mode)
@@ -1366,6 +1358,8 @@ function App() {
                     onShowOnlyInvalidFeaturesChange={handleShowOnlyInvalidFeaturesChange}
                     onCenterFeature={handleCenterFeature}
                     onSelectFeature={handleSelectFeature}
+                    activeObjectId={activeObject?.id ?? null}
+                    activeGeometryIndex={resolvedActiveGeometryIndex}
                   />
                 </section>
               )}
@@ -1387,21 +1381,21 @@ function App() {
                   <div className="panel-header-surface space-y-2.5 p-4 pb-2.5">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="inline-flex items-center justify-center text-muted-foreground">
                             <Box className="size-3.5" />
                           </span>
                           <p className="min-w-0 truncate text-sm font-semibold text-foreground">
-                            {selectedFeature?.label ?? 'No feature selected'}
+                            {activeObject ? formatObjectDisplayId(activeObject.id) : selectedFeature?.label ?? 'No item selected'}
                           </p>
-                          {selectedFeature && (
-                            <Badge variant="outline" className="shrink-0 border-primary/30 bg-primary/10 text-primary">
-                              {selectedFeature.type}
+                          {activeObject && (
+                            <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
+                              {activeObject.type}
                             </Badge>
                           )}
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
-                          <span>{selectedFeatureObjectCount} objects</span>
+                          {!activeObject && <span>{selectedFeatureObjectCount} objects</span>}
                           {activeObject && <span>{activeObjectGeometryCount} geometries</span>}
                           {hasValidationReportLoaded && (
                             <span>{visibleDetailErrorCount} errors</span>
@@ -1438,31 +1432,24 @@ function App() {
                       )}
                     </div>
 
-                    {detailPaneMode !== 'collapsed' && selectedFeature && (
-                      <div className="-mt-1 space-y-2">
-                        <ObjectCarousel
-                          objects={selectedFeature.objects}
-                          activeObjectId={activeObject?.id ?? null}
-                          onSelectObject={handleSelectDetailObject}
-                        />
-                        {activeObject && (
-                          <GeometryList
-                            geometries={activeObject.geometries}
-                            activeGeometryIndex={resolvedActiveGeometryIndex}
-                          />
-                        )}
-                      </div>
-                    )}
-
-                    {detailPaneMode !== 'collapsed' && selectedFeature && showErrorTabs && (
+                    {detailPaneMode !== 'collapsed' && selectedFeature && hasDetailContent && (
                       <div className="-mx-4 -mb-2.5 border-b border-border px-4 pt-1.5">
                         <TabsList className="gap-0">
-                          <TabsTrigger value="errors" className="detail-tab">
-                            Errors
-                          </TabsTrigger>
-                          <TabsTrigger value="attributes" className="detail-tab">
-                            Attributes
-                          </TabsTrigger>
+                          {hasDetailErrors && (
+                            <TabsTrigger value="errors" className="detail-tab">
+                              Errors
+                            </TabsTrigger>
+                          )}
+                          {hasDetailAttributes && (
+                            <TabsTrigger value="attributes" className="detail-tab">
+                              Attributes
+                            </TabsTrigger>
+                          )}
+                          {hasDetailGeometries && (
+                            <TabsTrigger value="geometries" className="detail-tab">
+                              Geometries
+                            </TabsTrigger>
+                          )}
                         </TabsList>
                       </div>
                     )}
@@ -1473,88 +1460,101 @@ function App() {
                       <div className="panel-body-surface min-w-0 space-y-2 p-4 pt-3">
                         {selectedFeature ? (
                           <>
-                            {showErrorTabs ? (
+                            {hasDetailContent ? (
                               <>
-                                <TabsContent key={`${detailSelectionKey}::errors`} value="errors">
-                                  <div className="space-y-3">
-                                    {visibleDetailErrorCount > 0 ? (
-                                      <div className="grid gap-2">
-                                        {visibleDetailErrors.map((error) => {
-                                          const color = errorColor(error.code)
-                                          return (
-                                            <div
-                                              key={`${error.id}-${error.code}`}
-                                              className="flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-sm border px-3 py-2.5 text-left transition"
-                                              style={{
-                                                borderColor: `${color}30`,
-                                                backgroundColor: `${color}18`,
-                                              }}
-                                            >
-                                              <div className="min-w-0 flex-1 overflow-hidden">
-                                                <div className="flex min-w-0 items-start justify-between gap-3">
-                                                  <div className="flex min-w-0 items-start gap-2.5">
-                                                    <span
-                                                      className="mt-1 h-3 w-3 shrink-0 rounded-sm"
-                                                      style={{ backgroundColor: color }}
-                                                    />
-                                                    <div className="min-w-0 overflow-hidden">
-                                                      <p className="truncate text-sm font-semibold text-foreground/90">{error.description}</p>
-                                                      <a
-                                                        href={getVal3dityErrorUrl(error)}
-                                                        target="_blank"
-                                                        rel="noreferrer"
-                                                        className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground underline decoration-muted-foreground/35 underline-offset-3 transition hover:text-foreground"
-                                                      >
-                                                        code {error.code}
-                                                      </a>
+                                {hasDetailErrors && (
+                                  <TabsContent key={`${detailSelectionKey}::errors`} value="errors">
+                                    <div className="space-y-3">
+                                      {visibleDetailErrorCount > 0 ? (
+                                        <div className="grid gap-2">
+                                          {visibleDetailErrors.map((error, errorIndex) => {
+                                            const color = errorColor(error.code)
+                                            return (
+                                              <div
+                                                key={`${error.id}-${error.code}-${errorIndex}`}
+                                                className="flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-sm border px-3 py-2.5 text-left transition"
+                                                style={{
+                                                  borderColor: `${color}30`,
+                                                  backgroundColor: `${color}18`,
+                                                }}
+                                              >
+                                                <div className="min-w-0 flex-1 overflow-hidden">
+                                                  <div className="flex min-w-0 items-start justify-between gap-3">
+                                                    <div className="flex min-w-0 items-start gap-2.5">
+                                                      <span
+                                                        className="mt-1 h-3 w-3 shrink-0 rounded-sm"
+                                                        style={{ backgroundColor: color }}
+                                                      />
+                                                      <div className="min-w-0 overflow-hidden">
+                                                        <p className="truncate text-sm font-semibold text-foreground/90">{error.description}</p>
+                                                        <a
+                                                          href={getVal3dityErrorUrl(error)}
+                                                          target="_blank"
+                                                          rel="noreferrer"
+                                                          className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground underline decoration-muted-foreground/35 underline-offset-3 transition hover:text-foreground"
+                                                        >
+                                                          code {error.code}
+                                                        </a>
+                                                      </div>
                                                     </div>
+                                                    {error.faceIndex != null && (
+                                                      <Badge
+                                                        variant="outline"
+                                                        className="shrink-0 text-foreground/70"
+                                                        style={{ borderColor: `${color}50`, backgroundColor: `${color}20` }}
+                                                      >
+                                                        face {error.faceIndex}
+                                                      </Badge>
+                                                    )}
                                                   </div>
-                                                  {error.faceIndex != null && (
-                                                    <Badge
-                                                      variant="outline"
-                                                      className="shrink-0 text-foreground/70"
-                                                      style={{ borderColor: `${color}50`, backgroundColor: `${color}20` }}
-                                                    >
-                                                      face {error.faceIndex}
-                                                    </Badge>
+                                                  <p className="mt-1.5 break-words font-mono text-[10px] text-muted-foreground">
+                                                    {error.id}
+                                                  </p>
+                                                  {error.info && (
+                                                    <p className="mt-1.5 text-sm text-foreground/65">{error.info}</p>
                                                   )}
                                                 </div>
-                                                <p className="mt-1.5 break-words font-mono text-[10px] text-muted-foreground">
-                                                  {error.id}
-                                                </p>
-                                                {error.info && (
-                                                  <p className="mt-1.5 text-sm text-foreground/65">{error.info}</p>
-                                                )}
+                                                <Button
+                                                  type="button"
+                                                  variant="ghost"
+                                                  size="icon"
+                                                  className="h-8 w-8 shrink-0 self-center"
+                                                  aria-label={`Center ${error.description}`}
+                                                  title={`Center ${error.description}`}
+                                                  onClick={() => centerValidationError(error)}
+                                                >
+                                                  <Crosshair className="size-4" />
+                                                </Button>
                                               </div>
-                                              <Button
-                                                type="button"
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-8 w-8 shrink-0 self-center"
-                                                aria-label={`Center ${error.description}`}
-                                                title={`Center ${error.description}`}
-                                                onClick={() => centerValidationError(error)}
-                                              >
-                                                <Crosshair className="size-4" />
-                                              </Button>
-                                            </div>
-                                          )
-                                        })}
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                </TabsContent>
+                                            )
+                                          })}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  </TabsContent>
+                                )}
 
-                                <TabsContent key={`${detailSelectionKey}::attributes`} value="attributes">
-                                  <DetailAttributePanel
-                                    objectAttributes={activeObject?.attributes ?? {}}
-                                  />
-                                </TabsContent>
+                                {hasDetailAttributes && (
+                                  <TabsContent key={`${detailSelectionKey}::attributes`} value="attributes">
+                                    <DetailAttributePanel
+                                      objectAttributes={activeObject?.attributes ?? {}}
+                                    />
+                                  </TabsContent>
+                                )}
+
+                                {hasDetailGeometries && (
+                                  <TabsContent key={`${detailSelectionKey}::geometries`} value="geometries">
+                                    <DetailGeometryPanel
+                                      geometries={activeObject?.geometries ?? []}
+                                      activeGeometryIndex={resolvedActiveGeometryIndex}
+                                    />
+                                  </TabsContent>
+                                )}
                               </>
                             ) : (
-                              <DetailAttributePanel
-                                objectAttributes={activeObject?.attributes ?? {}}
-                              />
+                              <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-4 py-6 text-sm text-muted-foreground">
+                                No attributes, errors, or geometries to show for the selected item.
+                              </div>
                             )}
                           </>
                         ) : (
@@ -1896,7 +1896,7 @@ function SemanticSurfaceOverlay({
             {semanticSurface.surface.type}
           </Badge>
           <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
-            {semanticSurface.objectId}
+            {formatObjectDisplayId(semanticSurface.objectId)}
           </Badge>
           <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
             geom {semanticSurface.geometryIndex}
@@ -2148,132 +2148,334 @@ function ViewportHelpPanel({
   )
 }
 
-const ObjectCarousel = memo(function ObjectCarousel({
+function formatObjectDisplayId(objectId: string) {
+  return objectId.startsWith(BAG_BUILDING_ID_PREFIX)
+    ? objectId.slice(BAG_BUILDING_ID_PREFIX.length)
+    : objectId
+}
+
+function collectTreeRootIds(objects: ViewerCityObject[], objectById: Map<string, ViewerCityObject>) {
+  const roots = objects
+    .filter((object) => object.parentIds.length === 0 || object.parentIds.every((parentId) => !objectById.has(parentId)))
+    .map((object) => object.id)
+
+  return roots.length > 0 ? roots : objects.map((object) => object.id)
+}
+
+function collectExpandedObjectIds(activeObjectId: string | null, objectById: Map<string, ViewerCityObject>) {
+  if (!activeObjectId) {
+    return new Set<string>()
+  }
+
+  const expandedIds = new Set<string>()
+  const visit = (objectId: string | null | undefined) => {
+    if (!objectId || expandedIds.has(objectId)) {
+      return
+    }
+
+    const object = objectById.get(objectId)
+    if (!object) {
+      return
+    }
+
+    expandedIds.add(objectId)
+    object.parentIds.forEach(visit)
+  }
+
+  visit(activeObjectId)
+  return expandedIds
+}
+
+function getObjectGeometryChips(geometries: ViewerObjectGeometry[]) {
+  const chips = new Map<string, { key: string; label: string }>()
+
+  for (const geometry of geometries) {
+    const label = geometry.lod ?? `g${geometry.index}`
+    if (chips.has(label)) {
+      continue
+    }
+
+    chips.set(label, {
+      key: `${label}:${geometry.index}`,
+      label,
+    })
+  }
+
+  return [...chips.values()]
+}
+
+function getObjectGeometryTypeLabel(geometries: ViewerObjectGeometry[]) {
+  const types = [...new Set(geometries.map((geometry) => geometry.geometryType).filter(Boolean))]
+
+  if (types.length === 0) {
+    return null
+  }
+
+  if (types.length === 1) {
+    return types[0]
+  }
+
+  if (types.length === 2) {
+    return `${types[0]} + ${types[1]}`
+  }
+
+  return `${types[0]} +${types.length - 1}`
+}
+
+function ObjectTreeIndicators({
+  hasAttributes,
+  errorCount,
+}: {
+  hasAttributes: boolean
+  errorCount: number
+}) {
+  if (!hasAttributes && errorCount === 0) {
+    return null
+  }
+
+  return (
+    <div className="flex shrink-0 items-center gap-1 text-muted-foreground">
+      {hasAttributes && (
+        <span title="Has attributes" aria-label="Has attributes" className="inline-flex items-center justify-center">
+          <ScrollText className="size-3" />
+        </span>
+      )}
+      {errorCount > 0 && (
+        <span
+          title={`${errorCount} errors`}
+          aria-label={`${errorCount} errors`}
+          className="inline-flex items-center gap-1 text-[9px] font-medium text-destructive"
+        >
+          <TriangleAlert className="size-3" />
+          <span>{errorCount}</span>
+        </span>
+      )}
+    </div>
+  )
+}
+
+function ObjectTreeGeometrySummary({
+  geometryTypeLabel,
+  chips,
+}: {
+  geometryTypeLabel: string | null
+  chips: Array<{ key: string; label: string }>
+}) {
+  if (!geometryTypeLabel && chips.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {geometryTypeLabel && (
+        <span className="rounded-sm border border-foreground/10 bg-background/45 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
+          {geometryTypeLabel}
+        </span>
+      )}
+      {chips.length > 0 && (
+        <div className="inline-flex overflow-hidden rounded-sm border border-foreground/10 bg-background/45">
+          {chips.map((chip, index) => (
+            <span
+              key={chip.key}
+              className={cn(
+                'px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground',
+                index > 0 && 'border-l border-foreground/10',
+              )}
+            >
+              {chip.label}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const FeatureObjectTree = memo(function FeatureObjectTree({
   objects,
   activeObjectId,
+  activeGeometryIndex,
+  errorCountsByObjectId,
   onSelectObject,
 }: {
   objects: ViewerCityObject[]
   activeObjectId: string | null
+  activeGeometryIndex: number | null
+  errorCountsByObjectId: Map<string, number>
   onSelectObject: (objectId: string) => void
 }) {
-  const activeButtonRef = useRef<HTMLButtonElement | null>(null)
-  const activeIndex = objects.findIndex((object) => object.id === activeObjectId)
-  const resolvedIndex = activeIndex >= 0 ? activeIndex : 0
-  const resolvedActiveObjectId = objects[resolvedIndex]?.id ?? null
-  const hasPrev = resolvedIndex > 0
-  const hasNext = resolvedIndex >= 0 && resolvedIndex < objects.length - 1
-
-  useEffect(() => {
-    activeButtonRef.current?.scrollIntoView({
-      behavior: 'smooth',
-      block: 'nearest',
-      inline: 'center',
-    })
-  }, [resolvedActiveObjectId])
-
-  const selectRelativeObject = useCallback((direction: -1 | 1) => {
-    const nextObject = objects[resolvedIndex + direction]
-    if (!nextObject) {
-      return
-    }
-
-    onSelectObject(nextObject.id)
-  }, [objects, onSelectObject, resolvedIndex])
+  const objectById = useMemo(() => new Map(objects.map((object) => [object.id, object])), [objects])
+  const rootIds = useMemo(() => collectTreeRootIds(objects, objectById), [objectById, objects])
+  const expandedIds = useMemo(
+    () => collectExpandedObjectIds(activeObjectId, objectById),
+    [activeObjectId, objectById],
+  )
 
   return (
-    <div className="relative">
-      <div className={cn('object-carousel-scroll no-scrollbar overflow-x-auto py-0.5', objects.length > 1 ? 'px-12' : 'px-0')}>
-        <div className={cn('flex w-max items-center gap-1.5', objects.length > 1 && 'min-w-full')}>
-          {objects.map((object) => {
-            const isActive = object.id === resolvedActiveObjectId
-
-            return (
-              <button
-                key={object.id}
-                ref={isActive ? activeButtonRef : null}
-                type="button"
-                onClick={() => onSelectObject(object.id)}
-                className={cn(
-                  'flex shrink-0 items-center gap-1.5 rounded-sm border px-2 py-1 text-left text-xs transition',
-                  isActive
-                    ? 'border-primary/40 bg-primary/10 text-foreground'
-                    : 'border-foreground/8 bg-foreground/3 text-foreground/70 hover:border-foreground/16 hover:bg-foreground/6',
-                )}
-              >
-                <span className="max-w-[14rem] truncate font-medium">{object.id}</span>
-                <span className="shrink-0 text-[10px] text-muted-foreground">{object.type}</span>
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      {objects.length > 1 && (
-        <>
-          <button
-            type="button"
-            onClick={() => selectRelativeObject(-1)}
-            disabled={!hasPrev}
-            aria-label="Select previous object"
-            className={cn(
-              'object-carousel-edge-left absolute inset-y-0 left-0 z-10 flex w-11 items-center justify-start pl-1.5 text-muted-foreground transition',
-              hasPrev ? 'cursor-pointer hover:text-foreground' : 'pointer-events-none opacity-0',
-            )}
-          >
-            <ChevronLeft className="size-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => selectRelativeObject(1)}
-            disabled={!hasNext}
-            aria-label="Select next object"
-            className={cn(
-              'object-carousel-edge-right absolute inset-y-0 right-0 z-10 flex w-11 items-center justify-end pr-1.5 text-muted-foreground transition',
-              hasNext ? 'cursor-pointer hover:text-foreground' : 'pointer-events-none opacity-0',
-            )}
-          >
-            <ChevronRight className="size-4" />
-          </button>
-        </>
-      )}
+    <div className="space-y-1">
+      {rootIds.map((objectId) => (
+        <FeatureObjectTreeNode
+          key={objectId}
+          objectId={objectId}
+          objectById={objectById}
+          activeObjectId={activeObjectId}
+          activeGeometryIndex={activeGeometryIndex}
+          errorCountsByObjectId={errorCountsByObjectId}
+          expandedIds={expandedIds}
+          onSelectObject={onSelectObject}
+          depth={0}
+        />
+      ))}
     </div>
   )
 })
 
-const GeometryList = memo(function GeometryList({
-  geometries,
+const FeatureObjectTreeNode = memo(function FeatureObjectTreeNode({
+  objectId,
+  objectById,
+  activeObjectId,
   activeGeometryIndex,
+  errorCountsByObjectId,
+  expandedIds,
+  onSelectObject,
+  depth,
+  visited = new Set<string>(),
 }: {
-  geometries: ViewerObjectGeometry[]
+  objectId: string
+  objectById: Map<string, ViewerCityObject>
+  activeObjectId: string | null
   activeGeometryIndex: number | null
+  errorCountsByObjectId: Map<string, number>
+  expandedIds: Set<string>
+  onSelectObject: (objectId: string) => void
+  depth: number
+  visited?: Set<string>
 }) {
-  return (
-    <div className="flex flex-wrap items-center gap-1.5 py-0.5">
-      {geometries.map((geometry) => {
-        const isActive = geometry.index === activeGeometryIndex
+  const object = objectById.get(objectId)
+  const isVisited = visited.has(objectId)
+  const childIds = object?.childIds.filter((childId) => objectById.has(childId)) ?? []
+  const hasChildren = childIds.length > 0
+  const isActive = objectId === activeObjectId
+  const hasAttributes = Object.keys(object?.attributes ?? {}).length > 0
+  const errorCount = errorCountsByObjectId.get(objectId) ?? 0
+  const chips = getObjectGeometryChips(object?.geometries ?? [])
+  const geometryTypeLabel = getObjectGeometryTypeLabel(object?.geometries ?? [])
+  const nextVisited = new Set(visited)
+  nextVisited.add(objectId)
+  const [open, setOpen] = useState(depth === 0 || expandedIds.has(objectId))
+  const wasExpandedBySelectionRef = useRef(expandedIds.has(objectId))
 
-        return (
-          <div
-            key={geometry.index}
-            className={cn(
-              'flex shrink-0 items-center gap-1.5 rounded-sm border px-2 py-1 text-left text-xs transition',
-              isActive
-                ? 'border-primary/40 bg-primary/10 text-foreground'
-                : 'border-foreground/8 bg-foreground/3 text-foreground/70',
-            )}
-          >
-            <span className="font-medium">{formatGeometryLabel(geometry)}</span>
-            <span className="shrink-0 text-[10px] text-muted-foreground">
-              {geometry.geometryType ?? `geom ${geometry.index}`}
-            </span>
+  useEffect(() => {
+    const isExpandedBySelection = expandedIds.has(objectId)
+
+    if (isExpandedBySelection && !wasExpandedBySelectionRef.current) {
+      setOpen(true)
+    }
+    wasExpandedBySelectionRef.current = isExpandedBySelection
+  }, [expandedIds, objectId])
+
+  if (isVisited || !object) {
+    return null
+  }
+
+  if (!hasChildren) {
+    return (
+      <div style={{ paddingLeft: `${depth * 14}px` }}>
+        <button
+          type="button"
+          onClick={() => onSelectObject(object.id)}
+          className={cn(
+            'flex min-h-7 w-full min-w-0 items-center gap-1.5 rounded-sm px-2 py-1 text-left transition',
+            isActive
+              ? 'bg-primary/10 text-foreground'
+              : 'text-foreground/72 hover:bg-foreground/6',
+          )}
+        >
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            <span className="min-w-0 truncate text-[11px] font-medium">{formatObjectDisplayId(object.id)}</span>
           </div>
-        )
-      })}
-      {geometries.length === 0 && (
-        <span className="text-xs text-muted-foreground">No geometries</span>
-      )}
-    </div>
+          <ObjectTreeIndicators hasAttributes={hasAttributes} errorCount={errorCount} />
+          <span className="shrink-0 text-[10px] text-muted-foreground">{object.type}</span>
+          {(geometryTypeLabel || chips.length > 0) && (
+            <div className="hidden shrink-0 md:block">
+              <ObjectTreeGeometrySummary geometryTypeLabel={geometryTypeLabel} chips={chips} />
+            </div>
+          )}
+        </button>
+        {(geometryTypeLabel || chips.length > 0) && (
+          <div className="mt-1 pl-7 md:hidden">
+            <ObjectTreeGeometrySummary geometryTypeLabel={geometryTypeLabel} chips={chips} />
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <div style={{ paddingLeft: `${depth * 14}px` }}>
+        <div
+          className={cn(
+            'flex min-h-7 w-full min-w-0 items-center gap-1.5 rounded-sm px-2 py-1 transition',
+            isActive
+              ? 'bg-primary/10 text-foreground'
+              : 'text-foreground/72 hover:bg-foreground/6',
+          )}
+        >
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              aria-label={open ? `Collapse ${formatObjectDisplayId(object.id)}` : `Expand ${formatObjectDisplayId(object.id)}`}
+              className="shrink-0 rounded-sm p-0.5 text-muted-foreground transition hover:bg-foreground/6 hover:text-foreground"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <ChevronRight
+                className={cn('size-3 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')}
+              />
+            </button>
+          </CollapsibleTrigger>
+          <button
+            type="button"
+            onClick={() => onSelectObject(object.id)}
+            className="flex min-h-6 min-w-0 flex-1 items-center gap-1.5 text-left"
+          >
+            <div className="flex min-w-0 flex-1 items-center gap-1.5">
+              <span className="min-w-0 truncate text-[11px] font-medium">{formatObjectDisplayId(object.id)}</span>
+            </div>
+            <ObjectTreeIndicators hasAttributes={hasAttributes} errorCount={errorCount} />
+            <span className="shrink-0 text-[10px] text-muted-foreground">{object.type}</span>
+            {(geometryTypeLabel || chips.length > 0) && (
+              <div className="hidden shrink-0 md:block">
+                <ObjectTreeGeometrySummary geometryTypeLabel={geometryTypeLabel} chips={chips} />
+              </div>
+            )}
+          </button>
+        </div>
+        {(geometryTypeLabel || chips.length > 0) && (
+          <div className="mt-1 pl-8 md:hidden">
+            <ObjectTreeGeometrySummary geometryTypeLabel={geometryTypeLabel} chips={chips} />
+          </div>
+        )}
+        <CollapsibleContent className="overflow-hidden">
+          <div className="mt-1 space-y-1 border-l border-border/55 pl-3">
+            {childIds.map((childId) => (
+              <FeatureObjectTreeNode
+                key={childId}
+                objectId={childId}
+                objectById={objectById}
+                activeObjectId={activeObjectId}
+                activeGeometryIndex={activeGeometryIndex}
+                errorCountsByObjectId={errorCountsByObjectId}
+                expandedIds={expandedIds}
+                onSelectObject={onSelectObject}
+                depth={depth + 1}
+                visited={nextVisited}
+              />
+            ))}
+          </div>
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
   )
 })
 
@@ -2330,93 +2532,156 @@ function ViewportGeometryModeBar({
 const FeatureListRow = memo(function FeatureListRow({
   item,
   selected,
+  activeObjectId,
+  activeGeometryIndex,
   onCenterFeature,
   onSelectFeature,
+  onHeightChange,
 }: {
   item: FeatureListItem
   selected: boolean
+  activeObjectId: string | null
+  activeGeometryIndex: number | null
   onCenterFeature: (featureId: string) => void
   onSelectFeature: (featureId: string, objectId?: string | null) => void
+  onHeightChange: (height: number) => void
 }) {
   const { feature, objectTypes, errorCodeSummary, errorCount, isInvalid } = item
+  const rowRef = useRef<HTMLDivElement | null>(null)
+  const errorCountsByObjectId = useMemo(() => {
+    const counts = new Map<string, number>()
+
+    for (const error of feature.errors) {
+      if (!error.cityObjectId) {
+        continue
+      }
+
+      counts.set(error.cityObjectId, (counts.get(error.cityObjectId) ?? 0) + 1)
+    }
+
+    return counts
+  }, [feature.errors])
+
+  useEffect(() => {
+    if (!selected) {
+      return
+    }
+
+    const element = rowRef.current
+    if (!element) {
+      return
+    }
+
+    const reportHeight = () => {
+      onHeightChange(Math.max(Math.ceil(element.getBoundingClientRect().height), FEATURE_LIST_ROW_HEIGHT))
+    }
+
+    reportHeight()
+    const resizeObserver = new ResizeObserver(reportHeight)
+    resizeObserver.observe(element)
+
+    return () => resizeObserver.disconnect()
+  }, [onHeightChange, selected])
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={() => onSelectFeature(feature.id)}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault()
-          onSelectFeature(feature.id)
-        }
-      }}
-      aria-pressed={selected}
-      className={cn(
-        'flex h-full w-full min-w-0 cursor-pointer items-center gap-2 overflow-hidden rounded-sm border px-2.5 py-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30',
-        selected
-          ? 'border-accent/40 bg-accent/10 text-foreground shadow-[0_0_0_1px] shadow-accent/25'
-          : isInvalid
-            ? 'border-destructive/20 bg-destructive/8 text-foreground/88 hover:border-destructive/28 hover:bg-destructive/12'
-            : 'border-foreground/8 bg-foreground/3 text-foreground/78 hover:border-foreground/16 hover:bg-foreground/6',
-      )}
-    >
-      <div className="min-w-0 flex-1 overflow-hidden text-left">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium">{feature.label}</p>
-            <div className="mt-1 flex flex-wrap items-center gap-1">
-              {objectTypes.length > 0 ? (
-                objectTypes.map((objectType) => (
-                  <Badge
-                    key={objectType}
-                    variant="outline"
-                    className={cn(
-                      'px-1.5 py-0 text-[10px]',
-                      selected
-                        ? 'border-accent/30 bg-accent/10 text-accent'
-                        : isInvalid
-                          ? 'border-destructive/30 bg-destructive/12 text-destructive'
-                          : 'border-foreground/10 bg-foreground/5 text-foreground/60',
-                    )}
-                  >
-                    {objectType}
-                  </Badge>
-                ))
-              ) : (
-                <span className="text-[10px] text-muted-foreground">No object types</span>
-              )}
-            </div>
-          </div>
-        </div>
-        <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
-          <span>{feature.objects.length} obj</span>
-          <span>{feature.vertices.length} vtx</span>
-          {errorCount > 0 ? (
-            <span className="text-destructive">
-              {errorCount} err ({errorCodeSummary})
-            </span>
-          ) : (
-            <span>0 err</span>
-          )}
-        </div>
-      </div>
-
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="h-8 w-8 shrink-0 self-center"
-        aria-label={`Center ${feature.label}`}
-        title={`Center ${feature.label}`}
-        onClick={(event) => {
-          event.stopPropagation()
-          onCenterFeature(feature.id)
+    <Collapsible open={selected}>
+      <div
+        ref={rowRef}
+        aria-pressed={selected}
+        style={{ minHeight: FEATURE_LIST_ROW_HEIGHT }}
+        onClick={() => {
+          if (!selected) {
+            onSelectFeature(feature.id)
+          }
         }}
+        className={cn(
+          'w-full min-w-0 overflow-hidden rounded-sm border px-2.5 pt-2 transition focus-within:ring-2 focus-within:ring-accent/30',
+          !selected && 'cursor-pointer',
+          selected ? 'pb-2' : 'pb-1.5',
+          selected
+            ? 'border-accent/40 bg-accent/10 text-foreground shadow-[0_0_0_1px] shadow-accent/25'
+            : isInvalid
+              ? 'border-destructive/20 bg-destructive/8 text-foreground/88 hover:border-destructive/28 hover:bg-destructive/12'
+              : 'border-foreground/8 bg-foreground/3 text-foreground/78 hover:border-foreground/16 hover:bg-foreground/6',
+        )}
       >
-        <Crosshair className="size-4" />
-      </Button>
-    </div>
+        <div className="flex items-start gap-2">
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              onClick={() => onSelectFeature(feature.id)}
+              className={cn('min-w-0 flex-1 text-left focus-visible:outline-none', !selected && 'cursor-pointer')}
+            >
+              <div className="min-w-0 flex-1 overflow-hidden text-left">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <p className="text-sm font-medium leading-5">{feature.label}</p>
+                  <div className="flex flex-wrap items-center gap-1">
+                    {objectTypes.length > 0 ? (
+                      objectTypes.map((objectType) => (
+                        <Badge
+                          key={objectType}
+                          variant="outline"
+                          className={cn(
+                            'px-1.5 py-0 text-[10px]',
+                            selected
+                              ? 'border-accent/30 bg-accent/10 text-accent'
+                              : isInvalid
+                                ? 'border-destructive/30 bg-destructive/12 text-destructive'
+                                : 'border-foreground/10 bg-foreground/5 text-foreground/60',
+                          )}
+                        >
+                          {objectType}
+                        </Badge>
+                      ))
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground">No object types</span>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground">
+                  <span>{feature.objects.length} obj</span>
+                  <span>{feature.vertices.length} vtx</span>
+                  {errorCount > 0 ? (
+                    <span className="text-destructive">
+                      {errorCount} err ({errorCodeSummary})
+                    </span>
+                  ) : (
+                    <span>0 err</span>
+                  )}
+                </div>
+              </div>
+            </button>
+          </CollapsibleTrigger>
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="mt-0.5 h-7 w-7 shrink-0 self-start"
+            aria-label={`Center ${feature.label}`}
+            title={`Center ${feature.label}`}
+            onClick={(event) => {
+              event.stopPropagation()
+              onCenterFeature(feature.id)
+            }}
+          >
+            <Crosshair className="size-3.5" />
+          </Button>
+        </div>
+
+        <CollapsibleContent className="overflow-hidden">
+          <div className="mt-2 border-t border-border/55 pt-2">
+            <FeatureObjectTree
+              objects={feature.objects}
+              activeObjectId={activeObjectId}
+              activeGeometryIndex={activeGeometryIndex}
+              errorCountsByObjectId={errorCountsByObjectId}
+              onSelectObject={(objectId) => onSelectFeature(feature.id, objectId)}
+            />
+          </div>
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
   )
 })
 
@@ -2433,6 +2698,8 @@ const FeatureListPanel = memo(function FeatureListPanel({
   onShowOnlyInvalidFeaturesChange,
   onCenterFeature,
   onSelectFeature,
+  activeObjectId,
+  activeGeometryIndex,
 }: {
   filteredFeatureItems: FeatureListItem[]
   isLoading: boolean
@@ -2446,10 +2713,19 @@ const FeatureListPanel = memo(function FeatureListPanel({
   onShowOnlyInvalidFeaturesChange: (checked: boolean) => void
   onCenterFeature: (featureId: string) => void
   onSelectFeature: (featureId: string, objectId?: string | null) => void
+  activeObjectId: string | null
+  activeGeometryIndex: number | null
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const [scrollTop, setScrollTop] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(0)
+  const [measuredSelectedRow, setMeasuredSelectedRow] = useState<{
+    featureId: string | null
+    height: number
+  }>({
+    featureId: null,
+    height: FEATURE_LIST_ROW_HEIGHT,
+  })
 
   const selectedIndex = useMemo(
     () => filteredFeatureItems.findIndex((item) => item.feature.id === selectedFeatureId),
@@ -2479,14 +2755,29 @@ const FeatureListPanel = memo(function FeatureListPanel({
     }
   }, [])
 
+  const selectedRowHeight =
+    measuredSelectedRow.featureId === selectedFeatureId
+      ? measuredSelectedRow.height
+      : FEATURE_LIST_ROW_HEIGHT
+  const handleSelectedRowHeightChange = useCallback((featureId: string, height: number) => {
+    setMeasuredSelectedRow((current) => {
+      if (current.featureId === featureId && current.height === height) {
+        return current
+      }
+
+      return { featureId, height }
+    })
+  }, [])
+
   const scrollSelectedFeatureIntoView = useCallback(() => {
     const viewport = viewportRef.current
     if (!viewport || selectedIndex < 0) {
       return
     }
 
-    const rowStart = FEATURE_LIST_TOP_PADDING + selectedIndex * (FEATURE_LIST_ROW_HEIGHT + FEATURE_LIST_ROW_GAP)
-    const rowEnd = rowStart + FEATURE_LIST_ROW_HEIGHT
+    const rowStride = FEATURE_LIST_ROW_HEIGHT + FEATURE_LIST_ROW_GAP
+    const rowStart = FEATURE_LIST_TOP_PADDING + selectedIndex * rowStride
+    const rowEnd = rowStart + selectedRowHeight
     const viewportStart = viewport.scrollTop
     const viewportEnd = viewportStart + viewport.clientHeight
 
@@ -2503,7 +2794,7 @@ const FeatureListPanel = memo(function FeatureListPanel({
       top: Math.max(nextTop, 0),
       behavior: 'auto',
     })
-  }, [selectedIndex])
+  }, [selectedIndex, selectedRowHeight])
 
   useEffect(() => {
     if (selectedIndex < 0) {
@@ -2514,14 +2805,26 @@ const FeatureListPanel = memo(function FeatureListPanel({
   }, [scrollSelectedFeatureIntoView, selectedIndex])
 
   const rowStride = FEATURE_LIST_ROW_HEIGHT + FEATURE_LIST_ROW_GAP
+  const selectedRowDelta = selectedIndex >= 0 ? Math.max(selectedRowHeight - FEATURE_LIST_ROW_HEIGHT, 0) : 0
+  const selectedRowTop = selectedIndex >= 0 ? FEATURE_LIST_TOP_PADDING + selectedIndex * rowStride : null
+  const normalizeOffset = (offset: number) => {
+    const adjustedOffset =
+      selectedRowTop != null && offset > selectedRowTop + selectedRowHeight + FEATURE_LIST_ROW_GAP
+        ? offset - selectedRowDelta
+        : offset
+
+    return Math.max(adjustedOffset - FEATURE_LIST_TOP_PADDING, 0)
+  }
   const contentHeight =
     FEATURE_LIST_TOP_PADDING +
     Math.max(filteredFeatureItems.length * rowStride - FEATURE_LIST_ROW_GAP, 0) +
-    FEATURE_LIST_BOTTOM_PADDING
-  const startIndex = Math.max(Math.floor(scrollTop / rowStride) - FEATURE_LIST_OVERSCAN, 0)
+    FEATURE_LIST_BOTTOM_PADDING +
+    selectedRowDelta
+  const startIndex = Math.max(Math.floor(normalizeOffset(scrollTop) / rowStride) - FEATURE_LIST_OVERSCAN, 0)
   const endIndex = Math.min(
     filteredFeatureItems.length,
-    Math.ceil((scrollTop + viewportHeight) / rowStride) + FEATURE_LIST_OVERSCAN,
+    Math.ceil((normalizeOffset(scrollTop + viewportHeight + selectedRowDelta) + selectedRowDelta) / rowStride) +
+      FEATURE_LIST_OVERSCAN,
   )
 
   return (
@@ -2571,19 +2874,30 @@ const FeatureListPanel = memo(function FeatureListPanel({
           <div className="relative" style={{ height: `${contentHeight}px` }}>
             {filteredFeatureItems.slice(startIndex, endIndex).map((item, visibleIndex) => {
               const itemIndex = startIndex + visibleIndex
-              const top = FEATURE_LIST_TOP_PADDING + itemIndex * rowStride
+              const top =
+                FEATURE_LIST_TOP_PADDING +
+                itemIndex * rowStride +
+                (selectedIndex >= 0 && itemIndex > selectedIndex ? selectedRowDelta : 0)
+              const isSelected = item.feature.id === selectedFeatureId
 
               return (
                 <div
                   key={item.feature.id}
                   className="absolute left-3 right-3"
-                  style={{ top: `${top}px`, height: `${FEATURE_LIST_ROW_HEIGHT}px` }}
+                  style={
+                    isSelected
+                      ? { top: `${top}px` }
+                      : { top: `${top}px`, height: `${FEATURE_LIST_ROW_HEIGHT}px` }
+                  }
                 >
                   <FeatureListRow
                     item={item}
-                    selected={item.feature.id === selectedFeatureId}
+                    selected={isSelected}
+                    activeObjectId={isSelected ? activeObjectId : null}
+                    activeGeometryIndex={isSelected ? activeGeometryIndex : null}
                     onCenterFeature={onCenterFeature}
                     onSelectFeature={onSelectFeature}
+                    onHeightChange={(height) => handleSelectedRowHeightChange(item.feature.id, height)}
                   />
                 </div>
               )
@@ -2656,29 +2970,76 @@ const DetailAttributePanel = memo(function DetailAttributePanel({
 
   return (
     <AttributeSection
-      title="Object Attributes"
       attributes={objectAttributes}
       emptyText="No attributes on the active object."
     />
   )
 })
 
+const DetailGeometryPanel = memo(function DetailGeometryPanel({
+  geometries,
+  activeGeometryIndex,
+}: {
+  geometries: ViewerObjectGeometry[]
+  activeGeometryIndex: number | null
+}) {
+  if (geometries.length === 0) {
+    return (
+      <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-4 py-6 text-sm text-muted-foreground">
+        No geometries available for the selected object.
+      </div>
+    )
+  }
+
+  return (
+    <div className="grid gap-2">
+      {geometries.map((geometry) => {
+        const hasSemantics = geometry.semanticSurfaces.some((surface) => surface != null)
+        const isActive = geometry.index === activeGeometryIndex
+
+        return (
+          <div
+            key={geometry.index}
+            className={cn(
+              'rounded-sm border px-3 py-2',
+              isActive
+                ? 'border-primary/35 bg-primary/8'
+                : 'border-foreground/8 bg-foreground/3',
+            )}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground/90">
+                  {geometry.geometryType ?? `Geometry ${geometry.index}`}
+                </p>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+                  <span>{geometry.lod ?? 'No LoD'}</span>
+                  <span>{geometry.vertexIndices.length} vtx</span>
+                  <span>{hasSemantics ? 'Semantics' : 'No semantics'}</span>
+                </div>
+              </div>
+              <Badge variant="outline" className={cn('shrink-0 text-[10px]', isActive && 'border-primary/35 text-primary')}>
+                geom {geometry.index}
+              </Badge>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+})
+
 function AttributeSection({
-  title,
   attributes,
   emptyText,
 }: {
-  title: string
   attributes: Record<string, unknown>
   emptyText: string
 }) {
   const entries = Object.entries(attributes)
 
   return (
-    <section className="space-y-2">
-      <div className="flex items-center gap-2">
-        <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">{title}</p>
-      </div>
+    <section>
       {entries.length > 0 ? (
         <AttributeList attributes={attributes} />
       ) : (

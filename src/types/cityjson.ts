@@ -87,4 +87,6 @@ export interface ViewerCityObject {
   geometries: ViewerObjectGeometry[]
   bestGeometryIndex: number | null
   hasRenderableChildren: boolean
+  parentIds: string[]
+  childIds: string[]
 }

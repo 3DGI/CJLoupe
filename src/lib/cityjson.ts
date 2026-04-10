@@ -282,16 +282,25 @@ function createRenderableObjects(cityObjects: Record<string, CityJsonObject>) {
         geometries,
         bestGeometryIndex: pickBestGeometryIndex(geometries),
         hasRenderableChildren: false,
+        parentIds: [],
+        childIds: [],
       } satisfies ViewerCityObject,
     }
   })
 
   const parsedById = new Map(objects.map((entry) => [entry.id, entry]))
+  const renderableIds = new Set(
+    objects
+      .filter((entry) => entry.parsed.geometries.length > 0)
+      .map((entry) => entry.id),
+  )
   const renderableObjects = objects
     .filter((entry) => entry.parsed.geometries.length > 0)
     .map((entry) => ({
       ...entry.parsed,
       hasRenderableChildren: hasRenderableChild(entry.object, parsedById),
+      parentIds: (entry.object.parents ?? []).filter((parentId) => renderableIds.has(parentId)),
+      childIds: (entry.object.children ?? []).filter((childId) => renderableIds.has(childId)),
     }))
 
   const renderableLeafObjects = renderableObjects.filter((entry) => !entry.hasRenderableChildren)
