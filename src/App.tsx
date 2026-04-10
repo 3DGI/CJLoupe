@@ -994,13 +994,14 @@ function App() {
       }
 
       if (
-        event.key.toLowerCase() === 'p' &&
+        (event.key === '0' || event.key === '1' || event.key === '2' || event.key === '3') &&
         !event.ctrlKey &&
         !event.metaKey &&
         !event.altKey
       ) {
         event.preventDefault()
-        cyclePickingMode()
+        const mode: ViewerPickingMode = event.key === '0' ? 'none' : event.key === '1' ? 'object' : event.key === '2' ? 'face' : 'vertex'
+        setPickingMode(normalizePickingMode(mode, editMode, showSemanticSurfaces))
         return
       }
 
@@ -1095,7 +1096,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [applyFeatureVertices, centerCurrentSelection, cycleGeometryDisplayMode, cyclePickingMode, cycleSelectedFaceRing, cycleSelectedFaceVertex, dataset, editMode, selectedFeatureId, toggleEditMode])
+  }, [applyFeatureVertices, centerCurrentSelection, cycleGeometryDisplayMode, cycleSelectedFaceRing, cycleSelectedFaceVertex, dataset, editMode, selectedFeatureId, showSemanticSurfaces, toggleEditMode])
 
   const hasValidationReportLoaded = Boolean(annotationSourceName)
   const isErrorDialogVisible = Boolean(error && dismissedErrorMessage !== error)
@@ -1128,7 +1129,7 @@ function App() {
     : editMode
       ? [
           { keys: 'Tab', description: 'Exit edit mode' },
-          { keys: 'P', description: `Cycle picking (${getPickingModeLabel(effectivePickingMode)})` },
+          { keys: '0-3', description: `Picking (${getPickingModeLabel(effectivePickingMode)})` },
           { keys: 'Click', description: getPickingModeDescription(effectivePickingMode) },
           { keys: 'C', description: 'Center selection' },
           { keys: 'S', description: 'Toggle semantic colors' },
@@ -1139,7 +1140,7 @@ function App() {
           { keys: 'U', description: 'Reset feature geometry' },
         ]
       : [
-          { keys: 'P', description: `Cycle picking (${getPickingModeLabel(effectivePickingMode)})` },
+          { keys: '0-3', description: `Picking (${getPickingModeLabel(effectivePickingMode)})` },
           { keys: 'Click', description: getPickingModeDescription(effectivePickingMode) },
           { keys: 'Double Click', description: 'Recenter navigation' },
           { keys: 'Tab', description: 'Enter edit mode' },

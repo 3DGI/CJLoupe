@@ -2381,7 +2381,7 @@ function getViewportPalette(theme: Theme) {
       editHighlightOpacity: 0.96,
       editActiveRingEdge: '#3a3a3a',
       editActiveRingOpacity: 1,
-      editVertexEdge: '#d4a017',
+      editVertexEdge: '#d0d0d0',
       editVertexEdgeOpacity: 1,
     }
   }
@@ -2421,7 +2421,7 @@ function getViewportPalette(theme: Theme) {
     editHighlightOpacity: 0.95,
     editActiveRingEdge: '#3a3a3a',
     editActiveRingOpacity: 1,
-    editVertexEdge: '#d4a017',
+    editVertexEdge: '#d0d0d0',
     editVertexEdgeOpacity: 1,
   }
 }
