@@ -3,7 +3,9 @@
 ## Unreleased
 
 - LoD support
-- Show loading model when loading a file
+- Show object tree in features list items
+- Simplify details panel and add tab for object geometries
+- Show loading indicator when loading a file
 - Automatically enter edit mode when centering on a val3dity error item
 - feature labels now use the feature ID directly, trimming a leading `NL.IMBAG.Pand.` prefix
 - feature list is now virtualized for better sidebar performance with large datasets
