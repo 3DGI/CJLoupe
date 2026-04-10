@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0
+
 - LoD support
 - Show object tree in features list items
 - Simplify details panel and add tab for object geometries
