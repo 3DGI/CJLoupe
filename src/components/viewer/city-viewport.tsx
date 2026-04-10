@@ -80,6 +80,7 @@ type Runtime = {
   raycaster: THREE.Raycaster
   pointer: THREE.Vector2
   meshesByObjectKey: Map<string, THREE.Mesh>
+  meshesByFeatureId: Map<string, THREE.Mesh[]>
   editPoints: THREE.Points | null
   selectedEditPoint: THREE.Points | null
   transformProxy: THREE.Object3D | null
@@ -170,6 +171,7 @@ function CityViewport({
     selectedFaceRingIndex,
     selectedVertexIndex,
   })
+  const previousIsolateSelectedFeatureRef = useRef(isolateSelectedFeature)
   const onSelectFeatureRef = useRef(onSelectFeature)
   const onSelectFaceRef = useRef(onSelectFace)
   const onSelectVertexRef = useRef(onSelectVertex)
@@ -310,6 +312,7 @@ function CityViewport({
       raycaster: new THREE.Raycaster(),
       pointer: new THREE.Vector2(),
       meshesByObjectKey: new Map(),
+      meshesByFeatureId: new Map(),
       editPoints: null,
       selectedEditPoint: null,
       transformProxy: null,
@@ -661,6 +664,8 @@ function CityViewport({
       hideOccludedEditEdgesRef.current,
       isolateSelectedFeatureRef.current,
     )
+    previousSelectionRef.current = selectionRef.current
+    previousIsolateSelectedFeatureRef.current = isolateSelectedFeatureRef.current
     renderViewport(runtime)
   }, [data])
 
@@ -680,6 +685,8 @@ function CityViewport({
       hideOccludedEditEdgesRef.current,
       isolateSelectedFeatureRef.current,
     )
+    previousSelectionRef.current = selectionRef.current
+    previousIsolateSelectedFeatureRef.current = isolateSelectedFeatureRef.current
     renderViewport(runtime)
   }, [geometryRevision, geometryDisplayMode, activeGeometryIndex])
 
@@ -692,21 +699,25 @@ function CityViewport({
 
     const selection = selectionRef.current
     const previousSelection = previousSelectionRef.current
+    const previousIsolateSelectedFeature = previousIsolateSelectedFeatureRef.current
 
     if (runtime.showSemanticSurfaces && !editMode) {
       updateSelectionSurfacePresentation(runtime, currentData, previousSelection, selection)
     }
 
-    syncSelection(
+    syncSelectionDelta(
       runtime,
       currentData,
+      previousSelection,
       selection,
       hideOccludedEditEdgesRef.current,
+      previousIsolateSelectedFeature,
       isolateSelectedFeatureRef.current,
     )
     renderViewport(runtime)
     previousSelectionRef.current = selection
-  }, [selectedFeatureId, activeObjectId, geometryDisplayMode, activeGeometryIndex, editMode, selectedFaceIndex, selectedFaceRingIndex, selectedVertexIndex, hideOccludedEditEdges, isolateSelectedFeature])
+    previousIsolateSelectedFeatureRef.current = isolateSelectedFeatureRef.current
+  }, [selectedFeatureId, activeObjectId, editMode, selectedFaceIndex, selectedFaceRingIndex, selectedVertexIndex, hideOccludedEditEdges, isolateSelectedFeature])
 
   useEffect(() => {
     const runtime = runtimeRef.current
@@ -875,6 +886,7 @@ function rebuildScene(
         featureCenter,
       )
       const mesh = new THREE.Mesh(geometry, material)
+      const nextObjectKey = objectKey(feature.id, object.id)
       mesh.position.set(
         featureCenter[0] - data.center[0],
         featureCenter[1] - data.center[1],
@@ -887,10 +899,18 @@ function rebuildScene(
         hasRenderableChildren: object.hasRenderableChildren,
         geometryIndex: objectGeometry.index,
         featureCenter,
+        baseColorLight: baseColorForType(object.type, 'light'),
+        baseColorDark: baseColorForType(object.type, 'dark'),
         triangleFaceIndices: geometry.userData.triangleFaceIndices,
         geometryBlueprint: blueprint,
       }
-      runtime.meshesByObjectKey.set(objectKey(feature.id, object.id), mesh)
+      runtime.meshesByObjectKey.set(nextObjectKey, mesh)
+      const featureMeshes = runtime.meshesByFeatureId.get(feature.id)
+      if (featureMeshes) {
+        featureMeshes.push(mesh)
+      } else {
+        runtime.meshesByFeatureId.set(feature.id, [mesh])
+      }
       runtime.rootGroup.add(mesh)
     }
   }
@@ -1208,6 +1228,49 @@ function syncSelection(
   hideOccludedEditEdges: boolean,
   isolateSelectedFeature: boolean,
 ) {
+  applySelectionAppearance(runtime, selection, isolateSelectedFeature, runtime.meshesByObjectKey.values())
+  rebuildHandles(runtime, data, selection, hideOccludedEditEdges)
+}
+
+function syncSelectionDelta(
+  runtime: Runtime,
+  data: ViewerDataset,
+  previousSelection: ViewSelection,
+  selection: ViewSelection,
+  hideOccludedEditEdges: boolean,
+  previousIsolateSelectedFeature: boolean,
+  isolateSelectedFeature: boolean,
+) {
+  const previousIsolateActive = previousIsolateSelectedFeature && previousSelection.selectedFeatureId != null
+  const isolateActive = isolateSelectedFeature && selection.selectedFeatureId != null
+  const previousSemanticObjectSelectionActive =
+    runtime.showSemanticSurfaces && !previousSelection.editMode && previousSelection.activeObjectId != null
+  const semanticObjectSelectionActive =
+    runtime.showSemanticSurfaces && !selection.editMode && selection.activeObjectId != null
+
+  if (
+    previousIsolateActive !== isolateActive ||
+    previousSemanticObjectSelectionActive !== semanticObjectSelectionActive
+  ) {
+    syncSelection(runtime, data, selection, hideOccludedEditEdges, isolateSelectedFeature)
+    return
+  }
+
+  applySelectionAppearance(
+    runtime,
+    selection,
+    isolateSelectedFeature,
+    collectAffectedFeatureMeshes(runtime, previousSelection.selectedFeatureId, selection.selectedFeatureId),
+  )
+  rebuildHandles(runtime, data, selection, hideOccludedEditEdges)
+}
+
+function applySelectionAppearance(
+  runtime: Runtime,
+  selection: ViewSelection,
+  isolateSelectedFeature: boolean,
+  meshes: Iterable<THREE.Mesh>,
+) {
   const isolateActive = isolateSelectedFeature && selection.selectedFeatureId != null
   const palette = getViewportPalette(runtime.theme)
   const semanticHighlightLift = new THREE.Color('#f8fafc')
@@ -1215,77 +1278,126 @@ function syncSelection(
   const semanticObjectSelectionActive =
     runtime.showSemanticSurfaces && !selection.editMode && selection.activeObjectId != null
 
-  for (const mesh of runtime.meshesByObjectKey.values()) {
-    const featureId = mesh.userData.featureId as string
-    const objectId = mesh.userData.objectId as string
-    const objectType = mesh.userData.objectType as string
-    const hasRenderableChildren = (mesh.userData.hasRenderableChildren as boolean | undefined) === true
-    const baseColor = baseColorForType(objectType, runtime.theme)
-    const isSelectedFeature = featureId === selection.selectedFeatureId
-    const isActiveObject = isSelectedFeature && objectId === selection.activeObjectId
-    const hideParentMesh =
-      selection.geometryDisplayMode.kind === 'best' && hasRenderableChildren && !isActiveObject
+  for (const mesh of meshes) {
+    applyMeshSelectionAppearance(
+      runtime,
+      mesh,
+      selection,
+      isolateActive,
+      palette,
+      semanticHighlightLift,
+      semanticShadow,
+      semanticObjectSelectionActive,
+    )
+  }
+}
 
-    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
-    for (const material of materials) {
-      const mat = material as THREE.MeshStandardMaterial
-      if (mat.userData.isError) {
-        mat.emissive.set(isSelectedFeature ? palette.selectionEmissive : palette.errorEmissive)
-        mat.emissiveIntensity = isSelectedFeature ? palette.errorSelectedIntensity : palette.errorIntensity
-      } else if (mat.userData.isSemantic || mat.userData.isSemanticBase) {
-        if (typeof mat.userData.semanticColor === 'string') {
-          mat.color.set(mat.userData.semanticColor)
-        }
-        if (semanticObjectSelectionActive) {
-          if (isActiveObject) {
-            mat.color.lerp(semanticHighlightLift, 0.14)
-          } else if (isSelectedFeature) {
-            mat.color.lerp(semanticShadow, 0.14)
-          } else {
-            mat.color.lerp(semanticShadow, 0.28)
-          }
-          mat.emissive.set(isActiveObject ? palette.activeEmissive : '#000000')
-          mat.emissiveIntensity = isActiveObject ? palette.semanticActiveEmissiveIntensity : 0
-          mat.roughness = isActiveObject ? 0.58 : isSelectedFeature ? 0.8 : 0.86
+function applyMeshSelectionAppearance(
+  runtime: Runtime,
+  mesh: THREE.Mesh,
+  selection: ViewSelection,
+  isolateActive: boolean,
+  palette: ReturnType<typeof getViewportPalette>,
+  semanticHighlightLift: THREE.Color,
+  semanticShadow: THREE.Color,
+  semanticObjectSelectionActive: boolean,
+) {
+  const featureId = mesh.userData.featureId as string
+  const objectId = mesh.userData.objectId as string
+  const hasRenderableChildren = (mesh.userData.hasRenderableChildren as boolean | undefined) === true
+  const baseColor =
+    runtime.theme === 'light'
+      ? ((mesh.userData.baseColorLight as string | undefined) ??
+        baseColorForType(mesh.userData.objectType as string, 'light'))
+      : ((mesh.userData.baseColorDark as string | undefined) ??
+        baseColorForType(mesh.userData.objectType as string, 'dark'))
+  const isSelectedFeature = featureId === selection.selectedFeatureId
+  const isActiveObject = isSelectedFeature && objectId === selection.activeObjectId
+  const hideParentMesh =
+    selection.geometryDisplayMode.kind === 'best' && hasRenderableChildren && !isActiveObject
+
+  const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+  for (const material of materials) {
+    const mat = material as THREE.MeshStandardMaterial
+    if (mat.userData.isError) {
+      mat.emissive.set(isSelectedFeature ? palette.selectionEmissive : palette.errorEmissive)
+      mat.emissiveIntensity = isSelectedFeature ? palette.errorSelectedIntensity : palette.errorIntensity
+    } else if (mat.userData.isSemantic || mat.userData.isSemanticBase) {
+      if (typeof mat.userData.semanticColor === 'string') {
+        mat.color.set(mat.userData.semanticColor)
+      }
+      if (semanticObjectSelectionActive) {
+        if (isActiveObject) {
+          mat.color.lerp(semanticHighlightLift, 0.14)
+        } else if (isSelectedFeature) {
+          mat.color.lerp(semanticShadow, 0.14)
         } else {
-          mat.emissive.set(
-            isActiveObject
-              ? palette.activeEmissive
-              : isSelectedFeature
-                ? palette.selectionEmissive
-                : '#000000',
-          )
-          mat.emissiveIntensity = isActiveObject
-            ? palette.activeEmissiveIntensity
-            : isSelectedFeature
-              ? palette.selectionEmissiveIntensity
-              : 0
-          mat.roughness = 0.72
+          mat.color.lerp(semanticShadow, 0.28)
         }
+        mat.emissive.set(isActiveObject ? palette.activeEmissive : '#000000')
+        mat.emissiveIntensity = isActiveObject ? palette.semanticActiveEmissiveIntensity : 0
+        mat.roughness = isActiveObject ? 0.58 : isSelectedFeature ? 0.8 : 0.86
       } else {
-        mat.color.set(isActiveObject ? palette.activeObject : isSelectedFeature ? palette.selectedFeature : baseColor)
         mat.emissive.set(
           isActiveObject
             ? palette.activeEmissive
             : isSelectedFeature
               ? palette.selectionEmissive
-              : palette.baseEmissive,
+              : '#000000',
         )
         mat.emissiveIntensity = isActiveObject
           ? palette.activeEmissiveIntensity
           : isSelectedFeature
             ? palette.selectionEmissiveIntensity
-            : palette.baseEmissiveIntensity
-        mat.roughness = isActiveObject ? 0.38 : 0.72
+            : 0
+        mat.roughness = 0.72
       }
-      mat.opacity = 1
-      mat.transparent = false
-      mat.depthWrite = true
+    } else {
+      mat.color.set(isActiveObject ? palette.activeObject : isSelectedFeature ? palette.selectedFeature : baseColor)
+      mat.emissive.set(
+        isActiveObject
+          ? palette.activeEmissive
+          : isSelectedFeature
+            ? palette.selectionEmissive
+            : palette.baseEmissive,
+      )
+      mat.emissiveIntensity = isActiveObject
+        ? palette.activeEmissiveIntensity
+        : isSelectedFeature
+          ? palette.selectionEmissiveIntensity
+          : palette.baseEmissiveIntensity
+      mat.roughness = isActiveObject ? 0.38 : 0.72
     }
-    mesh.visible = (!isolateActive || isSelectedFeature) && !hideParentMesh
+    mat.opacity = 1
+    mat.transparent = false
+    mat.depthWrite = true
   }
 
-  rebuildHandles(runtime, data, selection, hideOccludedEditEdges)
+  mesh.visible = (!isolateActive || isSelectedFeature) && !hideParentMesh
+}
+
+function collectAffectedFeatureMeshes(
+  runtime: Runtime,
+  ...featureIds: Array<string | null>
+) {
+  const meshes = new Set<THREE.Mesh>()
+
+  for (const featureId of featureIds) {
+    if (!featureId) {
+      continue
+    }
+
+    const featureMeshes = runtime.meshesByFeatureId.get(featureId)
+    if (!featureMeshes) {
+      continue
+    }
+
+    for (const mesh of featureMeshes) {
+      meshes.add(mesh)
+    }
+  }
+
+  return meshes
 }
 
 function rebuildHandles(
@@ -2469,6 +2581,7 @@ function disposeSceneContents(runtime: Runtime) {
     runtime.rootGroup.remove(mesh)
   }
   runtime.meshesByObjectKey.clear()
+  runtime.meshesByFeatureId.clear()
 
   clearEditPointOverlays(runtime)
   clearTransientGroup(runtime.annotationGroup)
