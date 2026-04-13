@@ -2113,7 +2113,12 @@ function DesktopViewportToolbar({
         <Button
           variant="ghost"
           size="icon"
-          className="size-7"
+          className={cn(
+            'size-7',
+            editMode
+              ? 'border border-primary/35 bg-primary/14 text-primary hover:bg-primary/18 hover:text-primary'
+              : 'text-muted-foreground hover:bg-accent/8 hover:text-foreground',
+          )}
           onClick={onToggleEditMode}
           aria-label={editMode ? 'Exit inspect mode' : 'Enter inspect mode'}
           title={editMode ? 'Exit inspect' : 'Inspect'}
