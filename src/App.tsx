@@ -16,7 +16,6 @@ import {
   Maximize2,
   Minimize2,
   Moon,
-  SplinePointer,
   Search,
   ScrollText,
   SquareMousePointer,
@@ -39,10 +38,21 @@ import { errorColor } from '@/lib/error-palette'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
+import { MaskIcon } from '@/components/ui/mask-icon'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useTheme } from '@/components/use-theme'
+import cubeIconUrl from '@/assets/blender-icons/cube.svg'
+import editModeIconUrl from '@/assets/blender-icons/editmode_hlt.svg'
+import faceSelectIconUrl from '@/assets/blender-icons/facesel.svg'
+import materialIconUrl from '@/assets/blender-icons/material.svg'
+import objectOriginIconUrl from '@/assets/blender-icons/object_origin.svg'
+import pointcloudPointIconUrl from '@/assets/blender-icons/pointcloud_point.svg'
+import restrictSelectOffIconUrl from '@/assets/blender-icons/restrict_select_off.svg'
+import restrictSelectOnIconUrl from '@/assets/blender-icons/restrict_select_on.svg'
+import trackerIconUrl from '@/assets/blender-icons/tracker.svg'
+import vertexSelectIconUrl from '@/assets/blender-icons/vertexsel.svg'
 import {
   assertValidationAnnotationsMatchDataset,
   loadCityJsonSequenceFromFile,
@@ -80,6 +90,7 @@ type HelpItem = { keys: string; description: string }
 const VIEW_PICKING_MODES: ViewerPickingMode[] = ['none', 'object']
 const SEMANTICS_PICKING_MODES: ViewerPickingMode[] = ['none', 'object', 'face']
 const EDIT_PICKING_MODES: ViewerPickingMode[] = ['none', 'face', 'vertex']
+const PICKING_MODE_MENU: ViewerPickingMode[] = ['none', 'object', 'face', 'vertex']
 
 const FEATURE_LIST_ROW_HEIGHT = 58
 const FEATURE_LIST_ROW_GAP = 6
@@ -1712,6 +1723,7 @@ function App() {
               onToggleXray={() => setHideOccludedEditEdges((current) => !current)}
               onToggleSemanticSurfaces={() => setShowSemanticSurfaces((current) => !current)}
               onToggleIsolateSelectedFeature={() => setIsolateSelectedFeature((current) => !current)}
+              onSelectPickingMode={(mode) => setPickingMode(normalizePickingMode(mode, editMode, showSemanticSurfaces))}
               onCenterCurrentSelection={centerCurrentSelection}
               onCameraFocalLengthChange={setCameraFocalLength}
             />
@@ -2042,6 +2054,7 @@ function DesktopViewportToolbar({
   onToggleXray,
   onToggleSemanticSurfaces,
   onToggleIsolateSelectedFeature,
+  onSelectPickingMode,
   onCenterCurrentSelection,
   onCameraFocalLengthChange,
 }: {
@@ -2063,6 +2076,7 @@ function DesktopViewportToolbar({
   onToggleXray: () => void
   onToggleSemanticSurfaces: () => void
   onToggleIsolateSelectedFeature: () => void
+  onSelectPickingMode: (mode: ViewerPickingMode) => void
   onCenterCurrentSelection: () => void
   onCameraFocalLengthChange: (value: number) => void
 }) {
@@ -2079,15 +2093,22 @@ function DesktopViewportToolbar({
 
       <div className="ml-auto flex flex-wrap items-center gap-1.5">
         <div className="floating-chip flex items-center gap-1 rounded-sm border p-1">
-          <Button variant="ghost" size="sm" className="h-7 gap-1.5 px-2" onClick={onToggleEditMode}>
-            <SplinePointer className="size-3.5" />
-            {editMode ? 'Exit inspect' : 'Inspect'}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            onClick={onToggleEditMode}
+            aria-label={editMode ? 'Exit inspect mode' : 'Enter inspect mode'}
+            title={editMode ? 'Exit inspect' : 'Inspect'}
+          >
+            <MaskIcon src={editModeIconUrl} className="size-3.5" />
           </Button>
           <ToolbarToggleButton
             active={showVertexGizmo}
-              disabled={!editMode || !hasSelectedVertex}
+            disabled={!editMode || !hasSelectedVertex}
             onClick={onToggleVertexGizmo}
             ariaLabel="Toggle move vertex"
+            iconSrc={objectOriginIconUrl}
           >
             Move vertex
           </ToolbarToggleButton>
@@ -2096,6 +2117,7 @@ function DesktopViewportToolbar({
             disabled={xrayDisabled}
             onClick={onToggleXray}
             ariaLabel="Toggle xray view for edit mode"
+            iconSrc={cubeIconUrl}
           >
             Xray
           </ToolbarToggleButton>
@@ -2106,6 +2128,7 @@ function DesktopViewportToolbar({
               active={showSemanticSurfaces}
               onClick={onToggleSemanticSurfaces}
               ariaLabel="Toggle semantic surface colors"
+              iconSrc={materialIconUrl}
             >
               Semantics
             </ToolbarToggleButton>
@@ -2113,10 +2136,17 @@ function DesktopViewportToolbar({
               active={isolateSelectedFeature}
               onClick={onToggleIsolateSelectedFeature}
               ariaLabel="Toggle isolate selected feature"
+              iconSrc={pointcloudPointIconUrl}
             >
               Isolate
             </ToolbarToggleButton>
-            <ToolbarPickingButton mode={pickingMode} onClick={onCyclePickingMode} />
+            <ToolbarPickingButton
+              mode={pickingMode}
+              editMode={editMode}
+              showSemanticSurfaces={showSemanticSurfaces}
+              onClick={onCyclePickingMode}
+              onSelectMode={onSelectPickingMode}
+            />
             <Button
               variant="ghost"
               size="icon"
@@ -2125,7 +2155,7 @@ function DesktopViewportToolbar({
               aria-label="Center current selection"
               title="Center current selection"
             >
-              <LocateFixed className="size-3.5" />
+              <MaskIcon src={trackerIconUrl} className="size-3.5" />
             </Button>
           </>
         )}
@@ -2985,62 +3015,128 @@ function ToolbarToggleButton({
   onClick,
   children,
   ariaLabel,
+  iconSrc,
 }: {
   active: boolean
   disabled?: boolean
   onClick: () => void
   children: ReactNode
   ariaLabel: string
+  iconSrc?: string
 }) {
+  const label = typeof children === 'string' ? children : ariaLabel
+
   return (
     <Button
       type="button"
       variant="ghost"
-      size="sm"
+      size="icon"
       disabled={disabled}
       onClick={onClick}
       aria-label={ariaLabel}
       aria-pressed={active}
+      title={label}
       className={cn(
-        'h-7 gap-1.5 rounded-sm border px-2 text-[11px] font-medium',
+        'size-7 justify-center rounded-sm border p-0',
         active
           ? 'border-primary/35 bg-primary/14 text-primary hover:bg-primary/18 hover:text-primary'
           : 'border-border/70 bg-background/35 text-muted-foreground hover:bg-accent/8 hover:text-foreground',
         disabled && 'border-border/45 bg-transparent text-muted-foreground/45 hover:bg-transparent hover:text-muted-foreground/45',
       )}
     >
-      <span className={cn('size-1.5 rounded-full', active ? 'bg-primary' : 'bg-muted-foreground/45')} />
-      <span>{children}</span>
+      {iconSrc ? (
+        <MaskIcon src={iconSrc} className="size-3.5" />
+      ) : (
+        <span className={cn('size-1.5 rounded-full', active ? 'bg-primary' : 'bg-muted-foreground/45')} />
+      )}
     </Button>
   )
 }
 
 function ToolbarPickingButton({
   mode,
+  editMode,
+  showSemanticSurfaces,
   onClick,
+  onSelectMode,
 }: {
   mode: ViewerPickingMode
+  editMode: boolean
+  showSemanticSurfaces: boolean
   onClick: () => void
+  onSelectMode: (mode: ViewerPickingMode) => void
 }) {
+  const [isOpen, setIsOpen] = useState(false)
   const active = mode !== 'none'
+  const iconSrc = getPickingModeIconUrl(mode)
+  const availableModes = getAvailablePickingModes(editMode, showSemanticSurfaces)
+  const activeClassName = active
+    ? 'border-primary/35 bg-primary/14 text-primary hover:bg-primary/18 hover:text-primary'
+    : 'border-border/70 bg-background/35 text-muted-foreground hover:bg-accent/8 hover:text-foreground'
 
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="sm"
-      onClick={onClick}
-      aria-label={`Cycle picking mode, currently ${getPickingModeLabel(mode).toLowerCase()}`}
-      className={cn(
-        'h-7 gap-1.5 rounded-sm border px-2 text-[11px] font-medium',
-        active
-          ? 'border-primary/35 bg-primary/14 text-primary hover:bg-primary/18 hover:text-primary'
-          : 'border-border/70 bg-background/35 text-muted-foreground hover:bg-accent/8 hover:text-foreground',
-      )}
+    <div
+      className="relative inline-flex"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          setIsOpen(false)
+        }
+      }}
     >
-      <Crosshair className="size-3.5" />
-      <span>{`Pick: ${getPickingModeLabel(mode)}`}</span>
-    </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        onClick={onClick}
+        aria-label={`Cycle picking mode, currently ${getPickingModeLabel(mode).toLowerCase()}`}
+        title={`Pick: ${getPickingModeLabel(mode)}`}
+        className={cn('size-7 justify-center rounded-r-none border p-0', activeClassName)}
+      >
+        <MaskIcon src={iconSrc} className="size-3.5" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        onClick={() => setIsOpen((current) => !current)}
+        aria-label="Choose picking mode"
+        aria-expanded={isOpen}
+        title="Choose picking mode"
+        className={cn('h-7 w-5 justify-center rounded-l-none border border-l-0 p-0', activeClassName)}
+      >
+        <ChevronDown className={cn('size-3 transition-transform', isOpen && 'rotate-180')} />
+      </Button>
+      {isOpen && (
+        <div className="absolute bottom-full right-0 z-30 mb-1 min-w-40 rounded-sm border border-border bg-popover p-1 shadow-lg">
+          {PICKING_MODE_MENU.map((entry) => {
+            const isSelected = entry === mode
+            const isAvailable = availableModes.includes(entry)
+
+            return (
+              <button
+                key={entry}
+                type="button"
+                disabled={!isAvailable}
+                onClick={() => {
+                  onSelectMode(entry)
+                  setIsOpen(false)
+                }}
+                className={cn(
+                  'flex h-8 w-full items-center gap-2 rounded-sm px-2 text-left text-xs',
+                  isSelected
+                    ? 'bg-primary/14 text-primary'
+                    : 'text-foreground hover:bg-accent/10',
+                  !isAvailable && 'cursor-not-allowed text-muted-foreground/35 hover:bg-transparent',
+                )}
+              >
+                <MaskIcon src={getPickingModeIconUrl(entry)} className="size-3.5" />
+                <span>{getPickingModeLabel(entry)}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -3186,6 +3282,19 @@ function nextPickingMode(mode: ViewerPickingMode, editMode: boolean, showSemanti
   const normalizedMode = normalizePickingMode(mode, editMode, showSemanticSurfaces)
   const currentIndex = modes.indexOf(normalizedMode)
   return modes[(currentIndex + 1) % modes.length] ?? modes[0]
+}
+
+function getPickingModeIconUrl(mode: ViewerPickingMode) {
+  switch (mode) {
+    case 'none':
+      return restrictSelectOnIconUrl
+    case 'object':
+      return restrictSelectOffIconUrl
+    case 'face':
+      return faceSelectIconUrl
+    case 'vertex':
+      return vertexSelectIconUrl
+  }
 }
 
 function getPickingModeLabel(mode: ViewerPickingMode) {
