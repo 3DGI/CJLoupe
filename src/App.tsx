@@ -834,13 +834,29 @@ function App() {
     })
   }, [isMobileLayout])
 
-  const handleSelectFeature = useCallback((featureId: string, objectId?: string | null) => {
+  const handleSelectFeature = useCallback((
+    featureId: string,
+    objectId?: string | null,
+    options?: { preserveEditMode?: boolean },
+  ) => {
     const feature = featureMap.get(featureId)
     if (!feature) {
       return
     }
 
     startTransition(() => {
+      const shouldExitEditMode =
+        !options?.preserveEditMode &&
+        editMode &&
+        isolateSelectedFeature &&
+        featureId !== selectedFeatureId
+
+      if (shouldExitEditMode) {
+        setEditMode(false)
+        setIsolateSelectedFeature(false)
+        setShowVertexGizmo(false)
+      }
+
       if (isMobileLayout) {
         setMobilePanelView('details')
       }
@@ -852,7 +868,7 @@ function App() {
       setSelectedVertexIndex(null)
       setSelectedFaceVertexEntryIndex(null)
     })
-  }, [featureMap, isMobileLayout])
+  }, [editMode, featureMap, isolateSelectedFeature, isMobileLayout, selectedFeatureId])
 
   const handleSearchQueryChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(event.target.value)
@@ -863,7 +879,7 @@ function App() {
   }, [])
 
   const handleCenterFeature = useCallback((featureId: string) => {
-    handleSelectFeature(featureId)
+    handleSelectFeature(featureId, null, { preserveEditMode: true })
     centerFeatureById(featureId)
   }, [centerFeatureById, handleSelectFeature])
 
