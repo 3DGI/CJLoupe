@@ -115,7 +115,6 @@ type FeatureListItem = {
 function App() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const annotationInputRef = useRef<HTMLInputElement>(null)
-  const fileActionMenuRef = useRef<HTMLDivElement>(null)
   const originalVerticesRef = useRef<Map<string, Vec3[]>>(new Map())
 
   const [dataset, setDataset] = useState<ViewerDataset | null>(null)
@@ -147,7 +146,7 @@ function App() {
   const [detailPaneMode, setDetailPaneMode] = useState<DetailPaneMode>('split')
   const [isDragging, setIsDragging] = useState(false)
   const [isHelpCollapsed, setIsHelpCollapsed] = useState(false)
-  const [isFileMenuOpen, setIsFileMenuOpen] = useState(false)
+  const [isFileDialogOpen, setIsFileDialogOpen] = useState(false)
   const [isMobileLayout, setIsMobileLayout] = useState(false)
   const [mobileInspectMode, setMobileInspectMode] = useState<MobileInspectMode>('object')
   const [mobilePanelView, setMobilePanelView] = useState<MobilePanelView>('features')
@@ -441,36 +440,24 @@ function App() {
   }, [activeObjectId, dataset, editMode, selectedFeatureId, showSemanticSurfaces])
 
   useEffect(() => {
-    if (!isFileMenuOpen) {
+    if (!isFileDialogOpen) {
       return
-    }
-
-    const handlePointerDown = (event: MouseEvent) => {
-      if (fileActionMenuRef.current?.contains(event.target as Node)) {
-        return
-      }
-
-      setIsFileMenuOpen(false)
     }
 
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setIsFileMenuOpen(false)
+        setIsFileDialogOpen(false)
       }
     }
 
-    document.addEventListener('mousedown', handlePointerDown)
     window.addEventListener('keydown', handleEscape)
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown)
-      window.removeEventListener('keydown', handleEscape)
-    }
-  }, [isFileMenuOpen])
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [isFileDialogOpen])
 
   async function openCityJsonFile(file: File) {
     setIsLoading(true)
     setError(null)
-    setIsFileMenuOpen(false)
+    setIsFileDialogOpen(false)
 
     try {
       const nextDataset = await loadCityJsonSequenceFromFile(file)
@@ -492,7 +479,7 @@ function App() {
 
     setIsLoading(true)
     setError(null)
-    setIsFileMenuOpen(false)
+    setIsFileDialogOpen(false)
 
     try {
       const annotations = await loadValidationReportFromFile(file)
@@ -561,6 +548,7 @@ function App() {
   async function openCityJsonAndReport(cityFile: File, reportFile: File) {
     setIsLoading(true)
     setError(null)
+    setIsFileDialogOpen(false)
 
     try {
       const [nextDataset, annotations] = await Promise.all([
@@ -647,22 +635,15 @@ function App() {
   }
 
   function triggerCityJsonInput() {
-    setIsFileMenuOpen(false)
     fileInputRef.current?.click()
   }
 
   function triggerAnnotationInput() {
-    setIsFileMenuOpen(false)
     annotationInputRef.current?.click()
   }
 
   function handleFileAction() {
-    if (!dataset) {
-      triggerCityJsonInput()
-      return
-    }
-
-    setIsFileMenuOpen((current) => !current)
+    setIsFileDialogOpen(true)
   }
 
   function toggleDetailPaneCollapse() {
@@ -1238,99 +1219,18 @@ function App() {
                   CJLoupe
                 </span>
               )}
-              <div ref={fileActionMenuRef} className="relative">
+              <div className="relative">
                 <Button
                   size="icon"
                   variant="ghost"
                   onClick={handleFileAction}
-                  aria-label={dataset ? 'Open file actions' : 'Open CityJSONL file'}
-                  title={dataset ? 'Open file actions' : 'Open CityJSONL file'}
-                  aria-expanded={dataset ? isFileMenuOpen : undefined}
-                  aria-haspopup={dataset ? 'menu' : undefined}
+                  aria-label="Open files"
+                  title="Open files"
+                  aria-expanded={isFileDialogOpen}
+                  aria-haspopup="dialog"
                 >
                   <FolderOpen className="size-4" />
                 </Button>
-
-                {dataset && isFileMenuOpen && (
-                  <div
-                    className={cn(
-                      'floating-panel absolute z-30 w-72 border py-2 px-3',
-                      isMobileLayout ? 'bottom-full left-0 mb-2' : 'left-full top-0 ml-3',
-                    )}
-                  >
-                    {/* CityJSONL row */}
-                    <div className="group flex items-center gap-2.5">
-                      <FileBox className="size-4 shrink-0 text-muted-foreground" />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                          CityJSONL
-                        </p>
-                        <p className="truncate text-xs text-foreground/85">
-                          {dataset.sourceName}
-                        </p>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-6 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={triggerCityJsonInput}
-                        aria-label="Replace CityJSONL file"
-                        title="Replace CityJSONL file"
-                      >
-                        <FolderOpen className="size-3.5" />
-                      </Button>
-                    </div>
-
-                    <div className="my-2 border-t border-foreground/8" />
-
-                    {/* Val3dity Report row */}
-                    <div className="group flex items-center gap-2.5">
-                      <FileWarning
-                        className={cn(
-                          'size-4 shrink-0',
-                          annotationSourceName ? 'text-destructive/70' : 'text-muted-foreground',
-                        )}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                          Val3dity Report
-                        </p>
-                        <p
-                          className={cn(
-                            'truncate text-xs',
-                            annotationSourceName ? 'text-destructive' : 'text-foreground/45',
-                          )}
-                        >
-                          {annotationSourceName ?? 'No report loaded'}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-6"
-                          onClick={triggerAnnotationInput}
-                          aria-label={annotationSourceName ? 'Replace val3dity report' : 'Load val3dity report'}
-                          title={annotationSourceName ? 'Replace val3dity report' : 'Load val3dity report'}
-                        >
-                          <FolderOpen className="size-3.5" />
-                        </Button>
-                        {annotationSourceName && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-6 text-destructive hover:text-destructive"
-                            onClick={clearAnnotations}
-                            aria-label="Clear val3dity report"
-                            title="Clear val3dity report"
-                          >
-                            <X className="size-3.5" />
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
               <Button
                 size="icon"
@@ -1813,6 +1713,118 @@ function App() {
         className="hidden"
         onChange={handleAnnotationSelection}
       />
+
+      {isFileDialogOpen && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/42 px-4 backdrop-blur-md">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="file-dialog-title"
+            className="w-full max-w-3xl rounded-sm border border-border/45 bg-background/94 p-5 shadow-[0_28px_100px_rgb(0_0_0_/_0.28)]"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p
+                  id="file-dialog-title"
+                  className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary"
+                >
+                  Open files
+                </p>
+                <p className="mt-2 text-sm leading-6 text-foreground/82">
+                  Choose a CityJSONL file and an optional val3dity report.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-8 shrink-0"
+                onClick={() => setIsFileDialogOpen(false)}
+                aria-label="Close file dialog"
+                title="Close file dialog"
+              >
+                <X className="size-4" />
+              </Button>
+            </div>
+
+            <div className="mt-6 grid gap-5 md:grid-cols-[minmax(0,1fr)_1px_minmax(0,1fr)] md:gap-6">
+              <section className="min-w-0">
+                <div className="flex min-h-16 items-start gap-3">
+                  <FileBox className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                      CityJSONL
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">Loaded file</p>
+                    <p className="mt-1 truncate text-sm text-foreground/90">
+                      {dataset?.sourceName ?? 'None'}
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  className="mt-4 w-full"
+                  onClick={triggerCityJsonInput}
+                  aria-label={dataset ? 'Replace CityJSONL file' : 'Open CityJSONL file'}
+                >
+                  <FolderOpen className="size-4" />
+                  {dataset ? 'Replace .city.jsonl' : 'Open .city.jsonl'}
+                </Button>
+              </section>
+
+              <div className="h-px bg-border/70 md:h-auto md:w-px" />
+
+              <section className="min-w-0">
+                <div className="flex min-h-16 items-start gap-3">
+                  <FileWarning
+                    className="mt-0.5 size-5 shrink-0 text-muted-foreground"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                      Val3dity Report
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">Loaded file</p>
+                    <p className="mt-1 truncate text-sm text-foreground/90">
+                      {annotationSourceName ?? 'None'}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 flex gap-2">
+                  <Button
+                    type="button"
+                    className="min-w-0 flex-1"
+                    onClick={triggerAnnotationInput}
+                    disabled={!dataset}
+                    aria-label={annotationSourceName ? 'Replace val3dity report' : 'Load val3dity report'}
+                    title={dataset ? undefined : 'Open a CityJSONL file first'}
+                  >
+                    <FolderOpen className="size-4" />
+                    {annotationSourceName ? 'Replace .json' : 'Open .json'}
+                  </Button>
+                  {annotationSourceName && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-10 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      onClick={clearAnnotations}
+                      aria-label="Clear val3dity report"
+                      title="Clear val3dity report"
+                    >
+                      <X className="size-4" />
+                    </Button>
+                  )}
+                </div>
+                {!dataset && (
+                  <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                    Open a CityJSONL file before loading a report.
+                  </p>
+                )}
+              </section>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isLoading && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-background/42 backdrop-blur-md">
