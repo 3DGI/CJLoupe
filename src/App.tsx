@@ -17,6 +17,7 @@ import {
   Minimize2,
   Moon,
   RotateCcw,
+  RotateCw,
   Search,
   ScrollText,
   SquareMousePointer,
@@ -210,7 +211,7 @@ function App() {
       ? 'No ring selected'
       : activeFaceRingIndex === 0
         ? 'Outer ring'
-        : `Hole ${activeFaceRingIndex}`
+        : `Hole ${activeFaceRingIndex}/${selectedFaceHoleCount}`
   const effectivePickingMode = normalizePickingMode(pickingMode, editMode, showSemanticSurfaces)
   const visibleDetailErrors = useMemo(() => {
     if (!selectedFeature) {
@@ -961,12 +962,12 @@ function App() {
     selectedVertexIndex,
   ])
 
-  const cycleSelectedFaceRing = useCallback(() => {
+  const cycleSelectedFaceRing = useCallback((direction: -1 | 1 = 1) => {
     if (selectedFaceRingCount <= 1) {
       return
     }
 
-    setSelectedFaceRingIndex((current) => (current + 1) % selectedFaceRingCount)
+    setSelectedFaceRingIndex((current) => (current + direction + selectedFaceRingCount) % selectedFaceRingCount)
     setSelectedVertexIndex(null)
     setSelectedFaceVertexEntryIndex(null)
   }, [selectedFaceRingCount])
@@ -1606,10 +1607,11 @@ function App() {
             selectedFaceIndex={selectedFaceIndex}
             selectedFaceRingCount={selectedFaceRingCount}
             selectedFaceRingLabel={selectedFaceRingLabel}
+            selectedFaceRingIsHole={activeFaceRingIndex > 0}
             selectedFaceVertexCount={selectedFaceVertexCount}
             selectedFaceVertexEntryLabel={selectedFaceVertexEntryLabel}
             selectedFaceHoleCount={selectedFaceHoleCount}
-            onCycleSelectedFaceRing={cycleSelectedFaceRing}
+            onCycleSelectedFaceRing={(direction) => cycleSelectedFaceRing(direction)}
             onCycleSelectedFaceVertex={cycleSelectedFaceVertex}
           />
         )}
@@ -1904,6 +1906,7 @@ function EditSelectionOverlay({
   selectedFaceIndex,
   selectedFaceRingCount,
   selectedFaceRingLabel,
+  selectedFaceRingIsHole,
   selectedFaceVertexCount,
   selectedFaceVertexEntryLabel,
   selectedFaceHoleCount,
@@ -1914,10 +1917,11 @@ function EditSelectionOverlay({
   selectedFaceIndex: number | null
   selectedFaceRingCount: number
   selectedFaceRingLabel: string
+  selectedFaceRingIsHole: boolean
   selectedFaceVertexCount: number
   selectedFaceVertexEntryLabel: string | null
   selectedFaceHoleCount: number
-  onCycleSelectedFaceRing: () => void
+  onCycleSelectedFaceRing: (direction: -1 | 1) => void
   onCycleSelectedFaceVertex: (direction: -1 | 1) => void
 }) {
   return (
@@ -1943,37 +1947,57 @@ function EditSelectionOverlay({
               </Badge>
             )}
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 px-2.5"
-              onClick={onCycleSelectedFaceRing}
-              disabled={selectedFaceHoleCount === 0}
-            >
-              Next ring (R)
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 px-2.5"
-              onClick={() => onCycleSelectedFaceVertex(-1)}
-              disabled={selectedFaceVertexCount === 0}
-            >
-              Prev vertex (J)
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 px-2.5"
-              onClick={() => onCycleSelectedFaceVertex(1)}
-              disabled={selectedFaceVertexCount === 0}
-            >
-              Next vertex (K)
-            </Button>
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 px-2.5"
+                onClick={() => onCycleSelectedFaceRing(-1)}
+                disabled={selectedFaceHoleCount === 0}
+                aria-label="Previous ring"
+                title="Previous ring"
+              >
+                Previous ring
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 px-2.5"
+                onClick={() => onCycleSelectedFaceRing(1)}
+                disabled={selectedFaceHoleCount === 0}
+                aria-label="Next ring"
+                title="Next ring"
+              >
+                Next ring (R)
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 px-2.5"
+                onClick={() => onCycleSelectedFaceVertex(-1)}
+                disabled={selectedFaceVertexCount === 0}
+              >
+                {selectedFaceRingIsHole ? <RotateCcw className="size-3.5" /> : <RotateCw className="size-3.5" />}
+                Previous vertex (J)
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 px-2.5"
+                onClick={() => onCycleSelectedFaceVertex(1)}
+                disabled={selectedFaceVertexCount === 0}
+              >
+                {selectedFaceRingIsHole ? <RotateCw className="size-3.5" /> : <RotateCcw className="size-3.5" />}
+                Next vertex (K)
+              </Button>
+            </div>
           </div>
       </div>
     </div>
