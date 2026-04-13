@@ -2766,7 +2766,7 @@ const FeatureListRow = memo(function FeatureListRow({
   activeGeometryIndex: number | null
   onCenterFeature: (featureId: string) => void
   onSelectFeature: (featureId: string, objectId?: string | null) => void
-  onHeightChange: (height: number) => void
+  onHeightChange: (featureId: string, height: number) => void
 }) {
   const { feature, objectTypes, errorCodeSummary, errorCount, isInvalid } = item
   const rowRef = useRef<HTMLDivElement | null>(null)
@@ -2785,17 +2785,13 @@ const FeatureListRow = memo(function FeatureListRow({
   }, [feature.errors])
 
   useEffect(() => {
-    if (!selected) {
-      return
-    }
-
     const element = rowRef.current
     if (!element) {
       return
     }
 
     const reportHeight = () => {
-      onHeightChange(Math.max(Math.ceil(element.getBoundingClientRect().height), FEATURE_LIST_ROW_HEIGHT))
+      onHeightChange(feature.id, Math.max(Math.ceil(element.getBoundingClientRect().height), FEATURE_LIST_ROW_HEIGHT))
     }
 
     reportHeight()
@@ -2803,14 +2799,14 @@ const FeatureListRow = memo(function FeatureListRow({
     resizeObserver.observe(element)
 
     return () => resizeObserver.disconnect()
-  }, [onHeightChange, selected])
+  }, [feature.id, onHeightChange])
 
   return (
     <Collapsible open={selected}>
       <div
         ref={rowRef}
         aria-pressed={selected}
-        style={{ minHeight: FEATURE_LIST_ROW_HEIGHT }}
+        style={{ minHeight: `max(${FEATURE_LIST_ROW_HEIGHT}px, 3.75rem)` }}
         onClick={() => {
           if (!selected) {
             onSelectFeature(feature.id)
@@ -2939,15 +2935,10 @@ const FeatureListPanel = memo(function FeatureListPanel({
   activeGeometryIndex: number | null
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
+  const autoScrolledFeatureIdRef = useRef<string | null>(null)
   const [scrollTop, setScrollTop] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(0)
-  const [measuredSelectedRow, setMeasuredSelectedRow] = useState<{
-    featureId: string | null
-    height: number
-  }>({
-    featureId: null,
-    height: FEATURE_LIST_ROW_HEIGHT,
-  })
+  const [rowHeights, setRowHeights] = useState<Map<string, number>>(() => new Map())
 
   const selectedIndex = useMemo(
     () => filteredFeatureItems.findIndex((item) => item.feature.id === selectedFeatureId),
@@ -2977,17 +2968,33 @@ const FeatureListPanel = memo(function FeatureListPanel({
     }
   }, [])
 
-  const selectedRowHeight =
-    measuredSelectedRow.featureId === selectedFeatureId
-      ? measuredSelectedRow.height
-      : FEATURE_LIST_ROW_HEIGHT
-  const handleSelectedRowHeightChange = useCallback((featureId: string, height: number) => {
-    setMeasuredSelectedRow((current) => {
-      if (current.featureId === featureId && current.height === height) {
+  const rowLayout = useMemo(() => {
+    const rows: Array<{ top: number; height: number }> = []
+    let nextTop = FEATURE_LIST_TOP_PADDING
+
+    for (const item of filteredFeatureItems) {
+      const height = rowHeights.get(item.feature.id) ?? FEATURE_LIST_ROW_HEIGHT
+      rows.push({ top: nextTop, height })
+      nextTop += height + FEATURE_LIST_ROW_GAP
+    }
+
+    const totalHeight =
+      rows.length > 0
+        ? rows[rows.length - 1].top + rows[rows.length - 1].height + FEATURE_LIST_BOTTOM_PADDING
+        : FEATURE_LIST_TOP_PADDING + FEATURE_LIST_BOTTOM_PADDING
+
+    return { rows, totalHeight }
+  }, [filteredFeatureItems, rowHeights])
+
+  const handleRowHeightChange = useCallback((featureId: string, height: number) => {
+    setRowHeights((current) => {
+      if (current.get(featureId) === height) {
         return current
       }
 
-      return { featureId, height }
+      const next = new Map(current)
+      next.set(featureId, height)
+      return next
     })
   }, [])
 
@@ -2997,9 +3004,13 @@ const FeatureListPanel = memo(function FeatureListPanel({
       return
     }
 
-    const rowStride = FEATURE_LIST_ROW_HEIGHT + FEATURE_LIST_ROW_GAP
-    const rowStart = FEATURE_LIST_TOP_PADDING + selectedIndex * rowStride
-    const rowEnd = rowStart + selectedRowHeight
+    const selectedRow = rowLayout.rows[selectedIndex]
+    if (!selectedRow) {
+      return
+    }
+
+    const rowStart = selectedRow.top
+    const rowEnd = selectedRow.top + selectedRow.height
     const viewportStart = viewport.scrollTop
     const viewportEnd = viewportStart + viewport.clientHeight
 
@@ -3016,38 +3027,37 @@ const FeatureListPanel = memo(function FeatureListPanel({
       top: Math.max(nextTop, 0),
       behavior: 'auto',
     })
-  }, [selectedIndex, selectedRowHeight])
+  }, [rowLayout.rows, selectedIndex])
 
   useEffect(() => {
-    if (selectedIndex < 0) {
+    if (!selectedFeatureId) {
+      autoScrolledFeatureIdRef.current = null
       return
     }
 
+    if (selectedIndex < 0 || autoScrolledFeatureIdRef.current === selectedFeatureId) {
+      return
+    }
+
+    autoScrolledFeatureIdRef.current = selectedFeatureId
     scrollSelectedFeatureIntoView()
-  }, [scrollSelectedFeatureIntoView, selectedIndex])
+  }, [scrollSelectedFeatureIntoView, selectedFeatureId, selectedIndex])
 
-  const rowStride = FEATURE_LIST_ROW_HEIGHT + FEATURE_LIST_ROW_GAP
-  const selectedRowDelta = selectedIndex >= 0 ? Math.max(selectedRowHeight - FEATURE_LIST_ROW_HEIGHT, 0) : 0
-  const selectedRowTop = selectedIndex >= 0 ? FEATURE_LIST_TOP_PADDING + selectedIndex * rowStride : null
-  const normalizeOffset = (offset: number) => {
-    const adjustedOffset =
-      selectedRowTop != null && offset > selectedRowTop + selectedRowHeight + FEATURE_LIST_ROW_GAP
-        ? offset - selectedRowDelta
-        : offset
-
-    return Math.max(adjustedOffset - FEATURE_LIST_TOP_PADDING, 0)
+  const overscanDistance = FEATURE_LIST_OVERSCAN * (FEATURE_LIST_ROW_HEIGHT + FEATURE_LIST_ROW_GAP)
+  const visibleStart = Math.max(scrollTop - overscanDistance, 0)
+  const visibleEnd = scrollTop + viewportHeight + overscanDistance
+  let startIndex = 0
+  while (
+    startIndex < rowLayout.rows.length &&
+    rowLayout.rows[startIndex].top + rowLayout.rows[startIndex].height < visibleStart
+  ) {
+    startIndex += 1
   }
-  const contentHeight =
-    FEATURE_LIST_TOP_PADDING +
-    Math.max(filteredFeatureItems.length * rowStride - FEATURE_LIST_ROW_GAP, 0) +
-    FEATURE_LIST_BOTTOM_PADDING +
-    selectedRowDelta
-  const startIndex = Math.max(Math.floor(normalizeOffset(scrollTop) / rowStride) - FEATURE_LIST_OVERSCAN, 0)
-  const endIndex = Math.min(
-    filteredFeatureItems.length,
-    Math.ceil((normalizeOffset(scrollTop + viewportHeight + selectedRowDelta) + selectedRowDelta) / rowStride) +
-      FEATURE_LIST_OVERSCAN,
-  )
+
+  let endIndex = startIndex
+  while (endIndex < rowLayout.rows.length && rowLayout.rows[endIndex].top <= visibleEnd) {
+    endIndex += 1
+  }
 
   return (
     <>
@@ -3093,24 +3103,17 @@ const FeatureListPanel = memo(function FeatureListPanel({
 
       <ScrollArea className="min-h-0 flex-1" viewportRef={viewportRef}>
         {filteredFeatureItems.length > 0 ? (
-          <div className="relative" style={{ height: `${contentHeight}px` }}>
+          <div className="relative" style={{ height: `${rowLayout.totalHeight}px` }}>
             {filteredFeatureItems.slice(startIndex, endIndex).map((item, visibleIndex) => {
               const itemIndex = startIndex + visibleIndex
-              const top =
-                FEATURE_LIST_TOP_PADDING +
-                itemIndex * rowStride +
-                (selectedIndex >= 0 && itemIndex > selectedIndex ? selectedRowDelta : 0)
+              const top = rowLayout.rows[itemIndex]?.top ?? FEATURE_LIST_TOP_PADDING
               const isSelected = item.feature.id === selectedFeatureId
 
               return (
                 <div
                   key={item.feature.id}
                   className="absolute left-3 right-3"
-                  style={
-                    isSelected
-                      ? { top: `${top}px` }
-                      : { top: `${top}px`, height: `${FEATURE_LIST_ROW_HEIGHT}px` }
-                  }
+                  style={{ top: `${top}px` }}
                 >
                   <FeatureListRow
                     item={item}
@@ -3119,7 +3122,7 @@ const FeatureListPanel = memo(function FeatureListPanel({
                     activeGeometryIndex={isSelected ? activeGeometryIndex : null}
                     onCenterFeature={onCenterFeature}
                     onSelectFeature={onSelectFeature}
-                    onHeightChange={(height) => handleSelectedRowHeightChange(item.feature.id, height)}
+                    onHeightChange={handleRowHeightChange}
                   />
                 </div>
               )
