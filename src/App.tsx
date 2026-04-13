@@ -3330,7 +3330,7 @@ const DetailGeometryPanel = memo(function DetailGeometryPanel({
                   {geometry.geometryType ?? `Geometry ${geometry.index}`}
                 </p>
                 <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
-                  <span>{geometry.lod ?? 'No LoD'}</span>
+                  <span>{geometry.lod ? `LOD ${geometry.lod}` : 'No LoD'}</span>
                   <span>{geometry.vertexIndices.length} vtx</span>
                   <span>{hasSemantics ? 'Semantics' : 'No semantics'}</span>
                 </div>
