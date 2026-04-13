@@ -66,6 +66,7 @@ type CityViewportProps = {
     surface: ViewerSemanticSurface | null
   } | null) => void
   onVertexCommit: (featureId: string, vertices: Vec3[]) => void
+  onViewportCenterChange: (center: Vec3 | null) => void
   theme: Theme
 }
 
@@ -148,6 +149,7 @@ function CityViewport({
   onSelectVertex,
   onSelectSemanticSurface,
   onVertexCommit,
+  onViewportCenterChange,
   theme,
 }: CityViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -183,6 +185,7 @@ function CityViewport({
   const onSelectVertexRef = useRef(onSelectVertex)
   const onSelectSemanticSurfaceRef = useRef(onSelectSemanticSurface)
   const onVertexCommitRef = useRef(onVertexCommit)
+  const onViewportCenterChangeRef = useRef(onViewportCenterChange)
   const themeRef = useRef(theme)
   const showSemanticSurfacesRef = useRef(showSemanticSurfaces)
   const pickingModeRef = useRef(pickingMode)
@@ -221,6 +224,7 @@ function CityViewport({
   useEffect(() => { onSelectVertexRef.current = onSelectVertex }, [onSelectVertex])
   useEffect(() => { onSelectSemanticSurfaceRef.current = onSelectSemanticSurface }, [onSelectSemanticSurface])
   useEffect(() => { onVertexCommitRef.current = onVertexCommit }, [onVertexCommit])
+  useEffect(() => { onViewportCenterChangeRef.current = onViewportCenterChange }, [onViewportCenterChange])
   useEffect(() => { themeRef.current = theme }, [theme])
   useEffect(() => { showSemanticSurfacesRef.current = showSemanticSurfaces }, [showSemanticSurfaces])
   useEffect(() => { pickingModeRef.current = pickingMode }, [pickingMode])
@@ -356,6 +360,7 @@ function CityViewport({
       }
 
       renderViewport(activeRuntime)
+      reportViewportCenter(activeRuntime, dataRef.current, onViewportCenterChangeRef.current)
     }
 
     const requestRender = () => {
@@ -744,6 +749,7 @@ function CityViewport({
     previousSelectionRef.current = selectionRef.current
     previousIsolateSelectedFeatureRef.current = isolateSelectedFeatureRef.current
     renderViewport(runtime)
+    reportViewportCenter(runtime, data, onViewportCenterChangeRef.current)
   }, [data])
 
   useEffect(() => {
@@ -766,6 +772,7 @@ function CityViewport({
     previousSelectionRef.current = selectionRef.current
     previousIsolateSelectedFeatureRef.current = isolateSelectedFeatureRef.current
     renderViewport(runtime)
+    reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
   }, [geometryRevision, geometryDisplayMode, activeGeometryIndex])
 
   useEffect(() => {
@@ -794,6 +801,7 @@ function CityViewport({
       showVertexGizmoRef.current,
     )
     renderViewport(runtime)
+    reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
     previousSelectionRef.current = selection
     previousIsolateSelectedFeatureRef.current = isolateSelectedFeatureRef.current
   }, [selectedFeatureId, activeObjectId, editMode, selectedFaceIndex, selectedFaceRingIndex, selectedVertexIndex, hideOccludedEditEdges, isolateSelectedFeature, showVertexGizmo])
@@ -819,6 +827,7 @@ function CityViewport({
     }
 
     renderViewport(runtime)
+    reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
   }, [focusRevision, focusTarget])
 
   useEffect(() => {
@@ -842,6 +851,7 @@ function CityViewport({
       )
     }
     renderViewport(runtime)
+    reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
   }, [theme])
 
   useEffect(() => {
@@ -866,6 +876,7 @@ function CityViewport({
     }
 
     renderViewport(runtime)
+    reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
   }, [showSemanticSurfaces])
 
   useEffect(() => {
@@ -878,6 +889,7 @@ function CityViewport({
     fitCameraToDataset(runtime, currentData)
     fittedDatasetKeyRef.current = getDatasetViewKey(currentData)
     renderViewport(runtime)
+    reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
   }, [viewportResetRevision])
 
   useEffect(() => {
@@ -904,6 +916,7 @@ function CityViewport({
       syncArcballState(runtime, center)
     }
     renderViewport(runtime)
+    reportViewportCenter(runtime, dataRef.current, onViewportCenterChangeRef.current)
   }, [cameraFocalLength])
 
   return <div ref={containerRef} className="absolute inset-0" />
@@ -1934,6 +1947,24 @@ function renderViewport(runtime: Runtime) {
   syncCameraLightRig(runtime)
   runtime.renderer.clear(true, true, true)
   runtime.renderer.render(runtime.scene, runtime.camera)
+}
+
+function reportViewportCenter(
+  runtime: Runtime,
+  data: ViewerDataset | null,
+  onViewportCenterChange: (center: Vec3 | null) => void,
+) {
+  if (!data) {
+    onViewportCenterChange(null)
+    return
+  }
+
+  const center = getArcballCenter(runtime.arcball)
+  onViewportCenterChange([
+    center.x + data.center[0],
+    center.y + data.center[1],
+    center.z + data.center[2],
+  ])
 }
 
 function buildEdgeSegments(

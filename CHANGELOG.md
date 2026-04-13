@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Refined the desktop viewport chrome with Blender-style tool icons, a vertical tool bar, a compact bottom status bar, viewport-center coordinates, and a pick-mode dropdown.
+
 ## 0.2.0
 
 - LoD support

@@ -16,6 +16,7 @@ import {
   Maximize2,
   Minimize2,
   Moon,
+  RotateCcw,
   Search,
   ScrollText,
   SquareMousePointer,
@@ -137,6 +138,7 @@ function App() {
   const [focusTarget, setFocusTarget] = useState<ViewerFocusTarget>(null)
   const [annotationSourceName, setAnnotationSourceName] = useState<string | null>(null)
   const [cameraFocalLength, setCameraFocalLength] = useState(DEFAULT_CAMERA_FOCAL_LENGTH)
+  const [viewportCenter, setViewportCenter] = useState<Vec3 | null>(null)
   const [hideOccludedEditEdges, setHideOccludedEditEdges] = useState(true)
   const [showOnlyInvalidFeatures, setShowOnlyInvalidFeatures] = useState(false)
   const [showSemanticSurfaces, setShowSemanticSurfaces] = useState(false)
@@ -179,10 +181,6 @@ function App() {
   const activeObjectGeometry = getObjectGeometryByIndex(activeObject, resolvedActiveGeometryIndex)
   const activeObjectGeometryCount = activeObject?.geometries.length ?? 0
   const activeObjectAttributeCount = activeObject ? Object.keys(activeObject.attributes).length : 0
-  const selectedVertex =
-    selectedFeature && selectedVertexIndex != null
-      ? selectedFeature.vertices[selectedVertexIndex] ?? null
-      : null
   const selectedFace =
     activeObjectGeometry && selectedFaceIndex != null
       ? activeObjectGeometry.polygons[selectedFaceIndex] ?? null
@@ -992,6 +990,21 @@ function App() {
     setGeometryRevision((current) => current + 1)
   }, [])
 
+  const restoreSelectedFeatureGeometry = useCallback(() => {
+    if (!selectedFeatureId) {
+      return
+    }
+
+    const originalVertices = originalVerticesRef.current.get(selectedFeatureId)
+    if (!originalVertices) {
+      return
+    }
+
+    applyFeatureVertices(selectedFeatureId, originalVertices)
+    setSelectedVertexIndex(null)
+    setSelectedFaceVertexEntryIndex(null)
+  }, [applyFeatureVertices, selectedFeatureId])
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (isEditableTarget(event.target)) {
@@ -1070,20 +1083,25 @@ function App() {
         return
       }
 
-      if (event.key.toLowerCase() === 'u') {
-        if (!selectedFeatureId) {
-          return
-        }
+      if (
+        editMode &&
+        event.key.toLowerCase() === 'g' &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey
+      ) {
+        event.preventDefault()
+        setShowVertexGizmo((current) => !current)
+        return
+      }
 
-        const originalVertices = originalVerticesRef.current.get(selectedFeatureId)
-        if (!originalVertices) {
+      if (event.key.toLowerCase() === 'u') {
+        if (!selectedFeatureId || !originalVerticesRef.current.has(selectedFeatureId)) {
           return
         }
 
         event.preventDefault()
-        applyFeatureVertices(selectedFeatureId, originalVertices)
-        setSelectedVertexIndex(null)
-        setSelectedFaceVertexEntryIndex(null)
+        restoreSelectedFeatureGeometry()
         return
       }
 
@@ -1107,18 +1125,19 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [applyFeatureVertices, centerCurrentSelection, cycleGeometryDisplayMode, cycleSelectedFaceRing, cycleSelectedFaceVertex, dataset, editMode, selectedFeatureId, showSemanticSurfaces, toggleEditMode])
+  }, [centerCurrentSelection, cycleGeometryDisplayMode, cycleSelectedFaceRing, cycleSelectedFaceVertex, dataset, editMode, restoreSelectedFeatureGeometry, selectedFeatureId, showSemanticSurfaces, toggleEditMode])
 
   const hasValidationReportLoaded = Boolean(annotationSourceName)
   const isErrorDialogVisible = Boolean(error && dismissedErrorMessage !== error)
   const isPaneContentVisible = !isPaneCollapsed
   const isFeaturePanelVisible = !isMobileLayout || mobilePanelView === 'features'
   const isDetailPanelVisible = !isMobileLayout || mobilePanelView === 'details'
-  const detailOverlayPositionClass = isMobileLayout ? 'bottom-20 left-3 right-3' : 'bottom-20 left-4 max-w-md'
-  const viewportToolbarPositionClass = isMobileLayout ? 'left-3 right-3 top-4' : 'bottom-4 left-4 right-4'
+  const detailOverlayPositionClass = isMobileLayout ? 'bottom-20 left-3 right-3' : 'bottom-12 left-4 max-w-md'
+  const viewportToolbarPositionClass = 'left-3 right-3 top-4'
+  const viewportStatusBarPositionClass = 'bottom-0 left-0 right-0'
   const viewportGeometryBarPositionClass = isMobileLayout
     ? 'right-3 top-20'
-    : 'bottom-20 right-4'
+    : 'right-4'
   const mobilePanelTabs: Array<{ view: MobilePanelView; label: string; disabled?: boolean }> = [
     { view: 'features', label: 'Features' },
     { view: 'details', label: 'Details', disabled: !selectedFeature },
@@ -1146,6 +1165,7 @@ function App() {
           { keys: 'S', description: 'Toggle semantic colors' },
           { keys: 'J / K', description: 'Step active ring' },
           { keys: 'R', description: 'Cycle rings' },
+          { keys: 'G', description: 'Toggle move vertex' },
           { keys: 'I', description: 'Toggle isolate' },
           { keys: 'X', description: 'Toggle xray' },
           { keys: 'U', description: 'Reset feature geometry' },
@@ -1650,6 +1670,7 @@ function App() {
             onSelectVertex={handleSelectVertex}
             onSelectSemanticSurface={handleSelectSemanticSurface}
             onVertexCommit={applyFeatureVertices}
+            onViewportCenterChange={setViewportCenter}
             theme={theme}
           />
         </Suspense>
@@ -1666,8 +1687,6 @@ function App() {
         {editMode && activeObject && activeObjectGeometry && (
           <EditSelectionOverlay
             positionClassName={detailOverlayPositionClass}
-            selectedVertex={selectedVertex}
-            selectedVertexIndex={selectedVertexIndex}
             selectedFaceIndex={selectedFaceIndex}
             selectedFaceRingCount={selectedFaceRingCount}
             selectedFaceRingLabel={selectedFaceRingLabel}
@@ -1686,13 +1705,13 @@ function App() {
           />
         )}
 
-        <div
-          className={cn(
-            'pointer-events-none absolute z-10',
-            viewportToolbarPositionClass,
-          )}
-        >
-          {isMobileLayout ? (
+        {isMobileLayout ? (
+          <div
+            className={cn(
+              'pointer-events-none absolute z-10',
+              viewportToolbarPositionClass,
+            )}
+          >
             <MobileViewportToolbar
               hasSelectedFeature={Boolean(selectedFeature)}
               showSemanticSurfaces={showSemanticSurfaces}
@@ -1703,10 +1722,17 @@ function App() {
               }
               onCenterCurrentSelection={centerCurrentSelection}
             />
-          ) : (
+          </div>
+        ) : (
+          <div className="pointer-events-none absolute bottom-12 right-4 z-10 flex flex-col items-end gap-4">
+            {Boolean(selectedFeature) && !editMode && (
+              <ViewportGeometryModeBar
+                geometryDisplayMode={geometryDisplayMode}
+                availableLods={availableLods}
+                onSelectGeometryDisplayMode={handleSelectGeometryDisplayMode}
+              />
+            )}
             <DesktopViewportToolbar
-              isPaneCollapsed={isPaneCollapsed}
-              activeObjectId={activeObject?.id ?? null}
               editMode={editMode}
               xrayActive={!hideOccludedEditEdges}
               xrayDisabled={!editMode || !activeObjectGeometry}
@@ -1716,7 +1742,6 @@ function App() {
               showVertexGizmo={showVertexGizmo}
               hasSelectedVertex={selectedVertexIndex != null}
               isolateSelectedFeature={isolateSelectedFeature}
-              cameraFocalLength={cameraFocalLength}
               onToggleEditMode={toggleEditMode}
               onCyclePickingMode={cyclePickingMode}
               onToggleVertexGizmo={() => setShowVertexGizmo((current) => !current)}
@@ -1725,12 +1750,31 @@ function App() {
               onToggleIsolateSelectedFeature={() => setIsolateSelectedFeature((current) => !current)}
               onSelectPickingMode={(mode) => setPickingMode(normalizePickingMode(mode, editMode, showSemanticSurfaces))}
               onCenterCurrentSelection={centerCurrentSelection}
+              onRestoreGeometry={restoreSelectedFeatureGeometry}
+              restoreGeometryDisabled={!selectedFeatureId || !originalVerticesRef.current.has(selectedFeatureId)}
+            />
+          </div>
+        )}
+
+        {!isMobileLayout && (
+          <div
+            className={cn(
+              'pointer-events-none absolute z-10',
+              viewportStatusBarPositionClass,
+            )}
+          >
+            <DesktopViewportStatusBar
+              isPaneCollapsed={isPaneCollapsed}
+              activeObjectId={activeObject?.id ?? null}
+              viewportCenter={viewportCenter}
+              selectedVertexIndex={selectedVertexIndex}
+              cameraFocalLength={cameraFocalLength}
               onCameraFocalLengthChange={setCameraFocalLength}
             />
-          )}
-        </div>
+          </div>
+        )}
 
-        {Boolean(selectedFeature) && !editMode && (
+        {isMobileLayout && Boolean(selectedFeature) && !editMode && (
           <div
             className={cn(
               'pointer-events-none absolute z-10',
@@ -1829,8 +1873,6 @@ function App() {
 
 function EditSelectionOverlay({
   positionClassName,
-  selectedVertex,
-  selectedVertexIndex,
   selectedFaceIndex,
   selectedFaceRingCount,
   selectedFaceRingLabel,
@@ -1841,8 +1883,6 @@ function EditSelectionOverlay({
   onCycleSelectedFaceVertex,
 }: {
   positionClassName: string
-  selectedVertex: Vec3 | null
-  selectedVertexIndex: number | null
   selectedFaceIndex: number | null
   selectedFaceRingCount: number
   selectedFaceRingLabel: string
@@ -1854,15 +1894,7 @@ function EditSelectionOverlay({
 }) {
   return (
     <div className={cn('pointer-events-none absolute z-10', positionClassName)}>
-      <div className="space-y-2">
-        {selectedVertex && (
-          <div className="floating-panel pointer-events-auto rounded-sm border px-3 py-2 font-mono text-[11px] text-muted-foreground">
-            vtx {selectedVertexIndex}
-            <span className="mx-1 text-border">|</span>
-            {selectedVertex[0].toFixed(3)}, {selectedVertex[1].toFixed(3)}, {selectedVertex[2].toFixed(3)}
-          </div>
-        )}
-        <div className="floating-panel pointer-events-auto space-y-2 rounded-sm border p-3">
+      <div className="floating-panel pointer-events-auto space-y-2 rounded-sm border p-3">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
               {selectedFaceIndex != null ? `Face ${selectedFaceIndex}` : 'No face selected'}
@@ -1915,7 +1947,6 @@ function EditSelectionOverlay({
               Next vertex (K)
             </Button>
           </div>
-        </div>
       </div>
     </div>
   )
@@ -2036,8 +2067,6 @@ function MobileViewportToolbar({
 }
 
 function DesktopViewportToolbar({
-  isPaneCollapsed,
-  activeObjectId,
   editMode,
   xrayActive,
   xrayDisabled,
@@ -2047,7 +2076,6 @@ function DesktopViewportToolbar({
   showVertexGizmo,
   hasSelectedVertex,
   isolateSelectedFeature,
-  cameraFocalLength,
   onToggleEditMode,
   onCyclePickingMode,
   onToggleVertexGizmo,
@@ -2056,10 +2084,9 @@ function DesktopViewportToolbar({
   onToggleIsolateSelectedFeature,
   onSelectPickingMode,
   onCenterCurrentSelection,
-  onCameraFocalLengthChange,
+  onRestoreGeometry,
+  restoreGeometryDisabled,
 }: {
-  isPaneCollapsed: boolean
-  activeObjectId: string | null
   editMode: boolean
   xrayActive: boolean
   xrayDisabled: boolean
@@ -2069,7 +2096,6 @@ function DesktopViewportToolbar({
   showVertexGizmo: boolean
   hasSelectedVertex: boolean
   isolateSelectedFeature: boolean
-  cameraFocalLength: number
   onToggleEditMode: () => void
   onCyclePickingMode: () => void
   onToggleVertexGizmo: () => void
@@ -2078,101 +2104,140 @@ function DesktopViewportToolbar({
   onToggleIsolateSelectedFeature: () => void
   onSelectPickingMode: (mode: ViewerPickingMode) => void
   onCenterCurrentSelection: () => void
-  onCameraFocalLengthChange: (value: number) => void
+  onRestoreGeometry: () => void
+  restoreGeometryDisabled: boolean
 }) {
   return (
-    <div className="floating-panel pointer-events-auto flex flex-wrap items-center gap-1.5 rounded-sm border px-2.5 py-2">
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-        {isPaneCollapsed && (
-          <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">
-            <SquareMousePointer className="mr-1 size-3.5" />
-            {activeObjectId ?? 'No object'}
-          </Badge>
-        )}
+    <div className="floating-panel pointer-events-auto flex flex-col items-center gap-1 rounded-sm border p-1">
+      <div className="floating-chip flex flex-col items-center gap-1 rounded-sm border p-1">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          onClick={onToggleEditMode}
+          aria-label={editMode ? 'Exit inspect mode' : 'Enter inspect mode'}
+          title={editMode ? 'Exit inspect' : 'Inspect'}
+        >
+          <MaskIcon src={editModeIconUrl} className="size-3.5" />
+        </Button>
+        <ToolbarToggleButton
+          active={showVertexGizmo}
+          disabled={!editMode || !hasSelectedVertex}
+          onClick={onToggleVertexGizmo}
+          ariaLabel="Toggle move vertex"
+          iconSrc={objectOriginIconUrl}
+        >
+          Move vertex
+        </ToolbarToggleButton>
+        <ToolbarToggleButton
+          active={xrayActive}
+          disabled={xrayDisabled}
+          onClick={onToggleXray}
+          ariaLabel="Toggle xray view for edit mode"
+          iconSrc={cubeIconUrl}
+        >
+          Xray
+        </ToolbarToggleButton>
       </div>
-
-      <div className="ml-auto flex flex-wrap items-center gap-1.5">
-        <div className="floating-chip flex items-center gap-1 rounded-sm border p-1">
+      {hasSelectedFeature && (
+        <>
+          <ToolbarToggleButton
+            active={showSemanticSurfaces}
+            onClick={onToggleSemanticSurfaces}
+            ariaLabel="Toggle semantic surface colors"
+            iconSrc={materialIconUrl}
+          >
+            Semantics
+          </ToolbarToggleButton>
+          <ToolbarToggleButton
+            active={isolateSelectedFeature}
+            onClick={onToggleIsolateSelectedFeature}
+            ariaLabel="Toggle isolate selected feature"
+            iconSrc={pointcloudPointIconUrl}
+          >
+            Isolate
+          </ToolbarToggleButton>
+          <ToolbarPickingButton
+            mode={pickingMode}
+            editMode={editMode}
+            showSemanticSurfaces={showSemanticSurfaces}
+            onClick={onCyclePickingMode}
+            onSelectMode={onSelectPickingMode}
+          />
           <Button
             variant="ghost"
             size="icon"
             className="size-7"
-            onClick={onToggleEditMode}
-            aria-label={editMode ? 'Exit inspect mode' : 'Enter inspect mode'}
-            title={editMode ? 'Exit inspect' : 'Inspect'}
+            onClick={onCenterCurrentSelection}
+            aria-label="Center current selection"
+            title="Center current selection"
           >
-            <MaskIcon src={editModeIconUrl} className="size-3.5" />
+            <MaskIcon src={trackerIconUrl} className="size-3.5" />
           </Button>
-          <ToolbarToggleButton
-            active={showVertexGizmo}
-            disabled={!editMode || !hasSelectedVertex}
-            onClick={onToggleVertexGizmo}
-            ariaLabel="Toggle move vertex"
-            iconSrc={objectOriginIconUrl}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            disabled={restoreGeometryDisabled}
+            onClick={onRestoreGeometry}
+            aria-label="Reset feature geometry"
+            title="Reset feature geometry"
           >
-            Move vertex
-          </ToolbarToggleButton>
-          <ToolbarToggleButton
-            active={xrayActive}
-            disabled={xrayDisabled}
-            onClick={onToggleXray}
-            ariaLabel="Toggle xray view for edit mode"
-            iconSrc={cubeIconUrl}
-          >
-            Xray
-          </ToolbarToggleButton>
-        </div>
-        {hasSelectedFeature && (
-          <>
-            <ToolbarToggleButton
-              active={showSemanticSurfaces}
-              onClick={onToggleSemanticSurfaces}
-              ariaLabel="Toggle semantic surface colors"
-              iconSrc={materialIconUrl}
-            >
-              Semantics
-            </ToolbarToggleButton>
-            <ToolbarToggleButton
-              active={isolateSelectedFeature}
-              onClick={onToggleIsolateSelectedFeature}
-              ariaLabel="Toggle isolate selected feature"
-              iconSrc={pointcloudPointIconUrl}
-            >
-              Isolate
-            </ToolbarToggleButton>
-            <ToolbarPickingButton
-              mode={pickingMode}
-              editMode={editMode}
-              showSemanticSurfaces={showSemanticSurfaces}
-              onClick={onCyclePickingMode}
-              onSelectMode={onSelectPickingMode}
-            />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              onClick={onCenterCurrentSelection}
-              aria-label="Center current selection"
-              title="Center current selection"
-            >
-              <MaskIcon src={trackerIconUrl} className="size-3.5" />
-            </Button>
-          </>
+            <RotateCcw className="size-3.5" />
+          </Button>
+        </>
+      )}
+    </div>
+  )
+}
+
+function DesktopViewportStatusBar({
+  isPaneCollapsed,
+  activeObjectId,
+  viewportCenter,
+  selectedVertexIndex,
+  cameraFocalLength,
+  onCameraFocalLengthChange,
+}: {
+  isPaneCollapsed: boolean
+  activeObjectId: string | null
+  viewportCenter: Vec3 | null
+  selectedVertexIndex: number | null
+  cameraFocalLength: number
+  onCameraFocalLengthChange: (value: number) => void
+}) {
+  return (
+    <div className="floating-panel pointer-events-auto flex min-h-8 items-center justify-between gap-3 border border-x-0 border-b-0 px-2 py-1">
+      <div className="flex min-w-0 items-center gap-2">
+        {isPaneCollapsed && (
+          <Badge variant="outline" className="min-w-0 border-primary/25 bg-primary/10 text-primary">
+            <SquareMousePointer className="mr-1 size-3.5 shrink-0" />
+            <span className="truncate">{activeObjectId ?? 'No object'}</span>
+          </Badge>
         )}
-        <div className="floating-chip flex items-center gap-1.5 rounded-sm border px-2 py-1">
-          <Camera className="size-3.5 text-muted-foreground" />
-          <span className="font-mono text-[11px] text-muted-foreground">{cameraFocalLength}mm</span>
-          <input
-            type="range"
-            min={12}
-            max={120}
-            step={1}
-            value={cameraFocalLength}
-            onChange={(event) => onCameraFocalLengthChange(Number(event.target.value))}
-            className="slider-accent h-2 w-24 cursor-pointer appearance-none rounded-none bg-input"
-            aria-label="Camera focal length"
-          />
+        <div className="flex min-w-0 items-center gap-2 rounded-sm border border-border/70 bg-background/35 px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
+          <span className="shrink-0 text-foreground/75">center</span>
+          <span className="min-w-0 truncate">
+            {viewportCenter ? formatCoordinateTriple(viewportCenter) : '-, -, -'}
+          </span>
+          {selectedVertexIndex != null && (
+            <span className="shrink-0 text-foreground/75">vtx {selectedVertexIndex}</span>
+          )}
         </div>
+      </div>
+      <div className="floating-chip flex shrink-0 items-center gap-1.5 rounded-sm border px-2 py-0.5">
+        <Camera className="size-3.5 text-muted-foreground" />
+        <span className="font-mono text-[11px] text-muted-foreground">{cameraFocalLength}mm</span>
+        <input
+          type="range"
+          min={12}
+          max={120}
+          step={1}
+          value={cameraFocalLength}
+          onChange={(event) => onCameraFocalLengthChange(Number(event.target.value))}
+          className="slider-accent h-2 w-24 cursor-pointer appearance-none rounded-none bg-input"
+          aria-label="Camera focal length"
+        />
       </div>
     </div>
   )
@@ -3383,6 +3448,10 @@ export default App
 
 function cloneVertices(vertices: Vec3[]) {
   return vertices.map((vertex) => [...vertex] as Vec3)
+}
+
+function formatCoordinateTriple(coordinates: Vec3) {
+  return `${coordinates[0].toFixed(3)}, ${coordinates[1].toFixed(3)}, ${coordinates[2].toFixed(3)}`
 }
 
 function getFaceVertexCycle(rings: number[][] | null, ringIndex: number) {
