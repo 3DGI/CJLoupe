@@ -1210,10 +1210,10 @@ function App() {
               'bg-background/40',
               isMobileLayout
                 ? 'flex h-14 w-full items-center justify-between gap-3 border-b border-border px-3'
-                : 'flex h-full w-16 shrink-0 flex-col items-center justify-between border-r border-border py-3',
+                : 'flex h-full w-16 shrink-0 flex-col items-center justify-between border-r border-border',
             )}
           >
-            <div className={cn('flex items-center gap-2', isMobileLayout ? 'min-w-0 flex-1' : 'flex-col')}>
+            <div className={cn('flex items-center gap-2', isMobileLayout ? 'min-w-0 flex-1' : 'flex-col py-3')}>
               <Button
                 size="icon"
                 variant="ghost"
@@ -1275,11 +1275,19 @@ function App() {
               </Button>
             </div>
 
-            <div className={cn('flex items-center gap-2', isMobileLayout ? 'shrink-0' : 'flex-col')}>
-              <Badge variant="outline" className="border-accent/30 bg-accent/10 text-accent">
-                {dataset?.features.length ?? 0}
-              </Badge>
-            </div>
+            {isMobileLayout ? (
+              <div className="flex shrink-0 items-center gap-2">
+                <Badge variant="outline" className="border-accent/30 bg-accent/10 text-accent">
+                  {dataset?.features.length ?? 0}
+                </Badge>
+              </div>
+            ) : (
+              <div className="flex min-h-8 w-full items-center justify-center border-t border-accent/30 bg-accent/10 text-accent">
+                <span className="font-mono text-sm font-medium leading-none">
+                  {dataset?.features.length ?? 0}
+                </span>
+              </div>
+            )}
           </div>
 
           {isPaneContentVisible && (
