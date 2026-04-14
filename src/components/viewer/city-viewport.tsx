@@ -520,7 +520,7 @@ function CityViewport({
 
         if (pickingMode === 'face') {
           const meshHits = activeRuntime.raycaster.intersectObjects(
-            [...activeRuntime.meshesByObjectKey.values()],
+            getVisibleObjectMeshes(activeRuntime),
             false,
           )
           const meshHit = meshHits[0]
@@ -564,7 +564,7 @@ function CityViewport({
 
       if (mobileSurfaceSelection) {
         const meshHits = activeRuntime.raycaster.intersectObjects(
-          [...activeRuntime.meshesByObjectKey.values()],
+          getVisibleObjectMeshes(activeRuntime),
           false,
         )
         const meshHit = meshHits[0]
@@ -610,7 +610,7 @@ function CityViewport({
       }
 
       const meshHits = activeRuntime.raycaster.intersectObjects(
-        [...activeRuntime.meshesByObjectKey.values()],
+        getVisibleObjectMeshes(activeRuntime),
         false,
       )
       const meshHit = meshHits[0]
@@ -636,7 +636,7 @@ function CityViewport({
 
       updateRaycastPointer(activeRuntime, event)
       const meshHits = activeRuntime.raycaster.intersectObjects(
-        [...activeRuntime.meshesByObjectKey.values()],
+        getVisibleObjectMeshes(activeRuntime),
         false,
       )
       const meshHit = meshHits[0]
@@ -2676,6 +2676,10 @@ function updateRaycastPointer(runtime: Runtime, event: MouseEvent) {
   runtime.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
   runtime.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
   runtime.raycaster.setFromCamera(runtime.pointer, runtime.camera)
+}
+
+function getVisibleObjectMeshes(runtime: Runtime) {
+  return [...runtime.meshesByObjectKey.values()].filter((mesh) => mesh.visible)
 }
 
 function getDatasetViewKey(data: ViewerDataset) {
