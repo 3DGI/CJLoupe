@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Do not pick hidden objects
+- Remember picking mode when entering/exiting inspect mode
 - Refine vertex cycle panel in inspect mode
 - Refine inspect mode colors and selection appearance
 - New open file dialog

@@ -13,9 +13,10 @@ This app was built almost entirely through vibe coding, though I still spent man
 - Loading of [CityJSON feature sequences](https://www.cityjson.org/cityjsonseq/) files
 - 3D viewport with arcball navigation and object picking
 - [val3dity](https://github.com/tudelft3d/val3dity) report loading and error visualization (generate with the val3dity `--report` flag)
-- Collapsible left sidebar with feature list, and feature details
+- Collapsible left sidebar with feature list, and feature details (attributes, val3dity errors, geometries)
 - Semantic surfaces visualisation
 - Edit mode with face selection, ring cycling, vertex selection, and vertex movement
+- LoD selection
 - Simple mobile UI without edit mode
 
 ## Development
@@ -42,15 +43,7 @@ The app loads a bundled sample on startup and also supports local files.
 
 You can load files in two ways:
 
-- Use the file controls in the left rail or file cards
+- Use the file controls in the left rail
 - Drag and drop files into the window
 
 When a dataset is already open, the file action lets you either replace the current CityJSON sequence or attach a matching val3dity report.
-
-## Geometry selection
-
-The loader currently chooses one geometry per CityObject.
-
-- It picks the highest numeric LoD available
-- If two geometries have the same LoD, it prefers `Solid` over surface geometry
-- It prefers renderable leaf objects over parents when both are present
