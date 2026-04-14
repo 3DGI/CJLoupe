@@ -48,3 +48,8 @@ You can load files in two ways:
 - Drag and drop files into the window
 
 When a dataset is already open, the file action lets you either replace the current CityJSON dataset or attach a matching val3dity report.
+
+## Limitations
+- Loading huge files (>100MB) degrades performance. On my 2021 laptop the [110MB New York sample file](https://3d.bk.tudelft.nl/opendata/cityjson/3dcities/v2.0/DA13_3D_Buildings_Merged.city.json) from cityjson.org still works okay-ish, but the 293MB Zürich file does not work well.
+- No handling of [Appearance objects](https://www.cityjson.org/specs/2.0.2/#appearance-object)
+- The 'Best LOD' selection, does not show the parent object if child objects have a geometry as well.
