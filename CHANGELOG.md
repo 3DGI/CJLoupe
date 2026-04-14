@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add support for regular CityJSON files
 - Do not pick hidden objects
 - Remember picking mode when entering/exiting inspect mode
 - Refine vertex cycle panel in inspect mode

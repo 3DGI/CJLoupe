@@ -43,6 +43,11 @@ type CityJsonHeader = {
   transform?: CityJsonTransform
 }
 
+type CityJsonDocument = CityJsonHeader & {
+  CityObjects?: Record<string, CityJsonObject>
+  vertices?: number[][]
+}
+
 type CityJsonFeature = {
   type?: string
   id?: string
@@ -68,18 +73,26 @@ type Val3dityReport = {
 }
 
 export async function loadCityJsonSequenceFromUrl(url: string, sourceName: string) {
+  return loadCityJsonFromUrl(url, sourceName)
+}
+
+export async function loadCityJsonFromUrl(url: string, sourceName: string) {
   const response = await fetch(url)
   if (!response.ok) {
     throw new Error(`Could not fetch ${sourceName}.`)
   }
 
   const text = await response.text()
-  return parseCityJsonSequence(text, sourceName)
+  return parseCityJson(text, sourceName)
 }
 
 export async function loadCityJsonSequenceFromFile(file: File) {
+  return loadCityJsonFromFile(file)
+}
+
+export async function loadCityJsonFromFile(file: File) {
   const text = await file.text()
-  return parseCityJsonSequence(text, file.name)
+  return parseCityJson(text, file.name)
 }
 
 export async function loadValidationReportFromUrl(url: string) {
@@ -97,6 +110,37 @@ export async function loadValidationReportFromFile(file: File) {
   return parseValidationReport(text)
 }
 
+export function parseCityJson(text: string, sourceName: string): ViewerDataset {
+  const trimmedText = text.trim()
+  if (!trimmedText) {
+    throw new Error('CityJSON input is empty.')
+  }
+
+  try {
+    const parsed = JSON.parse(trimmedText) as unknown
+    if (!isRecord(parsed) || Array.isArray(parsed)) {
+      throw new Error('CityJSON input must be a JSON object or a CityJSON feature sequence.')
+    }
+
+    const type = parsed.type
+    if (type === 'CityJSON') {
+      return parseCityJsonDocument(parsed as CityJsonDocument, sourceName)
+    }
+
+    if (type === 'CityJSONFeature') {
+      throw new Error('Expected a CityJSON feature sequence with a header line before feature objects.')
+    }
+
+    throw new Error('Expected a CityJSON object or a CityJSON feature sequence.')
+  } catch (caughtError) {
+    if (!(caughtError instanceof SyntaxError)) {
+      throw caughtError
+    }
+  }
+
+  return parseCityJsonSequence(text, sourceName)
+}
+
 export function parseCityJsonSequence(text: string, sourceName: string): ViewerDataset {
   const lines = text
     .split(/\r?\n/)
@@ -111,8 +155,6 @@ export function parseCityJsonSequence(text: string, sourceName: string): ViewerD
   const transform = header.transform ?? {}
 
   const features: ViewerFeature[] = []
-  const globalMin: Vec3 = [Infinity, Infinity, Infinity]
-  const globalMax: Vec3 = [-Infinity, -Infinity, -Infinity]
 
   for (const line of lines.slice(1)) {
     const feature = JSON.parse(line) as CityJsonFeature
@@ -130,29 +172,97 @@ export function parseCityJsonSequence(text: string, sourceName: string): ViewerD
     const rootEntry =
       objects.find(([id]) => id === feature.id) ?? roots[0] ?? objects[0]
     const [rootObjectId, rootObject] = rootEntry
-    const renderableObjects = createRenderableObjects(feature.CityObjects)
-    const featureId = feature.id ?? rootObjectId
-    const attributes = rootObject.attributes ?? {}
-    const extent = calculateExtent(worldVertices)
-    updateGlobalExtent(globalMin, globalMax, extent)
-    const originalVertices = worldVertices.map((vertex) => [...vertex] as Vec3)
-
-    features.push({
-      id: featureId,
-      label: deriveFeatureLabel(featureId),
+    const viewerFeature = createViewerFeature({
+      featureId: feature.id ?? rootObjectId,
       rootObjectId,
-      type: rootObject.type ?? 'CityObject',
-      validity: null,
-      errors: [],
-      attributes,
-      originalVertices,
+      rootObject,
+      cityObjects: feature.CityObjects,
       vertices: worldVertices,
-      objects: renderableObjects,
-      extent,
     })
+
+    if (viewerFeature) {
+      features.push(viewerFeature)
+    }
+  }
+
+  return createViewerDataset(sourceName, features)
+}
+
+function parseCityJsonDocument(document: CityJsonDocument, sourceName: string): ViewerDataset {
+  if (!isCityObjectsRecord(document.CityObjects)) {
+    throw new Error('CityJSON object must contain a top-level "CityObjects" object.')
+  }
+
+  if (!Array.isArray(document.vertices)) {
+    throw new Error('CityJSON object must contain a top-level "vertices" array.')
+  }
+
+  const transform = document.transform ?? {}
+  const worldVertices = document.vertices.map((vertex) => applyTransform(vertex, transform))
+  const featureRootIds = collectFeatureRootIds(document.CityObjects)
+  const features: ViewerFeature[] = []
+  const processedObjectIds = new Set<string>()
+
+  for (const rootObjectId of featureRootIds) {
+    const rootObject = document.CityObjects[rootObjectId]
+    if (!rootObject) {
+      continue
+    }
+
+    const cityObjects = collectCityObjectSubtree(rootObjectId, document.CityObjects)
+    for (const objectId of Object.keys(cityObjects)) {
+      processedObjectIds.add(objectId)
+    }
+
+    const localized = localizeCityObjects(cityObjects, worldVertices)
+    const viewerFeature = createViewerFeature({
+      featureId: rootObjectId,
+      rootObjectId,
+      rootObject,
+      cityObjects: localized.cityObjects,
+      vertices: localized.vertices,
+    })
+
+    if (viewerFeature) {
+      features.push(viewerFeature)
+    }
+  }
+
+  for (const [objectId, object] of Object.entries(document.CityObjects)) {
+    if (processedObjectIds.has(objectId)) {
+      continue
+    }
+
+    const localized = localizeCityObjects({ [objectId]: object }, worldVertices)
+    const viewerFeature = createViewerFeature({
+      featureId: objectId,
+      rootObjectId: objectId,
+      rootObject: object,
+      cityObjects: localized.cityObjects,
+      vertices: localized.vertices,
+    })
+
+    if (viewerFeature) {
+      features.push(viewerFeature)
+    }
+  }
+
+  return createViewerDataset(sourceName, features)
+}
+
+function createViewerDataset(sourceName: string, features: ViewerFeature[]): ViewerDataset {
+  if (features.length === 0) {
+    throw new Error('No renderable CityJSON features were found.')
   }
 
   features.sort((left, right) => left.label.localeCompare(right.label, undefined, { numeric: true }))
+
+  const globalMin: Vec3 = [Infinity, Infinity, Infinity]
+  const globalMax: Vec3 = [-Infinity, -Infinity, -Infinity]
+
+  for (const feature of features) {
+    updateGlobalExtent(globalMin, globalMax, feature.extent)
+  }
 
   const extent: ViewerDataset['extent'] = [
     globalMin[0],
@@ -173,6 +283,51 @@ export function parseCityJsonSequence(text: string, sourceName: string): ViewerD
     center,
     extent,
     features,
+  }
+}
+
+function createViewerFeature({
+  featureId,
+  rootObjectId,
+  rootObject,
+  cityObjects,
+  vertices,
+}: {
+  featureId: string
+  rootObjectId: string
+  rootObject: CityJsonObject
+  cityObjects: Record<string, CityJsonObject>
+  vertices: Vec3[]
+}): ViewerFeature | null {
+  const renderableObjects = createRenderableObjects(cityObjects)
+  if (renderableObjects.length === 0) {
+    return null
+  }
+
+  const vertexIndices = uniqueVertexIndices(
+    renderableObjects.flatMap((object) =>
+      object.geometries.flatMap((geometry) => geometry.polygons),
+    ),
+  )
+  const extent = calculateExtentFromIndices(vertices, vertexIndices)
+  if (!extent) {
+    return null
+  }
+
+  const originalVertices = vertices.map((vertex) => [...vertex] as Vec3)
+
+  return {
+    id: featureId,
+    label: deriveFeatureLabel(featureId),
+    rootObjectId,
+    type: rootObject.type ?? 'CityObject',
+    validity: null,
+    errors: [],
+    attributes: rootObject.attributes ?? {},
+    originalVertices,
+    vertices,
+    objects: renderableObjects,
+    extent,
   }
 }
 
@@ -309,6 +464,122 @@ function createRenderableObjects(cityObjects: Record<string, CityJsonObject>) {
   return renderableLeafObjects.length > 0
     ? [...renderableLeafObjects, ...renderableParentObjects]
     : renderableObjects
+}
+
+function collectFeatureRootIds(cityObjects: Record<string, CityJsonObject>) {
+  const objectIds = new Set(Object.keys(cityObjects))
+  const rootIds = Object.entries(cityObjects)
+    .filter(([, object]) => !(object.parents ?? []).some((parentId) => objectIds.has(parentId)))
+    .map(([id]) => id)
+
+  return rootIds.length > 0 ? rootIds : Object.keys(cityObjects)
+}
+
+function collectCityObjectSubtree(
+  rootObjectId: string,
+  cityObjects: Record<string, CityJsonObject>,
+) {
+  const collected: Record<string, CityJsonObject> = {}
+  const stack = [rootObjectId]
+  const visited = new Set<string>()
+
+  while (stack.length > 0) {
+    const objectId = stack.pop()
+    if (!objectId || visited.has(objectId)) {
+      continue
+    }
+
+    visited.add(objectId)
+    const object = cityObjects[objectId]
+    if (!object) {
+      continue
+    }
+
+    collected[objectId] = object
+    for (const childId of object.children ?? []) {
+      stack.push(childId)
+    }
+  }
+
+  return collected
+}
+
+function localizeCityObjects(
+  cityObjects: Record<string, CityJsonObject>,
+  vertices: Vec3[],
+) {
+  const globalVertexIndices = collectCityObjectVertexIndices(cityObjects)
+    .filter((index) => index >= 0 && index < vertices.length)
+  const localVertexIndices = [...new Set(globalVertexIndices)].sort((left, right) => left - right)
+  const localIndexByGlobalIndex = new Map(
+    localVertexIndices.map((globalIndex, localIndex) => [globalIndex, localIndex]),
+  )
+  const localizedCityObjects = Object.fromEntries(
+    Object.entries(cityObjects).map(([objectId, object]) => [
+      objectId,
+      remapCityObjectVertexIndices(object, localIndexByGlobalIndex),
+    ]),
+  )
+
+  return {
+    cityObjects: localizedCityObjects,
+    vertices: localVertexIndices.map((index) => vertices[index]),
+  }
+}
+
+function collectCityObjectVertexIndices(cityObjects: Record<string, CityJsonObject>) {
+  const indices: number[] = []
+
+  for (const object of Object.values(cityObjects)) {
+    for (const geometry of object.geometry ?? []) {
+      collectBoundaryVertexIndices(geometry.boundaries, indices)
+    }
+  }
+
+  return indices
+}
+
+function collectBoundaryVertexIndices(value: unknown, indices: number[]) {
+  if (typeof value === 'number' && Number.isInteger(value)) {
+    indices.push(value)
+    return
+  }
+
+  if (!Array.isArray(value)) {
+    return
+  }
+
+  for (const entry of value) {
+    collectBoundaryVertexIndices(entry, indices)
+  }
+}
+
+function remapCityObjectVertexIndices(
+  object: CityJsonObject,
+  localIndexByGlobalIndex: Map<number, number>,
+): CityJsonObject {
+  return {
+    ...object,
+    geometry: object.geometry?.map((geometry) => ({
+      ...geometry,
+      boundaries: remapBoundaryVertexIndices(geometry.boundaries, localIndexByGlobalIndex),
+    })),
+  }
+}
+
+function remapBoundaryVertexIndices(
+  value: unknown,
+  localIndexByGlobalIndex: Map<number, number>,
+): unknown {
+  if (typeof value === 'number' && Number.isInteger(value)) {
+    return localIndexByGlobalIndex.get(value) ?? value
+  }
+
+  if (!Array.isArray(value)) {
+    return value
+  }
+
+  return value.map((entry) => remapBoundaryVertexIndices(entry, localIndexByGlobalIndex))
 }
 
 function hasRenderableChild(
@@ -547,18 +818,28 @@ function applyTransform(vertex: number[], transform: CityJsonTransform): Vec3 {
   ]
 }
 
-function calculateExtent(vertices: Vec3[]): ViewerFeature['extent'] {
+function calculateExtentFromIndices(
+  vertices: Vec3[],
+  indices: number[],
+): ViewerFeature['extent'] | null {
   const min: Vec3 = [Infinity, Infinity, Infinity]
   const max: Vec3 = [-Infinity, -Infinity, -Infinity]
+  let hasVertex = false
 
-  for (const vertex of vertices) {
+  for (const index of indices) {
+    const vertex = vertices[index]
+    if (!vertex) {
+      continue
+    }
+
+    hasVertex = true
     for (let axis = 0; axis < 3; axis += 1) {
       min[axis] = Math.min(min[axis], vertex[axis])
       max[axis] = Math.max(max[axis], vertex[axis])
     }
   }
 
-  return [min[0], min[1], min[2], max[0], max[1], max[2]]
+  return hasVertex ? [min[0], min[1], min[2], max[0], max[1], max[2]] : null
 }
 
 function updateGlobalExtent(
@@ -572,4 +853,16 @@ function updateGlobalExtent(
   globalMax[0] = Math.max(globalMax[0], extent[3])
   globalMax[1] = Math.max(globalMax[1], extent[4])
   globalMax[2] = Math.max(globalMax[2], extent[5])
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isCityObjectsRecord(value: unknown): value is Record<string, CityJsonObject> {
+  if (!isRecord(value)) {
+    return false
+  }
+
+  return Object.values(value).every((entry) => isRecord(entry))
 }

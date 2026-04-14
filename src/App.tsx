@@ -57,8 +57,8 @@ import trackerIconUrl from '@/assets/blender-icons/tracker.svg'
 import vertexSelectIconUrl from '@/assets/blender-icons/vertexsel.svg'
 import {
   assertValidationAnnotationsMatchDataset,
-  loadCityJsonSequenceFromFile,
-  loadCityJsonSequenceFromUrl,
+  loadCityJsonFromFile,
+  loadCityJsonFromUrl,
   loadValidationReportFromFile,
   loadValidationReportFromUrl,
   mergeValidationAnnotations,
@@ -459,7 +459,7 @@ function App() {
     setIsFileDialogOpen(false)
 
     try {
-      const nextDataset = await loadCityJsonSequenceFromFile(file)
+      const nextDataset = await loadCityJsonFromFile(file)
       applyDataset(nextDataset)
       setAnnotationSourceName(null)
     } catch (caughtError) {
@@ -472,7 +472,7 @@ function App() {
 
   async function openAnnotationFile(file: File) {
     if (!dataset) {
-      setError('Open a CityJSON feature file before loading annotations.')
+      setError('Open a CityJSON file before loading annotations.')
       return
     }
 
@@ -524,7 +524,7 @@ function App() {
 
     for (const file of files) {
       const name = file.name.toLowerCase()
-      if (name.endsWith('.jsonl') || name.endsWith('.city.jsonl')) {
+      if (isCityJsonFileName(name)) {
         cityFile = file
       } else if (name.endsWith('.json')) {
         reportFile = file
@@ -551,7 +551,7 @@ function App() {
 
     try {
       const [nextDataset, annotations] = await Promise.all([
-        loadCityJsonSequenceFromFile(cityFile),
+        loadCityJsonFromFile(cityFile),
         loadValidationReportFromFile(reportFile),
       ])
       assertValidationAnnotationsMatchDataset(nextDataset, annotations)
@@ -608,7 +608,7 @@ function App() {
 
     try {
       const [nextDataset, annotations] = await Promise.all([
-        loadCityJsonSequenceFromUrl(SAMPLE_URL, 'rf-val3dity sample'),
+        loadCityJsonFromUrl(SAMPLE_URL, 'rf-val3dity sample'),
         loadValidationReportFromUrl(SAMPLE_REPORT_URL),
       ])
       assertValidationAnnotationsMatchDataset(nextDataset, annotations)
@@ -1746,7 +1746,7 @@ function App() {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".jsonl,.city.jsonl"
+        accept=".json,.city.json,.cityjson,.jsonl,.city.jsonl"
         className="hidden"
         onChange={handleFileSelection}
       />
@@ -1775,7 +1775,7 @@ function App() {
                   Open files
                 </p>
                 <p className="mt-2 text-sm leading-6 text-foreground/82">
-                  Choose a CityJSONL file and an optional val3dity report.
+                  Choose a CityJSON file and an optional val3dity report.
                 </p>
               </div>
               <Button
@@ -1797,7 +1797,7 @@ function App() {
                   <FileBox className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
                   <div className="min-w-0 flex-1">
                     <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                      CityJSONL
+                      CityJSON
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">Loaded file</p>
                     <p className="mt-1 truncate text-sm text-foreground/90">
@@ -1809,10 +1809,10 @@ function App() {
                   type="button"
                   className="mt-4 w-full"
                   onClick={triggerCityJsonInput}
-                  aria-label={dataset ? 'Replace CityJSONL file' : 'Open CityJSONL file'}
+                  aria-label={dataset ? 'Replace CityJSON file' : 'Open CityJSON file'}
                 >
                   <FolderOpen className="size-4" />
-                  {dataset ? 'Replace .city.jsonl' : 'Open .city.jsonl'}
+                  {dataset ? 'Replace CityJSON' : 'Open CityJSON'}
                 </Button>
               </section>
 
@@ -1840,7 +1840,7 @@ function App() {
                     onClick={triggerAnnotationInput}
                     disabled={!dataset}
                     aria-label={annotationSourceName ? 'Replace val3dity report' : 'Load val3dity report'}
-                    title={dataset ? undefined : 'Open a CityJSONL file first'}
+                    title={dataset ? undefined : 'Open a CityJSON file first'}
                   >
                     <FolderOpen className="size-4" />
                     {annotationSourceName ? 'Replace .json' : 'Open .json'}
@@ -1861,7 +1861,7 @@ function App() {
                 </div>
                 {!dataset && (
                   <p className="mt-3 text-xs leading-5 text-muted-foreground">
-                    Open a CityJSONL file before loading a report.
+                    Open a CityJSON file before loading a report.
                   </p>
                 )}
               </section>
@@ -1918,7 +1918,7 @@ function App() {
           <div className="rounded-sm border-2 border-dashed border-accent/35 bg-card/85 px-10 py-8 text-center shadow-2xl">
             <p className="text-lg font-semibold text-foreground">Drop file to open</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              .city.jsonl for features, .json for val3dity report
+              .city.json, .city.jsonl, or a val3dity report
             </p>
           </div>
         </div>
@@ -3423,6 +3423,15 @@ function nextPickingMode(mode: ViewerPickingMode, editMode: boolean, showSemanti
   const modes = getAvailablePickingModes(editMode, showSemanticSurfaces)
   const currentIndex = modes.indexOf(mode)
   return modes[(currentIndex + 1) % modes.length] ?? modes[0]
+}
+
+function isCityJsonFileName(name: string) {
+  return (
+    name.endsWith('.jsonl') ||
+    name.endsWith('.city.jsonl') ||
+    name.endsWith('.city.json') ||
+    name.endsWith('.cityjson')
+  )
 }
 
 function getPickingModeIconUrl(mode: ViewerPickingMode) {
