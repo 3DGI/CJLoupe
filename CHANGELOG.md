@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.0
+
 - Add support for regular CityJSON files
 - Do not pick hidden objects
 - Remember picking mode when entering/exiting inspect mode
