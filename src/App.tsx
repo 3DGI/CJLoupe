@@ -117,6 +117,8 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const annotationInputRef = useRef<HTMLInputElement>(null)
   const originalVerticesRef = useRef<Map<string, Vec3[]>>(new Map())
+  const preInspectPickingModeRef = useRef<ViewerPickingMode>('object')
+  const inspectPickingModeRef = useRef<ViewerPickingMode>('face')
 
   const [dataset, setDataset] = useState<ViewerDataset | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -828,10 +830,14 @@ function App() {
     setEditMode((current) => {
       const next = !current
       if (next) {
+        preInspectPickingModeRef.current = pickingMode
         setIsolateSelectedFeature(true)
         setShowSemanticSurfaces(false)
+        setPickingMode(inspectPickingModeRef.current)
       } else {
+        inspectPickingModeRef.current = pickingMode
         setIsolateSelectedFeature(false)
+        setPickingMode(preInspectPickingModeRef.current)
         setSelectedFaceIndex(null)
         setSelectedFaceRingIndex(0)
         setSelectedVertexIndex(null)
@@ -845,7 +851,7 @@ function App() {
       }
       return next
     })
-  }, [isMobileLayout])
+  }, [isMobileLayout, pickingMode])
 
   const handleSelectFeature = useCallback((
     featureId: string,
