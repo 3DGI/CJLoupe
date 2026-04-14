@@ -212,7 +212,7 @@ function App() {
       : activeFaceRingIndex === 0
         ? 'Outer ring'
         : `Hole ${activeFaceRingIndex}/${selectedFaceHoleCount}`
-  const effectivePickingMode = normalizePickingMode(pickingMode, editMode, showSemanticSurfaces)
+  const effectivePickingMode = pickingMode
   const visibleDetailErrors = useMemo(() => {
     if (!selectedFeature) {
       return []
@@ -311,10 +311,6 @@ function App() {
     setSelectedVertexIndex(null)
     setSelectedFaceVertexEntryIndex(null)
   }, [isMobileLayout])
-
-  useEffect(() => {
-    setPickingMode((current) => normalizePickingMode(current, editMode, showSemanticSurfaces))
-  }, [editMode, showSemanticSurfaces])
 
   useEffect(() => {
     if (!showSemanticSurfaces) {
@@ -808,6 +804,22 @@ function App() {
     setPickingMode((current) => nextPickingMode(current, editMode, showSemanticSurfaces))
   }, [editMode, showSemanticSurfaces])
 
+  const handleSelectPickingMode = useCallback((mode: ViewerPickingMode) => {
+    if (!getAvailablePickingModes(editMode, showSemanticSurfaces).includes(mode)) {
+      return
+    }
+
+    setPickingMode(mode)
+  }, [editMode, showSemanticSurfaces])
+
+  const handlePickingModeShortcut = useCallback((mode: ViewerPickingMode) => {
+    if (!getAvailablePickingModes(editMode, showSemanticSurfaces).includes(mode)) {
+      return
+    }
+
+    setPickingMode((current) => (current === mode ? 'none' : mode))
+  }, [editMode, showSemanticSurfaces])
+
   const toggleEditMode = useCallback(() => {
     if (isMobileLayout) {
       return
@@ -1023,7 +1035,7 @@ function App() {
       ) {
         event.preventDefault()
         const mode: ViewerPickingMode = event.key === '0' ? 'none' : event.key === '1' ? 'object' : event.key === '2' ? 'face' : 'vertex'
-        setPickingMode(normalizePickingMode(mode, editMode, showSemanticSurfaces))
+        handlePickingModeShortcut(mode)
         return
       }
 
@@ -1123,7 +1135,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [centerCurrentSelection, cycleGeometryDisplayMode, cycleSelectedFaceRing, cycleSelectedFaceVertex, dataset, editMode, restoreSelectedFeatureGeometry, selectedFeatureId, showSemanticSurfaces, toggleEditMode])
+  }, [centerCurrentSelection, cycleGeometryDisplayMode, cycleSelectedFaceRing, cycleSelectedFaceVertex, dataset, editMode, handlePickingModeShortcut, restoreSelectedFeatureGeometry, selectedFeatureId, toggleEditMode])
 
   const hasValidationReportLoaded = Boolean(annotationSourceName)
   const isErrorDialogVisible = Boolean(error && dismissedErrorMessage !== error)
@@ -1674,7 +1686,7 @@ function App() {
               onToggleXray={() => setHideOccludedEditEdges((current) => !current)}
               onToggleSemanticSurfaces={() => setShowSemanticSurfaces((current) => !current)}
               onToggleIsolateSelectedFeature={() => setIsolateSelectedFeature((current) => !current)}
-              onSelectPickingMode={(mode) => setPickingMode(normalizePickingMode(mode, editMode, showSemanticSurfaces))}
+              onSelectPickingMode={handleSelectPickingMode}
               onCenterCurrentSelection={centerCurrentSelection}
               onRestoreGeometry={restoreSelectedFeatureGeometry}
               restoreGeometryDisabled={!selectedFeatureId || !originalVerticesRef.current.has(selectedFeatureId)}
@@ -3401,19 +3413,9 @@ function getAvailablePickingModes(editMode: boolean, showSemanticSurfaces: boole
   return VIEW_PICKING_MODES
 }
 
-function normalizePickingMode(mode: ViewerPickingMode, editMode: boolean, showSemanticSurfaces: boolean): ViewerPickingMode {
-  const modes = getAvailablePickingModes(editMode, showSemanticSurfaces)
-  if (modes.includes(mode)) {
-    return mode
-  }
-
-  return editMode ? 'face' : 'object'
-}
-
 function nextPickingMode(mode: ViewerPickingMode, editMode: boolean, showSemanticSurfaces: boolean): ViewerPickingMode {
   const modes = getAvailablePickingModes(editMode, showSemanticSurfaces)
-  const normalizedMode = normalizePickingMode(mode, editMode, showSemanticSurfaces)
-  const currentIndex = modes.indexOf(normalizedMode)
+  const currentIndex = modes.indexOf(mode)
   return modes[(currentIndex + 1) % modes.length] ?? modes[0]
 }
 
