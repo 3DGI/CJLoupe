@@ -8,6 +8,7 @@ import {
   CircleHelp,
   Crosshair,
   FolderOpen,
+  FileText,
   Github,
   Layers,
   LocateFixed,
@@ -149,6 +150,7 @@ function App() {
   const [isDragging, setIsDragging] = useState(false)
   const [isHelpCollapsed, setIsHelpCollapsed] = useState(false)
   const [isFileDialogOpen, setIsFileDialogOpen] = useState(false)
+  const [isInfoDialogOpen, setIsInfoDialogOpen] = useState(false)
   const [cityJsonUrlInput, setCityJsonUrlInput] = useState('')
   const [annotationUrlInput, setAnnotationUrlInput] = useState('')
   const [isMobileLayout, setIsMobileLayout] = useState(false)
@@ -453,6 +455,21 @@ function App() {
     window.addEventListener('keydown', handleEscape)
     return () => window.removeEventListener('keydown', handleEscape)
   }, [isFileDialogOpen])
+
+  useEffect(() => {
+    if (!isInfoDialogOpen) {
+      return
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsInfoDialogOpen(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [isInfoDialogOpen])
 
   async function openCityJsonFile(file: File) {
     setIsLoading(true)
@@ -1481,6 +1498,7 @@ function App() {
                     onShowOnlyInvalidFeaturesChange={handleShowOnlyInvalidFeaturesChange}
                     onCenterFeature={handleCenterFeature}
                     onSelectFeature={handleSelectFeature}
+                    onShowInfo={dataset ? () => setIsInfoDialogOpen(true) : null}
                     activeObjectId={activeObject?.id ?? null}
                     activeGeometryIndex={resolvedActiveGeometryIndex}
                   />
@@ -1901,19 +1919,9 @@ function App() {
 
             <div className="mt-5 space-y-5">
               <section>
-                <div className="flex items-baseline gap-2">
-                  <p className="shrink-0 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                    CityJSON
-                  </p>
-                  <p
-                    className={cn(
-                      'min-w-0 flex-1 truncate text-sm',
-                      dataset ? 'font-medium text-foreground' : 'text-muted-foreground',
-                    )}
-                  >
-                    {dataset?.sourceName ?? '—'}
-                  </p>
-                </div>
+                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                  CityJSON
+                </p>
                 <form
                   className="mt-2 flex gap-2"
                   onSubmit={(event) => {
@@ -1951,32 +1959,9 @@ function App() {
               </section>
 
               <section>
-                <div className="flex items-baseline gap-2">
-                  <p className="shrink-0 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                    Val3dity report
-                  </p>
-                  <p
-                    className={cn(
-                      'min-w-0 flex-1 truncate text-sm',
-                      annotationSourceName ? 'font-medium text-foreground' : 'text-muted-foreground',
-                    )}
-                  >
-                    {annotationSourceName ?? '—'}
-                  </p>
-                  {annotationSourceName && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-6 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      onClick={clearAnnotations}
-                      aria-label="Clear val3dity report"
-                      title="Clear val3dity report"
-                    >
-                      <X className="size-3.5" />
-                    </Button>
-                  )}
-                </div>
+                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                  Val3dity report
+                </p>
                 <form
                   className="mt-2 flex gap-2"
                   onSubmit={(event) => {
@@ -2012,6 +1997,18 @@ function App() {
                   >
                     <Upload className="size-4" />
                   </Button>
+                  {annotationSourceName && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={clearAnnotations}
+                      aria-label="Clear val3dity report"
+                      title="Clear val3dity report"
+                    >
+                      <X className="size-4" />
+                    </Button>
+                  )}
                 </form>
               </section>
 
@@ -2038,6 +2035,14 @@ function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {isInfoDialogOpen && dataset && (
+        <InfoDialog
+          dataset={dataset}
+          annotationSourceName={annotationSourceName}
+          onClose={() => setIsInfoDialogOpen(false)}
+        />
       )}
 
       {isErrorDialogVisible && (
@@ -3087,6 +3092,7 @@ const FeatureListPanel = memo(function FeatureListPanel({
   onShowOnlyInvalidFeaturesChange,
   onCenterFeature,
   onSelectFeature,
+  onShowInfo,
   activeObjectId,
   activeGeometryIndex,
 }: {
@@ -3102,6 +3108,7 @@ const FeatureListPanel = memo(function FeatureListPanel({
   onShowOnlyInvalidFeaturesChange: (checked: boolean) => void
   onCenterFeature: (featureId: string) => void
   onSelectFeature: (featureId: string, objectId?: string | null) => void
+  onShowInfo: (() => void) | null
   activeObjectId: string | null
   activeGeometryIndex: number | null
 }) {
@@ -3234,11 +3241,23 @@ const FeatureListPanel = memo(function FeatureListPanel({
     <>
       <div className="panel-header-surface space-y-2.5 border-b p-4 pb-3">
         {showDesktopHeading && (
-          <div>
+          <div className="flex items-center justify-between gap-2">
             <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
               <Layers className="size-4 text-muted-foreground" />
               Features ({datasetFeatureCount})
             </h1>
+            {onShowInfo && (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-8 shrink-0"
+                onClick={onShowInfo}
+                aria-label="Show file information"
+                title="Show file information"
+              >
+                <FileText className="size-4" />
+              </Button>
+            )}
           </div>
         )}
 
@@ -3724,6 +3743,293 @@ function getVal3dityErrorUrl(error: ViewerValidationError) {
     .replace(/^-|-$/g, '')
 
   return anchor ? `${VAL3DITY_ERRORS_URL}#${anchor}` : VAL3DITY_ERRORS_URL
+}
+
+function InfoDialog({
+  dataset,
+  annotationSourceName,
+  onClose,
+}: {
+  dataset: ViewerDataset
+  annotationSourceName: string | null
+  onClose: () => void
+}) {
+  const metadataEntries = dataset.metadata
+    ? Object.entries(dataset.metadata).filter(([, value]) => !isEmptyMetadataValue(value))
+    : []
+
+  return (
+    <div className="absolute inset-0 z-50 flex items-center justify-center overflow-y-auto bg-background/42 px-4 py-4 backdrop-blur-md">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="info-dialog-title"
+        className="flex min-h-0 max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-sm border border-border/45 bg-background/96 shadow-[0_28px_100px_rgb(0_0_0_/_0.28)]"
+      >
+        <div className="border-b border-border/40 bg-gradient-to-r from-primary/8 via-transparent to-transparent">
+          <div className="flex items-start justify-between gap-4 p-5">
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="flex size-11 shrink-0 items-center justify-center rounded-sm border border-primary/20 bg-primary/10 text-primary">
+                <FileText className="size-5" />
+              </div>
+              <div className="min-w-0 space-y-1">
+                <p
+                  id="info-dialog-title"
+                  className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary"
+                >
+                  File information
+                </p>
+                <p className="truncate text-sm text-muted-foreground">{dataset.sourceName}</p>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <Badge variant="secondary" className="border-primary/10 bg-primary/10 text-primary">
+                    Version {dataset.cityJsonVersion ?? '—'}
+                  </Badge>
+                  <Badge variant="outline">{dataset.cityJsonKind}</Badge>
+                  <Badge variant="outline">{dataset.features.length} features</Badge>
+                  {annotationSourceName && <Badge variant="outline">Validation loaded</Badge>}
+                </div>
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-8 shrink-0"
+              onClick={onClose}
+              aria-label="Close information dialog"
+              title="Close"
+            >
+              <X className="size-4" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="space-y-4 p-5">
+            <section>
+              <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                CityJSON
+              </p>
+              <dl className="mt-2.5 space-y-2 text-sm">
+                <InfoRow label="Version" value={dataset.cityJsonVersion ?? '—'} />
+                <InfoRow label="Features" value={dataset.features.length.toString()} mono />
+                {dataset.transform && (
+                  <>
+                    <InfoRow
+                      label="Scale"
+                      value={formatCoordinateTriple(dataset.transform.scale)}
+                      mono
+                    />
+                    <InfoRow
+                      label="Translate"
+                      value={formatCoordinateTriple(dataset.transform.translate)}
+                      mono
+                    />
+                  </>
+                )}
+              </dl>
+            </section>
+
+            {metadataEntries.length > 0 && (
+              <section>
+                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                  Metadata
+                </p>
+                <dl className="mt-2.5 space-y-2 text-sm">
+                  {metadataEntries.map(([key, value]) => (
+                    <InfoRow
+                      key={key}
+                      label={formatMetadataKey(key)}
+                      value={<MetadataValue metadataKey={key} value={value} />}
+                    />
+                  ))}
+                </dl>
+              </section>
+            )}
+
+            {annotationSourceName && (
+              <section>
+                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                  Val3dity report
+                </p>
+                <p className="mt-2.5 truncate text-sm font-medium text-foreground">{annotationSourceName}</p>
+              </section>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function InfoRow({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string
+  value: ReactNode
+  mono?: boolean
+}) {
+  return (
+    <div className="rounded-sm border border-border/45 bg-foreground/[0.03] px-2.5 py-2">
+      <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</dt>
+      <dd
+        className={cn(
+          'mt-0.5 break-words text-sm leading-5 text-foreground',
+          mono && 'font-mono text-[12px]',
+        )}
+      >
+        {value}
+      </dd>
+    </div>
+  )
+}
+
+function MetadataValue({
+  metadataKey,
+  value,
+}: {
+  metadataKey?: string
+  value: unknown
+}): ReactNode {
+  if (value == null) {
+    return <span className="text-muted-foreground">—</span>
+  }
+
+  if (typeof value === 'number') {
+    return <span className="font-mono text-[12px]">{String(value)}</span>
+  }
+
+  if (typeof value === 'boolean') {
+    return <span>{value ? 'true' : 'false'}</span>
+  }
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return <span className="text-muted-foreground">—</span>
+    }
+
+    if (isGeographicalExtentKey(metadataKey) && isNumberArray(value) && value.length >= 6) {
+      return (
+        <ExtentCoordinates min={value.slice(0, 3)} max={value.slice(3, 6)} />
+      )
+    }
+
+    const allPrimitive = value.every(
+      (entry) =>
+        entry == null || typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean',
+    )
+
+    if (allPrimitive) {
+      const isNumericArray = isNumberArray(value)
+      const rendered = value.map((entry) => formatMetadataPrimitive(entry)).join(', ')
+      return <span className={isNumericArray ? 'font-mono text-[12px]' : undefined}>{rendered}</span>
+    }
+
+    return (
+      <div className="space-y-2">
+        {value.map((entry, index) => (
+          <div key={index} className="rounded-sm border border-border/45 bg-background/60 px-2.5 py-2">
+            <MetadataValue value={entry} />
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  if (typeof value === 'object') {
+    return (
+      <dl className="mt-1 space-y-2 border-l border-border/45 pl-3">
+        {Object.entries(value as Record<string, unknown>)
+          .filter(([, nested]) => !isEmptyMetadataValue(nested))
+          .map(([nestedKey, nestedValue]) => (
+            <div key={nestedKey}>
+              <dt className="text-xs uppercase tracking-wide text-muted-foreground">
+                {formatMetadataKey(nestedKey)}
+              </dt>
+              <dd className="mt-0.5 break-words text-foreground">
+                <MetadataValue metadataKey={nestedKey} value={nestedValue} />
+              </dd>
+            </div>
+          ))}
+      </dl>
+    )
+  }
+
+  return String(value)
+}
+
+function ExtentCoordinates({
+  min,
+  max,
+}: {
+  min: number[]
+  max: number[]
+}) {
+  const dimensions = min.map((entry, index) => (max[index] ?? entry) - entry)
+  const rows = [
+    { label: 'min', values: min, formatValue: String },
+    { label: 'max', values: max, formatValue: String },
+    { label: 'dim', values: dimensions, formatValue: formatDimensionValue },
+  ]
+
+  return (
+    <span className="grid grid-cols-[2.5rem_repeat(3,max-content)] gap-x-2 gap-y-0.5 font-mono text-[12px]">
+      {rows.map((row) => (
+        <span key={row.label} className="contents">
+          <span aria-hidden="true" className="select-none text-muted-foreground">
+            {row.label}:
+          </span>
+          {row.values.map((entry, index) => (
+            <span key={index}>
+              {row.formatValue(entry)}
+              {index < row.values.length - 1 ? ',' : ''}
+            </span>
+          ))}
+        </span>
+      ))}
+    </span>
+  )
+}
+
+function isEmptyMetadataValue(value: unknown): boolean {
+  if (value == null) return true
+  if (typeof value === 'string') return value.trim().length === 0
+  if (Array.isArray(value)) return value.every(isEmptyMetadataValue)
+  if (typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>).every(isEmptyMetadataValue)
+  }
+  return false
+}
+
+function formatMetadataKey(key: string) {
+  const withSpaces = key.replace(/[_-]+/g, ' ').replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+  return withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1).toLowerCase()
+}
+
+function isGeographicalExtentKey(key: string | undefined) {
+  return key?.toLowerCase() === 'geographicalextent'
+}
+
+function isNumberArray(value: unknown[]): value is number[] {
+  return value.every((entry) => typeof entry === 'number')
+}
+
+function formatDimensionValue(value: number) {
+  return value.toFixed(3).replace(/\.?0+$/, '')
+}
+
+function formatMetadataPrimitive(value: string | number | boolean | null): string {
+  if (value == null) {
+    return '—'
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false'
+  }
+
+  return String(value)
 }
 
 export default App

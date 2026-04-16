@@ -57,6 +57,10 @@ export interface ViewerDataset {
   center: Vec3
   extent: [number, number, number, number, number, number]
   features: ViewerFeature[]
+  cityJsonVersion: string | null
+  cityJsonKind: 'CityJSON' | 'CityJSONFeatures'
+  transform: { scale: Vec3; translate: Vec3 } | null
+  metadata: Record<string, unknown> | null
 }
 
 export interface ViewerFeature {

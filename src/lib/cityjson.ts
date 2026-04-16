@@ -40,12 +40,20 @@ type CityJsonObject = {
 
 type CityJsonHeader = {
   type?: string
+  version?: string
   transform?: CityJsonTransform
+  metadata?: Record<string, unknown>
 }
 
 type CityJsonDocument = CityJsonHeader & {
   CityObjects?: Record<string, CityJsonObject>
   vertices?: number[][]
+}
+
+type ViewerDatasetInfo = {
+  cityJsonVersion: string | null
+  transform: { scale: Vec3; translate: Vec3 } | null
+  metadata: Record<string, unknown> | null
 }
 
 type CityJsonFeature = {
@@ -153,6 +161,7 @@ export function parseCityJsonSequence(text: string, sourceName: string): ViewerD
 
   const header = JSON.parse(lines[0]) as CityJsonHeader
   const transform = header.transform ?? {}
+  const info = extractDatasetInfo(header)
 
   const features: ViewerFeature[] = []
 
@@ -185,7 +194,7 @@ export function parseCityJsonSequence(text: string, sourceName: string): ViewerD
     }
   }
 
-  return createViewerDataset(sourceName, features)
+  return createViewerDataset(sourceName, features, info, 'CityJSONFeatures')
 }
 
 function parseCityJsonDocument(document: CityJsonDocument, sourceName: string): ViewerDataset {
@@ -198,6 +207,7 @@ function parseCityJsonDocument(document: CityJsonDocument, sourceName: string): 
   }
 
   const transform = document.transform ?? {}
+  const info = extractDatasetInfo(document)
   const worldVertices = document.vertices.map((vertex) => applyTransform(vertex, transform))
   const featureRootIds = collectFeatureRootIds(document.CityObjects)
   const features: ViewerFeature[] = []
@@ -247,10 +257,15 @@ function parseCityJsonDocument(document: CityJsonDocument, sourceName: string): 
     }
   }
 
-  return createViewerDataset(sourceName, features)
+  return createViewerDataset(sourceName, features, info, 'CityJSON')
 }
 
-function createViewerDataset(sourceName: string, features: ViewerFeature[]): ViewerDataset {
+function createViewerDataset(
+  sourceName: string,
+  features: ViewerFeature[],
+  info: ViewerDatasetInfo,
+  cityJsonKind: 'CityJSON' | 'CityJSONFeatures',
+): ViewerDataset {
   if (features.length === 0) {
     throw new Error('No renderable CityJSON features were found.')
   }
@@ -283,7 +298,25 @@ function createViewerDataset(sourceName: string, features: ViewerFeature[]): Vie
     center,
     extent,
     features,
+    ...info,
+    cityJsonKind,
   }
+}
+
+function extractDatasetInfo(header: CityJsonHeader): ViewerDatasetInfo {
+  const version = typeof header.version === 'string' ? header.version : null
+  const metadata = isRecord(header.metadata) ? (header.metadata as Record<string, unknown>) : null
+  const rawTransform = header.transform
+  let transform: { scale: Vec3; translate: Vec3 } | null = null
+  if (rawTransform && (Array.isArray(rawTransform.scale) || Array.isArray(rawTransform.translate))) {
+    const scale = rawTransform.scale ?? [1, 1, 1]
+    const translate = rawTransform.translate ?? [0, 0, 0]
+    transform = {
+      scale: [scale[0] ?? 1, scale[1] ?? 1, scale[2] ?? 1],
+      translate: [translate[0] ?? 0, translate[1] ?? 0, translate[2] ?? 0],
+    }
+  }
+  return { cityJsonVersion: version, transform, metadata }
 }
 
 function createViewerFeature({
