@@ -257,6 +257,9 @@ function CityViewport({
     renderer.outputColorSpace = THREE.SRGBColorSpace
     renderer.toneMapping = THREE.ACESFilmicToneMapping
     renderer.autoClear = true
+    renderer.domElement.style.touchAction = 'none'
+    renderer.domElement.style.userSelect = 'none'
+    renderer.domElement.style.webkitUserSelect = 'none'
     container.appendChild(renderer.domElement)
 
     const arcball = new ArcballControls(camera, renderer.domElement, scene)
@@ -400,6 +403,16 @@ function CityViewport({
       pointerDownRef.current = {
         x: event.clientX,
         y: event.clientY,
+      }
+    }
+
+    const preventCanvasGesture = (event: Event) => {
+      event.preventDefault()
+    }
+
+    const preventMultiTouchBrowserGesture = (event: TouchEvent) => {
+      if (event.touches.length > 1) {
+        event.preventDefault()
       }
     }
 
@@ -700,6 +713,9 @@ function CityViewport({
     renderer.domElement.addEventListener('pointerdown', handlePointerDown)
     renderer.domElement.addEventListener('click', handleClick)
     renderer.domElement.addEventListener('dblclick', handleDoubleClick)
+    renderer.domElement.addEventListener('touchmove', preventMultiTouchBrowserGesture, { passive: false })
+    renderer.domElement.addEventListener('gesturestart', preventCanvasGesture, { passive: false })
+    renderer.domElement.addEventListener('gesturechange', preventCanvasGesture, { passive: false })
     handleResize()
 
     return () => {
@@ -710,6 +726,9 @@ function CityViewport({
       renderer.domElement.removeEventListener('pointerdown', handlePointerDown)
       renderer.domElement.removeEventListener('click', handleClick)
       renderer.domElement.removeEventListener('dblclick', handleDoubleClick)
+      renderer.domElement.removeEventListener('touchmove', preventMultiTouchBrowserGesture)
+      renderer.domElement.removeEventListener('gesturestart', preventCanvasGesture)
+      renderer.domElement.removeEventListener('gesturechange', preventCanvasGesture)
       resizeObserver.disconnect()
       window.removeEventListener('resize', handleResize)
       disposeSceneContents(runtime)
@@ -915,7 +934,7 @@ function CityViewport({
     reportViewportCenter(runtime, dataRef.current, onViewportCenterChangeRef.current)
   }, [cameraFocalLength])
 
-  return <div ref={containerRef} className="absolute inset-0" />
+  return <div ref={containerRef} className="absolute inset-0 touch-none select-none" />
 }
 
 function resolveDisplayedObjectGeometry(
