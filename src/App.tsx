@@ -7,8 +7,6 @@ import {
   Camera,
   CircleHelp,
   Crosshair,
-  FileBox,
-  FileWarning,
   FolderOpen,
   Github,
   Layers,
@@ -1879,20 +1877,15 @@ function App() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="file-dialog-title"
-            className="w-full max-w-3xl rounded-sm border border-border/45 bg-background/94 p-5 shadow-[0_28px_100px_rgb(0_0_0_/_0.28)]"
+            className="w-full max-w-lg rounded-sm border border-border/45 bg-background/94 p-5 shadow-[0_28px_100px_rgb(0_0_0_/_0.28)]"
           >
-            <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
-                <p
-                  id="file-dialog-title"
-                  className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary"
-                >
-                  Open files
-                </p>
-                <p className="mt-2 text-sm leading-6 text-foreground/82">
-                  Choose a CityJSON file and an optional val3dity report. Or just drag and drop files into this window.
-                </p>
-              </div>
+            <div className="flex items-center justify-between gap-4">
+              <p
+                id="file-dialog-title"
+                className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary"
+              >
+                Open files
+              </p>
               <Button
                 type="button"
                 variant="ghost"
@@ -1906,31 +1899,23 @@ function App() {
               </Button>
             </div>
 
-            <div className="mt-6 grid gap-5 md:grid-cols-[minmax(0,1fr)_1px_minmax(0,1fr)] md:gap-6">
-              <section className="min-w-0">
-                <div className="flex min-h-16 items-start gap-3">
-                  <FileBox className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                      CityJSON
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">Loaded file</p>
-                    <p className="mt-1 truncate text-sm text-foreground/90">
-                      {dataset?.sourceName ?? 'None'}
-                    </p>
-                  </div>
+            <div className="mt-5 space-y-5">
+              <section>
+                <div className="flex items-baseline gap-2">
+                  <p className="shrink-0 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                    CityJSON
+                  </p>
+                  <p
+                    className={cn(
+                      'min-w-0 flex-1 truncate text-sm',
+                      dataset ? 'font-medium text-foreground' : 'text-muted-foreground',
+                    )}
+                  >
+                    {dataset?.sourceName ?? '—'}
+                  </p>
                 </div>
-                <Button
-                  type="button"
-                  className="mt-4 w-full"
-                  onClick={triggerCityJsonInput}
-                  aria-label={dataset ? 'Upload a CityJSON file to replace the current one' : 'Upload a CityJSON file'}
-                >
-                  <Upload className="size-4" />
-                  {dataset ? 'Replace with uploaded file' : 'Upload CityJSON file'}
-                </Button>
                 <form
-                  className="mt-3 flex gap-2"
+                  className="mt-2 flex gap-2"
                   onSubmit={(event) => {
                     event.preventDefault()
                     void openCityJsonFromUrl(cityJsonUrlInput)
@@ -1939,7 +1924,7 @@ function App() {
                   <Input
                     type="url"
                     inputMode="url"
-                    placeholder="https://example.com/model.city.jsonl"
+                    placeholder="Paste a URL…"
                     value={cityJsonUrlInput}
                     onChange={(event) => setCityJsonUrlInput(event.target.value)}
                     aria-label="CityJSON URL"
@@ -1949,61 +1934,51 @@ function App() {
                     type="submit"
                     variant="outline"
                     disabled={tryParseHttpUrl(cityJsonUrlInput) === null}
-                    aria-label="Open CityJSON URL"
                   >
                     Open URL
                   </Button>
-                </form>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Or paste a URL anywhere in the window to open it.
-                </p>
-              </section>
-
-              <div className="h-px bg-border/70 md:h-auto md:w-px" />
-
-              <section className="min-w-0">
-                <div className="flex min-h-16 items-start gap-3">
-                  <FileWarning
-                    className="mt-0.5 size-5 shrink-0 text-muted-foreground"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                      Val3dity Report
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">Loaded file</p>
-                    <p className="mt-1 truncate text-sm text-foreground/90">
-                      {annotationSourceName ?? 'None'}
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-4 flex gap-2">
                   <Button
                     type="button"
-                    className="min-w-0 flex-1"
-                    onClick={triggerAnnotationInput}
-                    disabled={!dataset}
-                    aria-label={annotationSourceName ? 'Upload a val3dity report to replace the current one' : 'Upload a val3dity report'}
-                    title={dataset ? undefined : 'Open a CityJSON file first'}
+                    variant="outline"
+                    size="icon"
+                    onClick={triggerCityJsonInput}
+                    aria-label={dataset ? 'Upload a CityJSON file to replace the current one' : 'Upload a CityJSON file'}
+                    title="Upload file"
                   >
                     <Upload className="size-4" />
-                    {annotationSourceName ? 'Replace with uploaded file' : 'Upload val3dity report'}
                   </Button>
+                </form>
+              </section>
+
+              <section>
+                <div className="flex items-baseline gap-2">
+                  <p className="shrink-0 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                    Val3dity report
+                  </p>
+                  <p
+                    className={cn(
+                      'min-w-0 flex-1 truncate text-sm',
+                      annotationSourceName ? 'font-medium text-foreground' : 'text-muted-foreground',
+                    )}
+                  >
+                    {annotationSourceName ?? '—'}
+                  </p>
                   {annotationSourceName && (
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="size-10 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      className="size-6 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                       onClick={clearAnnotations}
                       aria-label="Clear val3dity report"
                       title="Clear val3dity report"
                     >
-                      <X className="size-4" />
+                      <X className="size-3.5" />
                     </Button>
                   )}
                 </div>
                 <form
-                  className="mt-3 flex gap-2"
+                  className="mt-2 flex gap-2"
                   onSubmit={(event) => {
                     event.preventDefault()
                     void openAnnotationFromUrl(annotationUrlInput)
@@ -2012,7 +1987,7 @@ function App() {
                   <Input
                     type="url"
                     inputMode="url"
-                    placeholder="https://example.com/report.json"
+                    placeholder={dataset ? 'Paste a URL…' : 'Load a CityJSON file first'}
                     value={annotationUrlInput}
                     onChange={(event) => setAnnotationUrlInput(event.target.value)}
                     aria-label="Val3dity report URL"
@@ -2023,18 +1998,26 @@ function App() {
                     type="submit"
                     variant="outline"
                     disabled={!dataset || tryParseHttpUrl(annotationUrlInput) === null}
-                    title={dataset ? undefined : 'Open a CityJSON file first'}
-                    aria-label="Open val3dity report URL"
                   >
                     Open URL
                   </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={triggerAnnotationInput}
+                    disabled={!dataset}
+                    aria-label={annotationSourceName ? 'Upload a val3dity report to replace the current one' : 'Upload a val3dity report'}
+                    title="Upload file"
+                  >
+                    <Upload className="size-4" />
+                  </Button>
                 </form>
-                {!dataset && (
-                  <p className="mt-3 text-xs leading-5 text-muted-foreground">
-                    Open a CityJSON file before loading a report.
-                  </p>
-                )}
               </section>
+
+              <p className="text-xs text-muted-foreground">
+                Tip: drop files or paste URLs anywhere in the window.
+              </p>
             </div>
           </div>
         </div>
