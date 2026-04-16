@@ -2235,11 +2235,11 @@ function SemanticSurfaceOverlay({
   const [isOpen, setIsOpen] = useState(false)
 
   return (
-    <div className={cn('pointer-events-none absolute z-10', positionClassName)}>
+    <div className={cn('pointer-events-none absolute z-30', positionClassName)}>
       <Collapsible
         open={isOpen}
         onOpenChange={setIsOpen}
-        className="floating-panel pointer-events-auto rounded-sm border p-2"
+        className="floating-panel pointer-events-auto flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden rounded-sm border p-2"
       >
         <div className="flex min-w-0 items-center gap-2">
           <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -2272,7 +2272,7 @@ function SemanticSurfaceOverlay({
           </CollapsibleTrigger>
         </div>
 
-        <CollapsibleContent className="overflow-hidden">
+        <CollapsibleContent className="min-h-0 overflow-y-auto">
           <div className="mt-3 space-y-3 border-t border-border/55 pt-3">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
