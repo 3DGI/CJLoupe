@@ -650,8 +650,14 @@ function App() {
   }, [applyDataset])
 
   useEffect(() => {
-    void loadFromSample()
-  }, [loadFromSample])
+    const params = new URLSearchParams(window.location.search)
+    const urlParam = params.get('url')
+    if (urlParam) {
+      void openCityJsonFromUrl(urlParam)
+    } else {
+      void loadFromSample()
+    }
+  }, [loadFromSample, openCityJsonFromUrl])
 
   useEffect(() => {
     const handlePaste = (event: ClipboardEvent) => {

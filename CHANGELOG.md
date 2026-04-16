@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Add support for loading CityJSON files from URLs via dialog or paste
+- Add support for loading CityJSON files from URLs via dialog, paste, or `?url=` parameter
 
 ## 0.3.0
 
