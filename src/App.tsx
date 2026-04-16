@@ -2845,7 +2845,7 @@ const FeatureObjectTreeNode = memo(function FeatureObjectTreeNode({
           type="button"
           onClick={() => onSelectObject(object.id)}
           className={cn(
-            'flex min-h-7 w-full min-w-0 items-center gap-1.5 rounded-sm px-2 py-1 text-left transition',
+            'flex min-h-7 w-full min-w-0 flex-wrap items-center gap-1.5 rounded-sm px-2 py-1 text-left transition',
             isActive
               ? 'bg-primary/10 text-foreground'
               : 'text-foreground/72 hover:bg-foreground/6',
@@ -2857,16 +2857,11 @@ const FeatureObjectTreeNode = memo(function FeatureObjectTreeNode({
           <ObjectTreeIndicators hasAttributes={hasAttributes} errorCount={errorCount} />
           <span className="shrink-0 text-[10px] text-muted-foreground">{object.type}</span>
           {(geometryTypeLabel || chips.length > 0) && (
-            <div className="hidden shrink-0 md:block">
+            <div className="shrink-0">
               <ObjectTreeGeometrySummary geometryTypeLabel={geometryTypeLabel} chips={chips} />
             </div>
           )}
         </button>
-        {(geometryTypeLabel || chips.length > 0) && (
-          <div className="mt-1 pl-7 md:hidden">
-            <ObjectTreeGeometrySummary geometryTypeLabel={geometryTypeLabel} chips={chips} />
-          </div>
-        )}
       </div>
     )
   }
@@ -2897,7 +2892,7 @@ const FeatureObjectTreeNode = memo(function FeatureObjectTreeNode({
           <button
             type="button"
             onClick={() => onSelectObject(object.id)}
-            className="flex min-h-6 min-w-0 flex-1 items-center gap-1.5 text-left"
+            className="flex min-h-6 min-w-0 flex-1 flex-wrap items-center gap-1.5 text-left"
           >
             <div className="flex min-w-0 flex-1 items-center gap-1.5">
               <span className="min-w-0 truncate text-[11px] font-medium">{formatObjectDisplayId(object.id)}</span>
@@ -2905,17 +2900,12 @@ const FeatureObjectTreeNode = memo(function FeatureObjectTreeNode({
             <ObjectTreeIndicators hasAttributes={hasAttributes} errorCount={errorCount} />
             <span className="shrink-0 text-[10px] text-muted-foreground">{object.type}</span>
             {(geometryTypeLabel || chips.length > 0) && (
-              <div className="hidden shrink-0 md:block">
+              <div className="shrink-0">
                 <ObjectTreeGeometrySummary geometryTypeLabel={geometryTypeLabel} chips={chips} />
               </div>
             )}
           </button>
         </div>
-        {(geometryTypeLabel || chips.length > 0) && (
-          <div className="mt-1 pl-8 md:hidden">
-            <ObjectTreeGeometrySummary geometryTypeLabel={geometryTypeLabel} chips={chips} />
-          </div>
-        )}
         <CollapsibleContent className="overflow-hidden">
           <div className="mt-1 space-y-1 border-l border-border/55 pl-3">
             {childIds.map((childId) => (
