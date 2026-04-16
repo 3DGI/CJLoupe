@@ -3850,13 +3850,11 @@ function InfoDialog({
                 >
                   File information
                 </p>
-                <p className="truncate text-sm text-muted-foreground">{dataset.sourceName}</p>
-                <div className="flex flex-wrap gap-2 pt-1">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                  <p className="min-w-0 max-w-full truncate text-sm text-muted-foreground">{dataset.sourceName}</p>
                   <Badge variant="secondary" className="border-primary/10 bg-primary/10 text-primary">
-                    Version {dataset.cityJsonVersion ?? '—'}
+                    {dataset.cityJsonKind}
                   </Badge>
-                  <Badge variant="outline">{dataset.cityJsonKind}</Badge>
-                  <Badge variant="outline">{dataset.features.length} features</Badge>
                   {annotationSourceName && <Badge variant="outline">Validation loaded</Badge>}
                 </div>
               </div>
