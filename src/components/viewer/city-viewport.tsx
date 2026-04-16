@@ -581,14 +581,6 @@ function CityViewport({
           typeof meshHit.faceIndex === 'number'
             ? triangleFaceIndices[meshHit.faceIndex] ?? null
             : null
-        const isClickedObjectSelected =
-          selection.selectedFeatureId === featureId && selection.activeObjectId === objectId
-
-        if (!isClickedObjectSelected) {
-          onSelectSemanticSurfaceRef.current(null)
-          onSelectFeatureRef.current(featureId, objectId)
-          return
-        }
 
         const feature = currentData.features.find((candidate) => candidate.id === featureId) ?? null
         const object = feature?.objects.find((candidate) => candidate.id === objectId) ?? null

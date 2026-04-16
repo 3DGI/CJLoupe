@@ -11,16 +11,15 @@ import {
   FileText,
   Github,
   Layers,
-  LocateFixed,
   Maximize2,
   Minimize2,
   Moon,
   RotateCcw,
   RotateCw,
   Search,
-  ScrollText,
   SquareMousePointer,
   Sun,
+  TableProperties,
   Upload,
   X,
   TriangleAlert,
@@ -986,7 +985,7 @@ function App() {
   const handleSelectFeature = useCallback((
     featureId: string,
     objectId?: string | null,
-    options?: { preserveEditMode?: boolean },
+    options?: { preserveEditMode?: boolean; openMobileDetails?: boolean },
   ) => {
     const feature = featureMap.get(featureId)
     if (!feature) {
@@ -1006,7 +1005,7 @@ function App() {
         setShowVertexGizmo(false)
       }
 
-      if (isMobileLayout) {
+      if (isMobileLayout && options?.openMobileDetails) {
         setMobilePanelView('details')
       }
       setSelectedFeatureId(featureId)
@@ -1031,6 +1030,13 @@ function App() {
     handleSelectFeature(featureId, null, { preserveEditMode: true })
     centerFeatureById(featureId)
   }, [centerFeatureById, handleSelectFeature])
+
+  const handleViewportSelectFeature = useCallback((
+    featureId: string,
+    objectId?: string | null,
+  ) => {
+    handleSelectFeature(featureId, objectId, { openMobileDetails: true })
+  }, [handleSelectFeature])
 
   const handleSelectFace = useCallback((faceIndex: number | null) => {
     setSelectedFaceIndex(faceIndex)
@@ -1279,10 +1285,16 @@ function App() {
   const isFeaturePanelVisible = !isMobileLayout || mobilePanelView === 'features'
   const isDetailPanelVisible = !isMobileLayout || mobilePanelView === 'details'
   const detailOverlayPositionClass = isMobileLayout ? 'bottom-20 left-3 right-3' : 'bottom-12 left-4 max-w-md'
-  const viewportToolbarPositionClass = 'left-3 right-3 top-4'
+  const semanticOverlayPositionClass = isMobileLayout ? 'left-3 right-3 top-4' : 'left-4 top-4 max-w-md'
+  const mobileViewportHeightClass = isPaneCollapsed
+    ? 'h-[calc(100dvh_-_(3.5rem+env(safe-area-inset-bottom)))]'
+    : detailPaneMode === 'fullscreen'
+      ? 'h-0'
+      : 'h-[calc(100dvh_-_min(76dvh,42rem))]'
+  const mobileViewportToolbarPositionClass = 'bottom-3 right-3'
   const viewportStatusBarPositionClass = 'bottom-0 left-0 right-0'
   const viewportGeometryBarPositionClass = isMobileLayout
-    ? 'right-3 top-20'
+    ? 'bottom-3 left-3'
     : 'right-4'
   const mobilePanelTabs: Array<{ view: MobilePanelView; label: string; disabled?: boolean }> = [
     { view: 'features', label: 'Features' },
@@ -1464,6 +1476,18 @@ function App() {
                     variant="ghost"
                     size="icon"
                     className="ml-auto size-8"
+                    onClick={() => setIsInfoDialogOpen(true)}
+                    disabled={!dataset}
+                    aria-label="Show file information"
+                    title="Show file information"
+                  >
+                    <FileText className="size-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-8"
                     onClick={toggleDetailPaneFullscreen}
                     aria-label={detailPaneMode === 'fullscreen' ? 'Exit full panel view' : 'Expand panel to fullscreen'}
                     title={detailPaneMode === 'fullscreen' ? 'Exit full panel view' : 'Expand panel to fullscreen'}
@@ -1498,6 +1522,7 @@ function App() {
                     onShowOnlyInvalidFeaturesChange={handleShowOnlyInvalidFeaturesChange}
                     onCenterFeature={handleCenterFeature}
                     onSelectFeature={handleSelectFeature}
+                    onShowFeatureDetails={isMobileLayout ? () => setMobilePanelView('details') : null}
                     onShowInfo={dataset ? () => setIsInfoDialogOpen(true) : null}
                     activeObjectId={activeObject?.id ?? null}
                     activeGeometryIndex={resolvedActiveGeometryIndex}
@@ -1714,7 +1739,12 @@ function App() {
         </div>
       </aside>
 
-      <div className="relative h-full min-w-0 flex-1">
+      <div
+        className={cn(
+          'relative min-w-0 flex-1',
+          isMobileLayout ? mobileViewportHeightClass : 'h-full',
+        )}
+      >
         <Suspense fallback={<div className="h-full w-full bg-canvas" />}>
           <CityViewport
             key={viewportResetRevision}
@@ -1739,7 +1769,7 @@ function App() {
             showVertexGizmo={showVertexGizmo}
             mobileInteraction={isMobileLayout}
             mobileSelectionMode={mobileInspectMode}
-            onSelectFeature={handleSelectFeature}
+            onSelectFeature={handleViewportSelectFeature}
             onSelectFace={handleSelectFace}
             onSelectVertex={handleSelectVertex}
             onSelectSemanticSurface={handleSelectSemanticSurface}
@@ -1775,7 +1805,8 @@ function App() {
 
         {!editMode && showSemanticSurfaces && activeSemanticSurface && (
           <SemanticSurfaceOverlay
-            positionClassName={detailOverlayPositionClass}
+            key={`${activeSemanticSurface.objectId}:${activeSemanticSurface.geometryIndex}:${activeSemanticSurface.faceIndex}:${activeSemanticSurface.surface.surfaceIndex}`}
+            positionClassName={semanticOverlayPositionClass}
             semanticSurface={activeSemanticSurface}
           />
         )}
@@ -1784,7 +1815,7 @@ function App() {
           <div
             className={cn(
               'pointer-events-none absolute z-10',
-              viewportToolbarPositionClass,
+              mobileViewportToolbarPositionClass,
             )}
           >
             <MobileViewportToolbar
@@ -2201,51 +2232,77 @@ function SemanticSurfaceOverlay({
   }
 }) {
   const surfaceColor = semanticSurfaceColor(semanticSurface.surface.type)
+  const [isOpen, setIsOpen] = useState(false)
 
   return (
     <div className={cn('pointer-events-none absolute z-10', positionClassName)}>
-      <div className="floating-panel pointer-events-auto space-y-3 rounded-sm border p-3">
-        <div className="flex items-center gap-2">
-          <Badge
-            variant="outline"
-            className="text-foreground"
-            style={{
-              borderColor: `${surfaceColor}66`,
-              backgroundColor: `${surfaceColor}22`,
-              color: surfaceColor,
-            }}
-          >
-            {semanticSurface.surface.type}
-          </Badge>
-          <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
-            {formatObjectDisplayId(semanticSurface.objectId)}
-          </Badge>
-          <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
-            geom {semanticSurface.geometryIndex}
-          </Badge>
-          <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
-            face {semanticSurface.faceIndex}
-          </Badge>
+      <Collapsible
+        open={isOpen}
+        onOpenChange={setIsOpen}
+        className="floating-panel pointer-events-auto rounded-sm border p-2"
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <Badge
+              variant="outline"
+              className="min-w-0 truncate text-foreground"
+              style={{
+                borderColor: `${surfaceColor}66`,
+                backgroundColor: `${surfaceColor}22`,
+                color: surfaceColor,
+              }}
+            >
+              {semanticSurface.surface.type}
+            </Badge>
+            <Badge variant="outline" className="shrink-0 border-border bg-background/60 text-muted-foreground">
+              face {semanticSurface.faceIndex}
+            </Badge>
+          </div>
+          <CollapsibleTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-7 shrink-0"
+              aria-label={isOpen ? 'Collapse semantic surface attributes' : 'Expand semantic surface attributes'}
+              title={isOpen ? 'Collapse' : 'Expand'}
+            >
+              {isOpen ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+            </Button>
+          </CollapsibleTrigger>
         </div>
 
-        {Object.keys(semanticSurface.surface.attributes).length > 0 ? (
-          <dl className="m-0 space-y-2">
-            {Object.entries(semanticSurface.surface.attributes).map(([key, value]) => (
-              <div
-                key={key}
-                className="rounded-sm border border-foreground/8 bg-foreground/3 px-2.5 py-1.5"
-              >
-                <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
-                  {key}
-                </dt>
-                <dd className="mt-1 text-sm text-foreground/80">{formatValue(value)}</dd>
-              </div>
-            ))}
-          </dl>
-        ) : (
-          <p className="text-sm text-muted-foreground">No semantic surface attributes.</p>
-        )}
-      </div>
+        <CollapsibleContent className="overflow-hidden">
+          <div className="mt-3 space-y-3 border-t border-border/55 pt-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
+                {formatObjectDisplayId(semanticSurface.objectId)}
+              </Badge>
+              <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
+                geom {semanticSurface.geometryIndex}
+              </Badge>
+            </div>
+
+            {Object.keys(semanticSurface.surface.attributes).length > 0 ? (
+              <dl className="m-0 space-y-2">
+                {Object.entries(semanticSurface.surface.attributes).map(([key, value]) => (
+                  <div
+                    key={key}
+                    className="rounded-sm border border-foreground/8 bg-foreground/3 px-2.5 py-1.5"
+                  >
+                    <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
+                      {key}
+                    </dt>
+                    <dd className="mt-1 text-sm text-foreground/80">{formatValue(value)}</dd>
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <p className="text-sm text-muted-foreground">No semantic surface attributes.</p>
+            )}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
     </div>
   )
 }
@@ -2265,39 +2322,44 @@ function MobileViewportToolbar({
   onToggleMobileInspectMode: () => void
   onCenterCurrentSelection: () => void
 }) {
+  if (!hasSelectedFeature) {
+    return null
+  }
+
   return (
-    <div className="floating-panel pointer-events-auto flex max-w-[min(100vw-2rem,28rem)] flex-wrap items-center gap-2 rounded-sm border px-2 py-2">
-      {hasSelectedFeature && (
-        <Button
-          variant={showSemanticSurfaces ? 'secondary' : 'ghost'}
-          size="sm"
-          className="h-8 px-2.5"
-          onClick={onToggleSemanticSurfaces}
-        >
-          Sem
-        </Button>
-      )}
-      {hasSelectedFeature && showSemanticSurfaces && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 px-2.5"
+    <div className="floating-panel pointer-events-auto flex flex-col items-center gap-1 rounded-sm border p-1">
+      <ToolbarToggleButton
+        active={showSemanticSurfaces}
+        onClick={onToggleSemanticSurfaces}
+        ariaLabel="Toggle semantic surface colors"
+        iconSrc={materialIconUrl}
+      >
+        Semantics
+      </ToolbarToggleButton>
+      {showSemanticSurfaces && (
+        <ToolbarToggleButton
+          active={mobileInspectMode === 'surface'}
           onClick={onToggleMobileInspectMode}
+          ariaLabel={
+            mobileInspectMode === 'surface'
+              ? 'Switch to object selection'
+              : 'Switch to surface selection'
+          }
+          iconSrc={faceSelectIconUrl}
         >
-          {mobileInspectMode === 'surface' ? 'Surface' : 'Object'}
-        </Button>
+          {mobileInspectMode === 'surface' ? 'Surface selection' : 'Object selection'}
+        </ToolbarToggleButton>
       )}
-      {hasSelectedFeature && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="ml-auto h-8 gap-1.5 px-2.5"
-          onClick={onCenterCurrentSelection}
-        >
-          <LocateFixed className="size-3.5" />
-          Center
-        </Button>
-      )}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-7"
+        onClick={onCenterCurrentSelection}
+        aria-label="Center current selection"
+        title="Center current selection"
+      >
+        <MaskIcon src={trackerIconUrl} className="size-3.5" />
+      </Button>
     </div>
   )
 }
@@ -2635,7 +2697,7 @@ function ObjectTreeIndicators({
     <div className="flex shrink-0 items-center gap-1 text-muted-foreground">
       {hasAttributes && (
         <span title="Has attributes" aria-label="Has attributes" className="inline-flex items-center justify-center">
-          <ScrollText className="size-3" />
+          <TableProperties className="size-3" />
         </span>
       )}
       {errorCount > 0 && (
@@ -2934,6 +2996,7 @@ const FeatureListRow = memo(function FeatureListRow({
   activeGeometryIndex,
   onCenterFeature,
   onSelectFeature,
+  onShowFeatureDetails,
   onHeightChange,
 }: {
   item: FeatureListItem
@@ -2942,6 +3005,7 @@ const FeatureListRow = memo(function FeatureListRow({
   activeGeometryIndex: number | null
   onCenterFeature: (featureId: string) => void
   onSelectFeature: (featureId: string, objectId?: string | null) => void
+  onShowFeatureDetails: (() => void) | null
   onHeightChange: (featureId: string, height: number) => void
 }) {
   const { feature, objectTypes, errorCodeSummary, errorCount, isInvalid } = item
@@ -3061,6 +3125,20 @@ const FeatureListRow = memo(function FeatureListRow({
           >
             <Crosshair className="size-3.5" />
           </Button>
+          {selected && onShowFeatureDetails && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="mt-0.5 h-7 shrink-0 px-2 text-xs"
+              onClick={(event) => {
+                event.stopPropagation()
+                onShowFeatureDetails()
+              }}
+            >
+              Details
+            </Button>
+          )}
         </div>
 
         <CollapsibleContent className="overflow-hidden">
@@ -3092,6 +3170,7 @@ const FeatureListPanel = memo(function FeatureListPanel({
   onShowOnlyInvalidFeaturesChange,
   onCenterFeature,
   onSelectFeature,
+  onShowFeatureDetails,
   onShowInfo,
   activeObjectId,
   activeGeometryIndex,
@@ -3108,6 +3187,7 @@ const FeatureListPanel = memo(function FeatureListPanel({
   onShowOnlyInvalidFeaturesChange: (checked: boolean) => void
   onCenterFeature: (featureId: string) => void
   onSelectFeature: (featureId: string, objectId?: string | null) => void
+  onShowFeatureDetails: (() => void) | null
   onShowInfo: (() => void) | null
   activeObjectId: string | null
   activeGeometryIndex: number | null
@@ -3312,6 +3392,7 @@ const FeatureListPanel = memo(function FeatureListPanel({
                     activeGeometryIndex={isSelected ? activeGeometryIndex : null}
                     onCenterFeature={onCenterFeature}
                     onSelectFeature={onSelectFeature}
+                    onShowFeatureDetails={onShowFeatureDetails}
                     onHeightChange={handleRowHeightChange}
                   />
                 </div>
