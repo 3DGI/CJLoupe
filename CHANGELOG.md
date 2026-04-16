@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Improvements to mobile UI
 - Add file information dialog showing CityJSON version, transform, feature count, and populated metadata fields
 - remodel file open dialog
 - Add support for loading CityJSON and val3dity report files from URLs via dialog, paste (`cj` only), or `?cj=` / `?val=` URL parameters
