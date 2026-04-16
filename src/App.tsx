@@ -1289,10 +1289,13 @@ function App() {
     ? 'left-3 right-3 top-[calc(env(safe-area-inset-top)+1rem)]'
     : 'left-4 top-4 max-w-md'
   const mobileViewportHeightClass = isPaneCollapsed
-    ? 'h-[calc(100dvh_-_(3.5rem+env(safe-area-inset-bottom)))]'
+    ? 'h-[calc(100dvh_+_env(safe-area-inset-top)_-_(3.5rem+env(safe-area-inset-bottom)))]'
     : detailPaneMode === 'fullscreen'
       ? 'h-0'
-      : 'h-[calc(100dvh_-_min(76dvh,42rem))]'
+      : 'h-[calc(100dvh_+_env(safe-area-inset-top)_-_min(76dvh,42rem))]'
+  const mobileViewportTopClass = isMobileLayout && detailPaneMode !== 'fullscreen'
+    ? '-top-[env(safe-area-inset-top)]'
+    : 'top-0'
   const mobileViewportToolbarPositionClass = 'bottom-3 right-3'
   const viewportStatusBarPositionClass = 'bottom-0 left-0 right-0'
   const viewportGeometryBarPositionClass = isMobileLayout
@@ -1744,6 +1747,7 @@ function App() {
       <div
         className={cn(
           'relative min-w-0 flex-1',
+          mobileViewportTopClass,
           isMobileLayout ? mobileViewportHeightClass : 'h-full',
         )}
       >
