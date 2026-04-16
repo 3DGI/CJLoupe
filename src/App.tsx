@@ -1285,14 +1285,12 @@ function App() {
   const isFeaturePanelVisible = !isMobileLayout || mobilePanelView === 'features'
   const isDetailPanelVisible = !isMobileLayout || mobilePanelView === 'details'
   const detailOverlayPositionClass = isMobileLayout ? 'bottom-20 left-3 right-3' : 'bottom-12 left-4 max-w-md'
-  const semanticOverlayPositionClass = isMobileLayout
-    ? 'left-3 right-3 top-[calc(env(safe-area-inset-top)+1rem)]'
-    : 'left-4 top-4 max-w-md'
-  const mobileViewportFrameClass = isPaneCollapsed
-    ? 'fixed inset-x-0 top-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))]'
+  const semanticOverlayPositionClass = isMobileLayout ? 'left-3 right-3 top-4' : 'left-4 top-4 max-w-md'
+  const mobileViewportHeightClass = isPaneCollapsed
+    ? 'h-[calc(100dvh_-_(3.5rem+env(safe-area-inset-bottom)))]'
     : detailPaneMode === 'fullscreen'
-      ? 'fixed inset-x-0 top-0 h-0 overflow-hidden'
-      : 'fixed inset-x-0 top-0 bottom-[min(76dvh,42rem)]'
+      ? 'h-0'
+      : 'h-[calc(100dvh_-_min(76dvh,42rem))]'
   const mobileViewportToolbarPositionClass = 'bottom-3 right-3'
   const viewportStatusBarPositionClass = 'bottom-0 left-0 right-0'
   const viewportGeometryBarPositionClass = isMobileLayout
@@ -1344,8 +1342,8 @@ function App() {
   return (
     <div
       className={cn(
-        'relative h-dvh w-screen bg-background text-foreground',
-        isMobileLayout ? 'block overflow-visible' : 'flex overflow-hidden',
+        'relative h-dvh w-screen overflow-hidden bg-background text-foreground',
+        isMobileLayout ? 'block' : 'flex',
       )}
       onDragEnter={(event) => { event.preventDefault(); dragCountRef.current++; setIsDragging(true) }}
       onDragOver={(event) => event.preventDefault()}
@@ -1744,7 +1742,7 @@ function App() {
       <div
         className={cn(
           'relative min-w-0 flex-1',
-          isMobileLayout ? mobileViewportFrameClass : 'h-full',
+          isMobileLayout ? mobileViewportHeightClass : 'h-full',
         )}
       >
         <Suspense fallback={<div className="h-full w-full bg-canvas" />}>

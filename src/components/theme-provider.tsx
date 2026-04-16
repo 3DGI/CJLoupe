@@ -5,10 +5,6 @@ import { ThemeContext, type Theme } from '@/components/theme-context'
 const STORAGE_KEY = 'cjloupe-theme'
 const MEDIA_QUERY = '(prefers-color-scheme: dark)'
 const THEME_CHANGING_CLASS = 'theme-changing'
-const THEME_CHROME_COLORS: Record<Theme, string> = {
-  light: '#f4f7f9',
-  dark: '#07111d',
-}
 
 let themeTransitionCleanupFrame: number | null = null
 
@@ -42,15 +38,9 @@ function suppressTransitionsDuringThemeChange(root: HTMLElement) {
 
 function applyTheme(theme: Theme) {
   const root = document.documentElement
-  const themeColor = THEME_CHROME_COLORS[theme]
   suppressTransitionsDuringThemeChange(root)
   root.classList.toggle('dark', theme === 'dark')
   root.style.colorScheme = theme
-  root.style.backgroundColor = themeColor
-  document.body.style.backgroundColor = themeColor
-  for (const meta of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) {
-    meta.content = themeColor
-  }
 }
 
 function ThemeProvider({ children }: { children: ReactNode }) {
