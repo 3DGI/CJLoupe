@@ -1285,7 +1285,9 @@ function App() {
   const isFeaturePanelVisible = !isMobileLayout || mobilePanelView === 'features'
   const isDetailPanelVisible = !isMobileLayout || mobilePanelView === 'details'
   const detailOverlayPositionClass = isMobileLayout ? 'bottom-20 left-3 right-3' : 'bottom-12 left-4 max-w-md'
-  const semanticOverlayPositionClass = isMobileLayout ? 'left-3 right-3 top-4' : 'left-4 top-4 max-w-md'
+  const semanticOverlayPositionClass = isMobileLayout
+    ? 'left-3 right-3 top-[calc(env(safe-area-inset-top)+1rem)]'
+    : 'left-4 top-4 max-w-md'
   const mobileViewportHeightClass = isPaneCollapsed
     ? 'h-[calc(100dvh_-_(3.5rem+env(safe-area-inset-bottom)))]'
     : detailPaneMode === 'fullscreen'
