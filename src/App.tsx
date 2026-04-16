@@ -4044,21 +4044,23 @@ function ExtentCoordinates({
   ]
 
   return (
-    <span className="grid grid-cols-[2.5rem_repeat(3,max-content)] gap-x-2 gap-y-0.5 font-mono text-[12px]">
-      {rows.map((row) => (
-        <span key={row.label} className="contents">
-          <span aria-hidden="true" className="select-none text-muted-foreground">
-            {row.label}:
-          </span>
-          {row.values.map((entry, index) => (
-            <span key={index}>
-              {row.formatValue(entry)}
-              {index < row.values.length - 1 ? ',' : ''}
+    <div className="max-w-full overflow-x-auto">
+      <div className="grid w-max grid-cols-[2.5rem_repeat(3,max-content)] gap-x-2 gap-y-0.5 font-mono text-[12px]">
+        {rows.map((row) => (
+          <span key={row.label} className="contents">
+            <span aria-hidden="true" className="select-none text-muted-foreground">
+              {row.label}:
             </span>
-          ))}
-        </span>
-      ))}
-    </span>
+            {row.values.map((entry, index) => (
+              <span key={index}>
+                {row.formatValue(entry)}
+                {index < row.values.length - 1 ? ',' : ''}
+              </span>
+            ))}
+          </span>
+        ))}
+      </div>
+    </div>
   )
 }
 
