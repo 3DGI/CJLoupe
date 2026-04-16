@@ -54,6 +54,8 @@ import restrictSelectOffIconUrl from '@/assets/blender-icons/restrict_select_off
 import restrictSelectOnIconUrl from '@/assets/blender-icons/restrict_select_on.svg'
 import trackerIconUrl from '@/assets/blender-icons/tracker.svg'
 import vertexSelectIconUrl from '@/assets/blender-icons/vertexsel.svg'
+import changelogText from '../CHANGELOG.md?raw'
+import packageJson from '../package.json'
 import {
   assertValidationAnnotationsMatchDataset,
   loadCityJsonFromFile,
@@ -80,6 +82,7 @@ const SAMPLE_URL = `${import.meta.env.BASE_URL}samples/rf-val3dity.city.jsonl`
 const SAMPLE_REPORT_URL = `${import.meta.env.BASE_URL}samples/val-report.json`
 const VAL3DITY_ERRORS_URL = 'https://val3dity.readthedocs.io/2.6.0/errors/'
 const GITHUB_REPO_URL = 'https://github.com/3DGI/CJLoupe'
+const APP_VERSION = packageJson.version
 const DEFAULT_CAMERA_FOCAL_LENGTH = 50
 const BAG_BUILDING_ID_PREFIX = 'NL.IMBAG.Pand.'
 
@@ -150,6 +153,7 @@ function App() {
   const [isHelpCollapsed, setIsHelpCollapsed] = useState(false)
   const [isFileDialogOpen, setIsFileDialogOpen] = useState(false)
   const [isInfoDialogOpen, setIsInfoDialogOpen] = useState(false)
+  const [isChangelogDialogOpen, setIsChangelogDialogOpen] = useState(false)
   const [cityJsonUrlInput, setCityJsonUrlInput] = useState('')
   const [annotationUrlInput, setAnnotationUrlInput] = useState('')
   const [isMobileLayout, setIsMobileLayout] = useState(false)
@@ -469,6 +473,21 @@ function App() {
     window.addEventListener('keydown', handleEscape)
     return () => window.removeEventListener('keydown', handleEscape)
   }, [isInfoDialogOpen])
+
+  useEffect(() => {
+    if (!isChangelogDialogOpen) {
+      return
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsChangelogDialogOpen(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [isChangelogDialogOpen])
 
   async function openCityJsonFile(file: File) {
     setIsLoading(true)
@@ -1385,16 +1404,28 @@ function App() {
                   : (isPaneCollapsed ? <ChevronRight /> : <ChevronLeft />)}
               </Button>
               {isMobileLayout ? (
-                <span className="truncate text-sm font-black uppercase tracking-[0.28em] text-foreground/86">
-                  CJLoupe
-                </span>
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="truncate text-sm font-black uppercase tracking-[0.28em] text-foreground/86">
+                    CJLoupe
+                  </span>
+                  <VersionButton
+                    className="hidden min-[420px]:inline-flex"
+                    onClick={() => setIsChangelogDialogOpen(true)}
+                  />
+                </div>
               ) : (
-                <span
-                  className="pointer-events-none select-none font-black uppercase tracking-[0.34em] text-foreground/86 [writing-mode:vertical-rl]"
-                  style={{ textOrientation: 'mixed' }}
-                >
-                  CJLoupe
-                </span>
+                <div className="flex flex-col items-center gap-1">
+                  <span
+                    className="pointer-events-none select-none font-black uppercase tracking-[0.34em] text-foreground/86 [writing-mode:vertical-rl]"
+                    style={{ textOrientation: 'mixed' }}
+                  >
+                    CJLoupe
+                  </span>
+                  <VersionButton
+                    className="[writing-mode:vertical-rl]"
+                    onClick={() => setIsChangelogDialogOpen(true)}
+                  />
+                </div>
               )}
               <div className="relative">
                 <Button
@@ -2076,6 +2107,13 @@ function App() {
         />
       )}
 
+      {isChangelogDialogOpen && (
+        <ChangelogDialog
+          changelog={changelogText}
+          onClose={() => setIsChangelogDialogOpen(false)}
+        />
+      )}
+
       {isErrorDialogVisible && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/42 backdrop-blur-md">
           <div className="w-full max-w-lg rounded-sm border border-destructive/35 bg-background/94 p-5 shadow-[0_28px_100px_rgb(0_0_0_/_0.28)]">
@@ -2361,6 +2399,29 @@ function MobileViewportToolbar({
         <MaskIcon src={trackerIconUrl} className="size-3.5" />
       </Button>
     </div>
+  )
+}
+
+function VersionButton({
+  className,
+  onClick,
+}: {
+  className?: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        'rounded-sm px-0.5 py-0 font-mono text-[10px] font-medium leading-none text-muted-foreground transition hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30',
+        className,
+      )}
+      onClick={onClick}
+      aria-label={`Open changelog for version ${APP_VERSION}`}
+      title={`CJLoupe ${APP_VERSION} changelog`}
+    >
+      v{APP_VERSION}
+    </button>
   )
 }
 
@@ -3931,6 +3992,75 @@ function InfoDialog({
   )
 }
 
+function ChangelogDialog({
+  changelog,
+  onClose,
+}: {
+  changelog: string
+  onClose: () => void
+}) {
+  const sections = parseChangelog(changelog)
+
+  return (
+    <div className="absolute inset-0 z-50 flex items-center justify-center overflow-y-auto bg-background/42 px-4 py-4 backdrop-blur-md">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="changelog-dialog-title"
+        className="flex min-h-0 max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-sm border border-border/45 bg-background/96 shadow-[0_28px_100px_rgb(0_0_0_/_0.28)]"
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-border/40 p-5">
+          <div className="min-w-0">
+            <p
+              id="changelog-dialog-title"
+              className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary"
+            >
+              Changelog
+            </p>
+            <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2">
+              <p className="truncate text-sm text-muted-foreground">CJLoupe</p>
+              <span className="text-sm font-bold text-foreground">
+                v{APP_VERSION}
+              </span>
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-8 shrink-0"
+            onClick={onClose}
+            aria-label="Close changelog"
+            title="Close"
+          >
+            <X className="size-4" />
+          </Button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          <div className="space-y-5">
+            {sections.map((section) => (
+              <section key={section.heading}>
+                <h2 className="text-sm font-semibold text-foreground">{section.heading}</h2>
+                {section.items.length > 0 && (
+                  <ul className="mt-2 space-y-1.5 text-sm leading-6 text-foreground/82">
+                    {section.items.map((item, index) => (
+                      <li key={`${section.heading}:${index}`} className="flex gap-2">
+                        <span aria-hidden="true" className="mt-2 size-1 shrink-0 rounded-full bg-primary/70" />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function InfoRow({
   label,
   value,
@@ -4027,6 +4157,29 @@ function MetadataValue({
   }
 
   return String(value)
+}
+
+function parseChangelog(markdown: string): Array<{ heading: string; items: string[] }> {
+  const sections: Array<{ heading: string; items: string[] }> = []
+  let current: { heading: string; items: string[] } | null = null
+
+  for (const rawLine of markdown.split('\n')) {
+    const line = rawLine.trim()
+
+    if (line.startsWith('## ')) {
+      current = { heading: line.replace(/^##\s+/, ''), items: [] }
+      sections.push(current)
+      continue
+    }
+
+    if (!current || !line.startsWith('- ')) {
+      continue
+    }
+
+    current.items.push(line.replace(/^-\s+/, ''))
+  }
+
+  return sections
 }
 
 function ExtentCoordinates({
