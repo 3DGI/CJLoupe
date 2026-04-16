@@ -152,6 +152,7 @@ function App() {
   const [isHelpCollapsed, setIsHelpCollapsed] = useState(false)
   const [isFileDialogOpen, setIsFileDialogOpen] = useState(false)
   const [cityJsonUrlInput, setCityJsonUrlInput] = useState('')
+  const [annotationUrlInput, setAnnotationUrlInput] = useState('')
   const [isMobileLayout, setIsMobileLayout] = useState(false)
   const [mobileInspectMode, setMobileInspectMode] = useState<MobileInspectMode>('object')
   const [mobilePanelView, setMobilePanelView] = useState<MobilePanelView>('features')
@@ -472,6 +473,24 @@ function App() {
     }
   }
 
+  function applyLoadedAnnotations(
+    currentDataset: ViewerDataset,
+    annotations: Map<string, { validity: boolean; errors: ViewerValidationError[] }>,
+    sourceName: string,
+  ) {
+    assertValidationAnnotationsMatchDataset(currentDataset, annotations)
+    setDataset((current) => {
+      if (!current) {
+        return current
+      }
+
+      const nextDataset = mergeValidationAnnotations(current, annotations)
+      setShowOnlyInvalidFeatures(nextDataset.features.some((feature) => feature.errors.length > 0))
+      return nextDataset
+    })
+    setAnnotationSourceName(sourceName)
+  }
+
   async function openAnnotationFile(file: File) {
     if (!dataset) {
       setError('Open a CityJSON file before loading annotations.')
@@ -484,19 +503,36 @@ function App() {
 
     try {
       const annotations = await loadValidationReportFromFile(file)
-      assertValidationAnnotationsMatchDataset(dataset, annotations)
-      setDataset((current) => {
-        if (!current) {
-          return current
-        }
-
-        const nextDataset = mergeValidationAnnotations(current, annotations)
-        setShowOnlyInvalidFeatures(nextDataset.features.some((feature) => feature.errors.length > 0))
-        return nextDataset
-      })
-      setAnnotationSourceName(file.name)
+      applyLoadedAnnotations(dataset, annotations, file.name)
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to parse annotation report.'
+      setError(message)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  async function openAnnotationFromUrl(url: string) {
+    if (!dataset) {
+      setError('Open a CityJSON file before loading annotations.')
+      return
+    }
+
+    const trimmed = stripGzSuffix(url.trim())
+    if (!trimmed) {
+      return
+    }
+
+    setIsLoading(true)
+    setError(null)
+    setIsFileDialogOpen(false)
+    setAnnotationUrlInput('')
+
+    try {
+      const annotations = await loadValidationReportFromUrl(trimmed)
+      applyLoadedAnnotations(dataset, annotations, deriveSourceNameFromUrl(trimmed))
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : 'Failed to load val3dity report from URL.'
       setError(message)
     } finally {
       setIsLoading(false)
@@ -625,6 +661,29 @@ function App() {
     }
   }, [applyDataset])
 
+  const loadFromUrlParams = useCallback(async (cjUrl: string, valUrl: string) => {
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const cleanCjUrl = stripGzSuffix(cjUrl.trim())
+      const cleanValUrl = stripGzSuffix(valUrl.trim())
+      const [nextDataset, annotations] = await Promise.all([
+        loadCityJsonFromUrl(cleanCjUrl, deriveSourceNameFromUrl(cleanCjUrl)),
+        loadValidationReportFromUrl(cleanValUrl),
+      ])
+      assertValidationAnnotationsMatchDataset(nextDataset, annotations)
+      const mergedDataset = mergeValidationAnnotations(nextDataset, annotations)
+      applyDataset(mergedDataset)
+      setAnnotationSourceName(deriveSourceNameFromUrl(cleanValUrl))
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : 'Failed to load files from URL parameters.'
+      setError(message)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [applyDataset])
+
   const openCityJsonFromUrl = useCallback(async (url: string) => {
     const trimmed = stripGzSuffix(url.trim())
     if (!trimmed) {
@@ -651,13 +710,17 @@ function App() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    const urlParam = params.get('url')
-    if (urlParam) {
-      void openCityJsonFromUrl(urlParam)
+    const cjParam = params.get('cj')
+    const valParam = params.get('val')
+
+    if (cjParam && valParam) {
+      void loadFromUrlParams(cjParam, valParam)
+    } else if (cjParam) {
+      void openCityJsonFromUrl(cjParam)
     } else {
       void loadFromSample()
     }
-  }, [loadFromSample, openCityJsonFromUrl])
+  }, [loadFromSample, loadFromUrlParams, openCityJsonFromUrl])
 
   useEffect(() => {
     const handlePaste = (event: ClipboardEvent) => {
@@ -1939,6 +2002,33 @@ function App() {
                     </Button>
                   )}
                 </div>
+                <form
+                  className="mt-3 flex gap-2"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    void openAnnotationFromUrl(annotationUrlInput)
+                  }}
+                >
+                  <Input
+                    type="url"
+                    inputMode="url"
+                    placeholder="https://example.com/report.json"
+                    value={annotationUrlInput}
+                    onChange={(event) => setAnnotationUrlInput(event.target.value)}
+                    aria-label="Val3dity report URL"
+                    className="min-w-0 flex-1"
+                    disabled={!dataset}
+                  />
+                  <Button
+                    type="submit"
+                    variant="outline"
+                    disabled={!dataset || tryParseHttpUrl(annotationUrlInput) === null}
+                    title={dataset ? undefined : 'Open a CityJSON file first'}
+                    aria-label="Open val3dity report URL"
+                  >
+                    Open URL
+                  </Button>
+                </form>
                 {!dataset && (
                   <p className="mt-3 text-xs leading-5 text-muted-foreground">
                     Open a CityJSON file before loading a report.

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Add support for loading CityJSON files from URLs via dialog, paste, or `?url=` parameter
+- Add support for loading CityJSON and val3dity report files from URLs via dialog, paste (`cj` only), or `?cj=` / `?val=` URL parameters
 
 ## 0.3.0
 
