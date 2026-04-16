@@ -22,6 +22,7 @@ import {
   ScrollText,
   SquareMousePointer,
   Sun,
+  Upload,
   X,
   TriangleAlert,
 } from 'lucide-react'
@@ -150,6 +151,7 @@ function App() {
   const [isDragging, setIsDragging] = useState(false)
   const [isHelpCollapsed, setIsHelpCollapsed] = useState(false)
   const [isFileDialogOpen, setIsFileDialogOpen] = useState(false)
+  const [cityJsonUrlInput, setCityJsonUrlInput] = useState('')
   const [isMobileLayout, setIsMobileLayout] = useState(false)
   const [mobileInspectMode, setMobileInspectMode] = useState<MobileInspectMode>('object')
   const [mobilePanelView, setMobilePanelView] = useState<MobilePanelView>('features')
@@ -623,9 +625,53 @@ function App() {
     }
   }, [applyDataset])
 
+  const openCityJsonFromUrl = useCallback(async (url: string) => {
+    const trimmed = stripGzSuffix(url.trim())
+    if (!trimmed) {
+      return
+    }
+
+    setIsLoading(true)
+    setError(null)
+    setIsFileDialogOpen(false)
+    setCityJsonUrlInput('')
+
+    try {
+      const sourceName = deriveSourceNameFromUrl(trimmed)
+      const nextDataset = await loadCityJsonFromUrl(trimmed, sourceName)
+      applyDataset(nextDataset)
+      setAnnotationSourceName(null)
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : 'Failed to load file from URL.'
+      setError(message)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [applyDataset])
+
   useEffect(() => {
     void loadFromSample()
   }, [loadFromSample])
+
+  useEffect(() => {
+    const handlePaste = (event: ClipboardEvent) => {
+      if (isEditableTarget(event.target)) {
+        return
+      }
+
+      const text = event.clipboardData?.getData('text') ?? ''
+      const url = tryParseHttpUrl(text)
+      if (!url) {
+        return
+      }
+
+      event.preventDefault()
+      void openCityJsonFromUrl(url)
+    }
+
+    window.addEventListener('paste', handlePaste)
+    return () => window.removeEventListener('paste', handlePaste)
+  }, [openCityJsonFromUrl])
 
   function clearAnnotations() {
     setDataset((current) => (current ? mergeValidationAnnotations(current, new Map()) : current))
@@ -1775,7 +1821,7 @@ function App() {
                   Open files
                 </p>
                 <p className="mt-2 text-sm leading-6 text-foreground/82">
-                  Choose a CityJSON file and an optional val3dity report.
+                  Choose a CityJSON file and an optional val3dity report. Or just drag and drop files into this window.
                 </p>
               </div>
               <Button
@@ -1809,11 +1855,39 @@ function App() {
                   type="button"
                   className="mt-4 w-full"
                   onClick={triggerCityJsonInput}
-                  aria-label={dataset ? 'Replace CityJSON file' : 'Open CityJSON file'}
+                  aria-label={dataset ? 'Upload a CityJSON file to replace the current one' : 'Upload a CityJSON file'}
                 >
-                  <FolderOpen className="size-4" />
-                  {dataset ? 'Replace CityJSON' : 'Open CityJSON'}
+                  <Upload className="size-4" />
+                  {dataset ? 'Replace with uploaded file' : 'Upload CityJSON file'}
                 </Button>
+                <form
+                  className="mt-3 flex gap-2"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    void openCityJsonFromUrl(cityJsonUrlInput)
+                  }}
+                >
+                  <Input
+                    type="url"
+                    inputMode="url"
+                    placeholder="https://example.com/model.city.jsonl"
+                    value={cityJsonUrlInput}
+                    onChange={(event) => setCityJsonUrlInput(event.target.value)}
+                    aria-label="CityJSON URL"
+                    className="min-w-0 flex-1"
+                  />
+                  <Button
+                    type="submit"
+                    variant="outline"
+                    disabled={tryParseHttpUrl(cityJsonUrlInput) === null}
+                    aria-label="Open CityJSON URL"
+                  >
+                    Open URL
+                  </Button>
+                </form>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Or paste a URL anywhere in the window to open it.
+                </p>
               </section>
 
               <div className="h-px bg-border/70 md:h-auto md:w-px" />
@@ -1839,11 +1913,11 @@ function App() {
                     className="min-w-0 flex-1"
                     onClick={triggerAnnotationInput}
                     disabled={!dataset}
-                    aria-label={annotationSourceName ? 'Replace val3dity report' : 'Load val3dity report'}
+                    aria-label={annotationSourceName ? 'Upload a val3dity report to replace the current one' : 'Upload a val3dity report'}
                     title={dataset ? undefined : 'Open a CityJSON file first'}
                   >
-                    <FolderOpen className="size-4" />
-                    {annotationSourceName ? 'Replace .json' : 'Open .json'}
+                    <Upload className="size-4" />
+                    {annotationSourceName ? 'Replace with uploaded file' : 'Upload val3dity report'}
                   </Button>
                   {annotationSourceName && (
                     <Button
@@ -3432,6 +3506,50 @@ function isCityJsonFileName(name: string) {
     name.endsWith('.city.json') ||
     name.endsWith('.cityjson')
   )
+}
+
+function stripGzSuffix(url: string) {
+  try {
+    const parsed = new URL(url)
+    if (parsed.pathname.toLowerCase().endsWith('.gz')) {
+      parsed.pathname = parsed.pathname.slice(0, -3)
+      return parsed.toString()
+    }
+    return url
+  } catch {
+    return url.toLowerCase().endsWith('.gz') ? url.slice(0, -3) : url
+  }
+}
+
+function tryParseHttpUrl(text: string): string | null {
+  const trimmed = text.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  try {
+    const parsed = new URL(trimmed)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null
+    }
+    return parsed.toString()
+  } catch {
+    return null
+  }
+}
+
+function deriveSourceNameFromUrl(url: string) {
+  try {
+    const parsed = new URL(url)
+    const segments = parsed.pathname.split('/').filter(Boolean)
+    const last = segments[segments.length - 1]
+    if (last) {
+      return decodeURIComponent(last)
+    }
+    return parsed.host || url
+  } catch {
+    return url
+  }
 }
 
 function getPickingModeIconUrl(mode: ViewerPickingMode) {
