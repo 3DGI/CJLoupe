@@ -1,13 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 - 2026-04-16
 
+- Show the app version in the rail and open the changelog from it.
 - Improvements to mobile UI
 - Add file information dialog showing CityJSON version, transform, feature count, and populated metadata fields
 - remodel file open dialog
 - Add support for loading CityJSON and val3dity report files from URLs via dialog, paste (`cj` only), or `?cj=` / `?val=` URL parameters
 
-## 0.3.0
+## 0.3.0 - 2026-04-14
 
 - Add support for regular CityJSON files
 - Do not pick hidden objects
@@ -17,7 +18,7 @@
 - New open file dialog
 - Refined the desktop viewport chrome with Blender-style tool icons, a vertical tool bar, a compact bottom status bar, viewport-center coordinates, and a pick-mode dropdown.
 
-## 0.2.0
+## 0.2.0 - 2026-04-10
 
 - LoD support
 - Show object tree in features list items
@@ -36,7 +37,7 @@
 - details panel hides the error count when no val3dity report is loaded
 - validation report uploads now fail fast for invalid val3dity JSON structure or non-matching datasets
 
-## 0.1.0
+## 0.1.0 - 2026-04-08
 
 Initial release.
 
