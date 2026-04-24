@@ -1279,7 +1279,7 @@ function buildGroupedObjectGeometry(
 
     const groupIndex = faceGroups.get(polyIndex) ?? 0
     const groupIndices = groupedIndices.get(groupIndex) ?? []
-    groupIndices.push(...polygonIndices)
+    appendNumbers(groupIndices, polygonIndices)
     groupedIndices.set(groupIndex, groupIndices)
 
     const groupFaceIndices = triangleFaceIndicesByGroup.get(groupIndex) ?? []
@@ -1300,8 +1300,8 @@ function buildGroupedObjectGeometry(
     const groupIndices = groupedIndices.get(key) ?? []
     const groupFaceIndices = triangleFaceIndicesByGroup.get(key) ?? []
     const start = allIndices.length
-    allIndices.push(...groupIndices)
-    triangleFaceIndices.push(...groupFaceIndices)
+    appendNumbers(allIndices, groupIndices)
+    appendNumbers(triangleFaceIndices, groupFaceIndices)
     geometry.addGroup(start, groupIndices.length, key)
   }
 
@@ -1309,6 +1309,12 @@ function buildGroupedObjectGeometry(
   geometry.userData.triangleFaceIndices = triangleFaceIndices
   geometry.computeBoundingSphere()
   return geometry
+}
+
+function appendNumbers(target: number[], source: ArrayLike<number>) {
+  for (let index = 0; index < source.length; index += 1) {
+    target.push(source[index])
+  }
 }
 
 function replaceMeshGeometry(mesh: THREE.Mesh, geometry: THREE.BufferGeometry) {

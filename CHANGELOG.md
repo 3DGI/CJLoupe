@@ -1,5 +1,7 @@
 # Changelog
 
+- Fix crash while loading file with very large geometries
+
 ## 0.4.0 - 2026-04-16
 
 - Show the app version in the rail and open the changelog from it.
