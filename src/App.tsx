@@ -5,7 +5,9 @@ import {
   ChevronRight,
   ChevronUp,
   Camera,
+  Check,
   CircleHelp,
+  Copy,
   Crosshair,
   FolderOpen,
   FileText,
@@ -2570,13 +2572,47 @@ function DesktopViewportStatusBar({
   cameraFocalLength: number
   onCameraFocalLengthChange: (value: number) => void
 }) {
+  const [didCopyObjectId, setDidCopyObjectId] = useState(false)
+
+  useEffect(() => {
+    if (!didCopyObjectId) {
+      return
+    }
+
+    const timeout = window.setTimeout(() => {
+      setDidCopyObjectId(false)
+    }, 1200)
+
+    return () => window.clearTimeout(timeout)
+  }, [didCopyObjectId])
+
   return (
     <div className="floating-panel pointer-events-auto flex min-h-8 items-center justify-between gap-3 border border-x-0 border-b-0 px-2 py-1">
       <div className="flex min-w-0 items-center gap-2">
         {isPaneCollapsed && (
-          <Badge variant="outline" className="min-w-0 border-primary/25 bg-primary/10 text-primary">
+          <Badge
+            variant="outline"
+            className="min-w-0 gap-1 border-primary/25 bg-primary/10 text-primary"
+          >
             <SquareMousePointer className="mr-1 size-3.5 shrink-0" />
             <span className="truncate">{activeObjectId ?? 'No object'}</span>
+            {activeObjectId && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-5 w-5 shrink-0 rounded-[3px] text-primary hover:bg-primary/12 hover:text-primary"
+                aria-label={`Copy full object ID ${activeObjectId}`}
+                title={didCopyObjectId ? 'Copied full object ID' : `Copy full object ID: ${activeObjectId}`}
+                onClick={() => {
+                  void navigator.clipboard.writeText(activeObjectId).then(() => {
+                    setDidCopyObjectId(true)
+                  })
+                }}
+              >
+                {didCopyObjectId ? <Check className="size-3" /> : <Copy className="size-3" />}
+              </Button>
+            )}
           </Badge>
         )}
         <div className="flex min-w-0 items-center gap-2 rounded-sm border border-border/70 bg-background/35 px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
@@ -3061,6 +3097,7 @@ const FeatureListRow = memo(function FeatureListRow({
 }) {
   const { feature, objectTypes, errorCodeSummary, errorCount, isInvalid } = item
   const rowRef = useRef<HTMLDivElement | null>(null)
+  const [didCopyFeatureId, setDidCopyFeatureId] = useState(false)
   const errorCountsByObjectId = useMemo(() => {
     const counts = new Map<string, number>()
 
@@ -3091,6 +3128,18 @@ const FeatureListRow = memo(function FeatureListRow({
 
     return () => resizeObserver.disconnect()
   }, [feature.id, onHeightChange])
+
+  useEffect(() => {
+    if (!didCopyFeatureId) {
+      return
+    }
+
+    const timeout = window.setTimeout(() => {
+      setDidCopyFeatureId(false)
+    }, 1200)
+
+    return () => window.clearTimeout(timeout)
+  }, [didCopyFeatureId])
 
   return (
     <Collapsible open={selected}>
@@ -3123,8 +3172,34 @@ const FeatureListRow = memo(function FeatureListRow({
             >
               <div className="min-w-0 flex-1 overflow-hidden text-left">
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <p className="text-sm font-medium leading-5">{feature.label}</p>
-                  <div className="flex flex-wrap items-center gap-1">
+                  <div className="flex min-w-0 shrink items-center gap-1">
+                    <p className="truncate text-sm font-medium leading-5">{feature.label}</p>
+                    <span
+                      className="inline-flex"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                      }}
+                    >
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5 rounded-[3px] text-muted-foreground hover:text-foreground"
+                        aria-label={`Copy full feature ID ${feature.id}`}
+                        title={didCopyFeatureId ? 'Copied full feature ID' : `Copy full feature ID: ${feature.id}`}
+                        onClick={(event) => {
+                          event.stopPropagation()
+
+                          void navigator.clipboard.writeText(feature.id).then(() => {
+                            setDidCopyFeatureId(true)
+                          })
+                        }}
+                      >
+                        {didCopyFeatureId ? <Check className="size-3" /> : <Copy className="size-3" />}
+                      </Button>
+                    </span>
+                  </div>
+                  <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
                     {objectTypes.length > 0 ? (
                       objectTypes.map((objectType) => (
                         <Badge
@@ -3161,7 +3236,6 @@ const FeatureListRow = memo(function FeatureListRow({
               </div>
             </button>
           </CollapsibleTrigger>
-
           <Button
             type="button"
             variant="ghost"

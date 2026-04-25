@@ -1,6 +1,7 @@
 # Changelog
 
 - Fix crash while loading file with very large geometries
+- Add button to copy feature ID to clipboard
 
 ## 0.4.0 - 2026-04-16
 
