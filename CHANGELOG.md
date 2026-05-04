@@ -2,6 +2,8 @@
 
 - Fix crash while loading file with very large geometries
 - Add button to copy feature ID to clipboard
+- Add desktop pinned attributes for tracking selected object values in the viewport
+- Show filename in page title
 - Refine feature and details panel metadata layout: joined geometry type/LoD chips, object type count pills, tab count badges, and shared ID copy buttons
 
 ## 0.4.0 - 2026-04-16

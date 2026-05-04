@@ -16,6 +16,9 @@ import {
   Maximize2,
   Minimize2,
   Moon,
+  Network,
+  Pin,
+  PinOff,
   Pyramid,
   RotateCcw,
   RotateCw,
@@ -104,6 +107,8 @@ const FEATURE_LIST_ROW_GAP = 6
 const FEATURE_LIST_TOP_PADDING = 8
 const FEATURE_LIST_BOTTOM_PADDING = 12
 const FEATURE_LIST_OVERSCAN = 6
+const EMPTY_CITY_OBJECTS: ViewerCityObject[] = []
+const EMPTY_ATTRIBUTES: Record<string, unknown> = {}
 
 const CityViewport = lazy(() =>
   import('@/components/viewer/city-viewport').then((module) => ({ default: module.CityViewport })),
@@ -150,6 +155,8 @@ function App() {
   const [showOnlyInvalidFeatures, setShowOnlyInvalidFeatures] = useState(false)
   const [showSemanticSurfaces, setShowSemanticSurfaces] = useState(false)
   const [isolateSelectedFeature, setIsolateSelectedFeature] = useState(false)
+  const [pinnedAttributeKeys, setPinnedAttributeKeys] = useState<string[]>([])
+  const [isPinnedAttributesOpen, setIsPinnedAttributesOpen] = useState(false)
   const [detailTab, setDetailTab] = useState('errors')
   const [detailPaneMode, setDetailPaneMode] = useState<DetailPaneMode>('split')
   const [isDragging, setIsDragging] = useState(false)
@@ -181,10 +188,12 @@ function App() {
 
   const selectedFeature = selectedFeatureId ? featureMap.get(selectedFeatureId) ?? null : null
   const availableLods = useMemo(() => collectAvailableLods(dataset), [dataset])
+  const selectedFeatureObjects = selectedFeature?.objects ?? EMPTY_CITY_OBJECTS
   const activeObject =
-    selectedFeature?.objects.find((object) => object.id === activeObjectId) ??
-    selectedFeature?.objects[0] ??
+    selectedFeatureObjects.find((object) => object.id === activeObjectId) ??
+    selectedFeatureObjects[0] ??
     null
+  const activeObjectAttributes = activeObject?.attributes ?? EMPTY_ATTRIBUTES
   const detailTitleLabel = activeObject ? formatObjectDisplayId(activeObject.id) : selectedFeature?.label ?? 'No item selected'
   const resolvedActiveGeometryIndex = activeObject
     ? resolveObjectGeometryIndex(activeObject, geometryDisplayMode, activeGeometryIndex)
@@ -241,6 +250,43 @@ function App() {
   const hasDetailErrors = visibleDetailErrorCount > 0
   const hasDetailAttributes = activeObjectAttributeCount > 0
   const hasDetailGeometries = activeObjectGeometryCount > 0
+  const pinnedAttributes = useMemo(() => {
+    const activeObjectAncestors = pinnedAttributeKeys.length > 0
+      ? collectObjectAncestors(activeObject, selectedFeatureObjects)
+      : EMPTY_CITY_OBJECTS
+
+    return pinnedAttributeKeys.map((key) => {
+      if (Object.prototype.hasOwnProperty.call(activeObjectAttributes, key)) {
+        return {
+          key,
+          hasValue: true,
+          value: activeObjectAttributes[key],
+          isInherited: false,
+        }
+      }
+
+      const parent = activeObjectAncestors.find((object) =>
+        Object.prototype.hasOwnProperty.call(object.attributes, key),
+      )
+
+      if (parent) {
+        return {
+          key,
+          hasValue: true,
+          value: parent.attributes[key],
+          isInherited: true,
+        }
+      }
+
+      return {
+        key,
+        hasValue: false,
+        value: undefined,
+        isInherited: false,
+      }
+    })
+  }, [activeObject, activeObjectAttributes, pinnedAttributeKeys, selectedFeatureObjects])
+  const pinnedAttributeCount = pinnedAttributeKeys.length
   const availableDetailTabs = [
     hasDetailErrors ? 'errors' : null,
     hasDetailAttributes ? 'attributes' : null,
@@ -306,6 +352,10 @@ function App() {
     mediaQuery.addEventListener('change', updateLayout)
     return () => mediaQuery.removeEventListener('change', updateLayout)
   }, [])
+
+  useEffect(() => {
+    document.title = dataset?.sourceName ? `CJLoupe - ${dataset.sourceName}` : 'CJLoupe'
+  }, [dataset?.sourceName])
 
   useEffect(() => {
     if (!isMobileLayout) {
@@ -655,6 +705,8 @@ function App() {
     setPickingMode('object')
     setShowVertexGizmo(false)
     setSelectedSemanticSurface(null)
+    setPinnedAttributeKeys([])
+    setIsPinnedAttributesOpen(false)
     setViewportResetRevision((current) => current + 1)
   }, [])
 
@@ -813,6 +865,21 @@ function App() {
       setIsPaneCollapsed((current) => !current)
     })
   }
+
+  const handlePinAttribute = useCallback((key: string) => {
+    setPinnedAttributeKeys((current) => {
+      if (current.includes(key)) {
+        return current
+      }
+
+      return [...current, key]
+    })
+    setIsPinnedAttributesOpen(true)
+  }, [])
+
+  const handleUnpinAttribute = useCallback((key: string) => {
+    setPinnedAttributeKeys((current) => current.filter((entry) => entry !== key))
+  }, [])
 
   const handleSelectSemanticSurface = useCallback((surface: {
     featureId: string
@@ -1475,7 +1542,7 @@ function App() {
                 </Badge>
               </div>
             ) : (
-              <div className="flex min-h-8 w-full items-center justify-center border-t border-accent/30 bg-accent/10 text-accent">
+              <div className="flex h-8 w-full items-center justify-center border-t border-accent/30 bg-accent/10 text-accent">
                 <span className="font-mono text-sm font-medium leading-none">
                   {dataset?.features.length ?? 0}
                 </span>
@@ -1738,7 +1805,11 @@ function App() {
                                 {hasDetailAttributes && (
                                   <TabsContent key={`${detailSelectionKey}::attributes`} value="attributes">
                                     <DetailAttributePanel
-                                      objectAttributes={activeObject?.attributes ?? {}}
+                                      objectAttributes={activeObjectAttributes}
+                                      canPinAttributes={!isMobileLayout}
+                                      pinnedAttributeKeys={pinnedAttributeKeys}
+                                      onPinAttribute={handlePinAttribute}
+                                      onUnpinAttribute={handleUnpinAttribute}
                                     />
                                   </TabsContent>
                                 )}
@@ -1846,6 +1917,15 @@ function App() {
           />
         )}
 
+        {!isMobileLayout && isPinnedAttributesOpen && (
+          <PinnedAttributesOverlay
+            positionClassName="bottom-12 left-4 max-w-sm"
+            pinnedAttributes={pinnedAttributes}
+            onCollapse={() => setIsPinnedAttributesOpen(false)}
+            onUnpinAttribute={handleUnpinAttribute}
+          />
+        )}
+
         {isMobileLayout ? (
           <div
             className={cn(
@@ -1905,12 +1985,15 @@ function App() {
             )}
           >
             <DesktopViewportStatusBar
+              isPinnedAttributesOpen={isPinnedAttributesOpen}
+              pinnedAttributeCount={pinnedAttributeCount}
               isPaneCollapsed={isPaneCollapsed}
               activeObjectId={activeObject?.id ?? null}
               viewportCenter={viewportCenter}
               selectedVertexIndex={selectedVertexIndex}
               cameraFocalLength={cameraFocalLength}
               onCameraFocalLengthChange={setCameraFocalLength}
+              onTogglePinnedAttributesOpen={() => setIsPinnedAttributesOpen((current) => !current)}
             />
           </div>
         )}
@@ -2560,19 +2643,25 @@ function DesktopViewportToolbar({
 }
 
 function DesktopViewportStatusBar({
+  isPinnedAttributesOpen,
+  pinnedAttributeCount,
   isPaneCollapsed,
   activeObjectId,
   viewportCenter,
   selectedVertexIndex,
   cameraFocalLength,
   onCameraFocalLengthChange,
+  onTogglePinnedAttributesOpen,
 }: {
+  isPinnedAttributesOpen: boolean
+  pinnedAttributeCount: number
   isPaneCollapsed: boolean
   activeObjectId: string | null
   viewportCenter: Vec3 | null
   selectedVertexIndex: number | null
   cameraFocalLength: number
   onCameraFocalLengthChange: (value: number) => void
+  onTogglePinnedAttributesOpen: () => void
 }) {
   const [didCopyObjectId, setDidCopyObjectId] = useState(false)
 
@@ -2589,21 +2678,43 @@ function DesktopViewportStatusBar({
   }, [didCopyObjectId])
 
   return (
-    <div className="floating-panel pointer-events-auto flex min-h-8 items-center justify-between gap-3 border border-x-0 border-b-0 px-2 py-1">
-      <div className="flex min-w-0 items-center gap-2">
+    <div className="floating-panel pointer-events-auto flex h-8 items-center justify-between gap-2 overflow-hidden border border-x-0 border-b-0 px-1.5">
+      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={cn(
+            'relative size-6 shrink-0 rounded-[3px] p-0',
+            isPinnedAttributesOpen
+              ? 'bg-primary/10 text-primary hover:bg-primary/14 hover:text-primary'
+              : 'text-muted-foreground hover:bg-accent/10 hover:text-foreground',
+          )}
+          onClick={onTogglePinnedAttributesOpen}
+          aria-label={isPinnedAttributesOpen ? 'Collapse pinned attributes' : 'Expand pinned attributes'}
+          aria-expanded={isPinnedAttributesOpen}
+          title={isPinnedAttributesOpen ? 'Collapse pinned attributes' : 'Expand pinned attributes'}
+        >
+          <Pin className="size-3" />
+          {pinnedAttributeCount > 0 && (
+            <span className="absolute right-0 top-0 inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[8px] font-semibold leading-none text-primary-foreground">
+              {pinnedAttributeCount}
+            </span>
+          )}
+        </Button>
         {isPaneCollapsed && (
           <Badge
             variant="outline"
-            className="min-w-0 gap-1 border-primary/25 bg-primary/10 text-primary"
+            className="h-6 min-w-0 max-w-[min(16rem,30vw)] gap-1 overflow-hidden border-primary/25 bg-primary/10 px-1.5 py-0 text-[10px] text-primary"
           >
-            <SquareMousePointer className="mr-1 size-3.5 shrink-0" />
+            <SquareMousePointer className="size-3 shrink-0" />
             <span className="truncate">{activeObjectId ?? 'No object'}</span>
             {activeObjectId && (
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-5 w-5 shrink-0 rounded-[3px] text-primary hover:bg-primary/12 hover:text-primary"
+                className="h-4.5 w-4.5 shrink-0 rounded-[3px] p-0 text-primary hover:bg-primary/12 hover:text-primary"
                 aria-label={`Copy full object ID ${activeObjectId}`}
                 title={didCopyObjectId ? 'Copied full object ID' : `Copy full object ID: ${activeObjectId}`}
                 onClick={() => {
@@ -2612,12 +2723,12 @@ function DesktopViewportStatusBar({
                   })
                 }}
               >
-                {didCopyObjectId ? <Check className="size-3" /> : <Copy className="size-3" />}
+                {didCopyObjectId ? <Check className="size-2.5" /> : <Copy className="size-2.5" />}
               </Button>
             )}
           </Badge>
         )}
-        <div className="flex min-w-0 items-center gap-2 rounded-sm border border-border/70 bg-background/35 px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
+        <div className="flex h-6 min-w-0 items-center gap-1.5 overflow-hidden rounded-sm border border-border/70 bg-background/35 px-1.5 font-mono text-[10px] text-muted-foreground">
           <span className="shrink-0 text-foreground/75">center</span>
           <span className="min-w-0 truncate">
             {viewportCenter ? formatCoordinateTriple(viewportCenter) : '-, -, -'}
@@ -2627,9 +2738,9 @@ function DesktopViewportStatusBar({
           )}
         </div>
       </div>
-      <div className="floating-chip flex shrink-0 items-center gap-1.5 rounded-sm border px-2 py-0.5">
-        <Camera className="size-3.5 text-muted-foreground" />
-        <span className="font-mono text-[11px] text-muted-foreground">{cameraFocalLength}mm</span>
+      <div className="floating-chip flex h-6 shrink-0 items-center gap-1.5 rounded-sm border px-1.5">
+        <Camera className="size-3 text-muted-foreground" />
+        <span className="font-mono text-[10px] text-muted-foreground">{cameraFocalLength}mm</span>
         <input
           type="range"
           min={12}
@@ -2637,7 +2748,7 @@ function DesktopViewportStatusBar({
           step={1}
           value={cameraFocalLength}
           onChange={(event) => onCameraFocalLengthChange(Number(event.target.value))}
-          className="slider-accent h-2 w-24 cursor-pointer appearance-none rounded-none bg-input"
+          className="slider-accent h-2 w-20 cursor-pointer appearance-none rounded-none bg-input"
           aria-label="Camera focal length"
         />
       </div>
@@ -2743,6 +2854,37 @@ function collectExpandedObjectIds(activeObjectId: string | null, objectById: Map
 
   visit(activeObjectId)
   return expandedIds
+}
+
+function collectObjectAncestors(
+  object: ViewerCityObject | null,
+  objects: ViewerCityObject[],
+) {
+  if (!object || object.parentIds.length === 0) {
+    return []
+  }
+
+  const objectById = new Map(objects.map((entry) => [entry.id, entry]))
+  const ancestors: ViewerCityObject[] = []
+  const visited = new Set<string>()
+
+  const visit = (objectId: string) => {
+    if (visited.has(objectId)) {
+      return
+    }
+
+    visited.add(objectId)
+    const parent = objectById.get(objectId)
+    if (!parent) {
+      return
+    }
+
+    ancestors.push(parent)
+    parent.parentIds.forEach(visit)
+  }
+
+  object.parentIds.forEach(visit)
+  return ancestors
 }
 
 function getObjectGeometryChips(geometries: ViewerObjectGeometry[]) {
@@ -3689,8 +3831,16 @@ function ToolbarPickingButton({
 
 const DetailAttributePanel = memo(function DetailAttributePanel({
   objectAttributes,
+  canPinAttributes,
+  pinnedAttributeKeys,
+  onPinAttribute,
+  onUnpinAttribute,
 }: {
   objectAttributes: Record<string, unknown>
+  canPinAttributes: boolean
+  pinnedAttributeKeys: string[]
+  onPinAttribute: (key: string) => void
+  onUnpinAttribute: (key: string) => void
 }) {
   const hasObjectAttributes = Object.keys(objectAttributes).length > 0
 
@@ -3706,6 +3856,10 @@ const DetailAttributePanel = memo(function DetailAttributePanel({
     <AttributeSection
       attributes={objectAttributes}
       emptyText="No attributes on the active object."
+      canPinAttributes={canPinAttributes}
+      pinnedAttributeKeys={pinnedAttributeKeys}
+      onPinAttribute={onPinAttribute}
+      onUnpinAttribute={onUnpinAttribute}
     />
   )
 })
@@ -3770,16 +3924,30 @@ const DetailGeometryPanel = memo(function DetailGeometryPanel({
 function AttributeSection({
   attributes,
   emptyText,
+  canPinAttributes,
+  pinnedAttributeKeys,
+  onPinAttribute,
+  onUnpinAttribute,
 }: {
   attributes: Record<string, unknown>
   emptyText: string
+  canPinAttributes: boolean
+  pinnedAttributeKeys: string[]
+  onPinAttribute: (key: string) => void
+  onUnpinAttribute: (key: string) => void
 }) {
   const entries = Object.entries(attributes)
 
   return (
     <section>
       {entries.length > 0 ? (
-        <AttributeList attributes={attributes} />
+        <AttributeList
+          attributes={attributes}
+          canPinAttributes={canPinAttributes}
+          pinnedAttributeKeys={pinnedAttributeKeys}
+          onPinAttribute={onPinAttribute}
+          onUnpinAttribute={onUnpinAttribute}
+        />
       ) : (
         <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-3 py-4 text-sm text-muted-foreground">
           {emptyText}
@@ -3789,29 +3957,180 @@ function AttributeSection({
   )
 }
 
-const AttributeList = memo(function AttributeList({ attributes }: { attributes: Record<string, unknown> }) {
+const AttributeList = memo(function AttributeList({
+  attributes,
+  canPinAttributes,
+  pinnedAttributeKeys,
+  onPinAttribute,
+  onUnpinAttribute,
+}: {
+  attributes: Record<string, unknown>
+  canPinAttributes: boolean
+  pinnedAttributeKeys: string[]
+  onPinAttribute: (key: string) => void
+  onUnpinAttribute: (key: string) => void
+}) {
+  const pinnedAttributeSet = useMemo(
+    () => (canPinAttributes ? new Set(pinnedAttributeKeys) : null),
+    [canPinAttributes, pinnedAttributeKeys],
+  )
+
   return (
     <dl className="m-0 min-w-0 space-y-2">
       {Object.entries(attributes).map(([key, value]) => (
         <div
           key={key}
-          className="min-w-0 w-full overflow-hidden rounded-sm border border-foreground/8 bg-foreground/3 px-2.5 py-1.5"
+          className={cn(
+            'min-w-0 w-full overflow-hidden rounded-sm border px-2.5 py-1.5 transition',
+            pinnedAttributeSet?.has(key)
+              ? 'border-primary/25 bg-primary/7'
+              : 'border-foreground/8 bg-foreground/3',
+          )}
         >
-          <dt className="m-0 min-w-0 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
-            {key}
-          </dt>
-          <dd className="m-0 mt-1 min-w-0 max-w-full">
-            <div className="min-w-0 max-w-full overflow-x-auto overflow-y-hidden">
-              <div className="w-fit min-w-full pr-2 whitespace-nowrap text-[13px] leading-5 text-foreground/80">
-                {formatValue(value)}
-              </div>
+          <div className="flex items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <dt className="m-0 min-w-0 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
+                {key}
+              </dt>
+              <dd className="m-0 mt-1 min-w-0 max-w-full">
+                <div className="min-w-0 max-w-full overflow-x-auto overflow-y-hidden">
+                  <div className="w-fit min-w-full pr-2 whitespace-nowrap text-[13px] leading-5 text-foreground/80">
+                    {formatValue(value)}
+                  </div>
+                </div>
+              </dd>
             </div>
-          </dd>
+            {canPinAttributes && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  'mt-0.5 h-7 w-7 shrink-0 rounded-[3px]',
+                  pinnedAttributeSet?.has(key)
+                    ? 'text-primary hover:bg-primary/12 hover:text-primary'
+                    : 'text-muted-foreground hover:bg-accent/10 hover:text-foreground',
+                )}
+                onClick={() => (pinnedAttributeSet?.has(key) ? onUnpinAttribute(key) : onPinAttribute(key))}
+                aria-label={pinnedAttributeSet?.has(key) ? `Unpin ${key}` : `Pin ${key}`}
+                title={pinnedAttributeSet?.has(key) ? `Unpin ${key}` : `Pin ${key}`}
+              >
+                {pinnedAttributeSet?.has(key) ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
+              </Button>
+            )}
+          </div>
         </div>
       ))}
     </dl>
   )
 })
+
+function PinnedAttributesOverlay({
+  positionClassName,
+  pinnedAttributes,
+  onCollapse,
+  onUnpinAttribute,
+}: {
+  positionClassName: string
+  pinnedAttributes: Array<{
+    key: string
+    hasValue: boolean
+    value: unknown
+    isInherited: boolean
+  }>
+  onCollapse: () => void
+  onUnpinAttribute: (key: string) => void
+}) {
+  return (
+    <div className={cn('pointer-events-none absolute z-20', positionClassName)}>
+      <div className="floating-panel pointer-events-auto flex max-h-[calc(100dvh-5rem)] w-full flex-col overflow-hidden rounded-sm border">
+        <div className="flex items-center justify-between gap-3 border-b border-border/55 px-3 py-2">
+          <div className="min-w-0">
+            <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+              Pinned attributes
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {pinnedAttributes.length > 0
+                ? `${pinnedAttributes.length} tracked field${pinnedAttributes.length === 1 ? '' : 's'}`
+                : 'No pinned fields'}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-7 shrink-0"
+            onClick={onCollapse}
+            aria-label="Collapse pinned attributes"
+            title="Collapse pinned attributes"
+          >
+            <ChevronDown className="size-4" />
+          </Button>
+        </div>
+
+        <ScrollArea className="min-h-0 flex-1">
+          <div className="p-1.5">
+            {pinnedAttributes.length > 0 ? (
+              <table className="w-full table-fixed border-collapse text-left">
+                <thead>
+                  <tr className="border-b border-border/55">
+                    <th className="w-[42%] px-1.5 py-1 font-mono text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                      Attribute
+                    </th>
+                    <th className="px-1.5 py-1 font-mono text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                      Value
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pinnedAttributes.map((entry) => (
+                    <tr key={entry.key} className="border-b border-border/35 last:border-b-0">
+                      <td className="min-w-0 px-1.5 py-1 align-top">
+                        <div className="flex min-w-0 items-center gap-1">
+                          {entry.isInherited && (
+                            <Network
+                              className="size-3 shrink-0 text-accent"
+                              aria-label="Resolved from parent attribute"
+                            />
+                          )}
+                          <span className="truncate font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground/78">
+                            {entry.key}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="min-w-0 px-1.5 py-1 align-top">
+                        <div className="flex min-w-0 items-start gap-1">
+                          <div className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden whitespace-nowrap text-[12px] leading-5 text-foreground/82">
+                            {entry.hasValue ? formatValue(entry.value) : '—'}
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5 shrink-0 rounded-[3px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                            onClick={() => onUnpinAttribute(entry.key)}
+                            aria-label={`Unpin ${entry.key}`}
+                            title={`Unpin ${entry.key}`}
+                          >
+                            <PinOff className="size-3" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-2 py-3 text-sm text-muted-foreground">
+                Pin attributes from the details panel to track them here.
+              </div>
+            )}
+          </div>
+        </ScrollArea>
+      </div>
+    </div>
+  )
+}
 
 function getAvailablePickingModes(editMode: boolean, showSemanticSurfaces: boolean) {
   if (editMode) return EDIT_PICKING_MODES
