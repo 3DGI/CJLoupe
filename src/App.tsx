@@ -16,6 +16,7 @@ import {
   Maximize2,
   Minimize2,
   Moon,
+  Pyramid,
   RotateCcw,
   RotateCw,
   Search,
@@ -179,12 +180,12 @@ function App() {
   }, [dataset])
 
   const selectedFeature = selectedFeatureId ? featureMap.get(selectedFeatureId) ?? null : null
-  const selectedFeatureObjectCount = selectedFeature?.objects.length ?? 0
   const availableLods = useMemo(() => collectAvailableLods(dataset), [dataset])
   const activeObject =
     selectedFeature?.objects.find((object) => object.id === activeObjectId) ??
     selectedFeature?.objects[0] ??
     null
+  const detailTitleLabel = activeObject ? formatObjectDisplayId(activeObject.id) : selectedFeature?.label ?? 'No item selected'
   const resolvedActiveGeometryIndex = activeObject
     ? resolveObjectGeometryIndex(activeObject, geometryDisplayMode, activeGeometryIndex)
     : null
@@ -1300,7 +1301,6 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [centerCurrentSelection, cycleGeometryDisplayMode, cycleSelectedFaceRing, cycleSelectedFaceVertex, dataset, editMode, handlePickingModeShortcut, restoreSelectedFeatureGeometry, selectedFeatureId, toggleEditMode])
 
-  const hasValidationReportLoaded = Boolean(annotationSourceName)
   const isErrorDialogVisible = Boolean(error && dismissedErrorMessage !== error)
   const isPaneContentVisible = !isPaneCollapsed
   const isFeaturePanelVisible = !isMobileLayout || mobilePanelView === 'features'
@@ -1577,7 +1577,7 @@ function App() {
                         : 'min-h-0 flex-1',
                   )}
                 >
-                  <div className="panel-header-surface space-y-2.5 p-4 pb-2.5">
+                  <div className="panel-header-surface space-y-1 p-4 pb-2.5">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
@@ -1585,21 +1585,14 @@ function App() {
                             <Box className="size-3.5" />
                           </span>
                           <p className="min-w-0 truncate text-sm font-semibold text-foreground">
-                            {activeObject ? formatObjectDisplayId(activeObject.id) : selectedFeature?.label ?? 'No item selected'}
+                            {detailTitleLabel}
                           </p>
+                          {activeObject && <CopyIdButton value={activeObject.id} label="object ID" />}
                           {activeObject && (
                             <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
                               {activeObject.type}
                             </Badge>
                           )}
-                        </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
-                          {!activeObject && <span>{selectedFeatureObjectCount} objects</span>}
-                          {activeObject && <span>{activeObjectGeometryCount} geometries</span>}
-                          {hasValidationReportLoaded && (
-                            <span>{visibleDetailErrorCount} errors</span>
-                          )}
-                          <span>{activeObjectAttributeCount} attributes</span>
                         </div>
                       </div>
 
@@ -1632,21 +1625,30 @@ function App() {
                     </div>
 
                     {detailPaneMode !== 'collapsed' && selectedFeature && hasDetailContent && (
-                      <div className="-mx-4 -mb-2.5 border-b border-border px-4 pt-1.5">
+                      <div className="-mx-4 -mb-2.5 border-b border-border px-4">
                         <TabsList className="gap-0">
                           {hasDetailErrors && (
-                            <TabsTrigger value="errors" className="detail-tab">
-                              Errors
+                            <TabsTrigger value="errors" className="detail-tab gap-1.5">
+                              <span>Errors</span>
+                              <span className="rounded-sm bg-foreground/8 px-1.5 py-0 text-[10px] text-muted-foreground">
+                                {visibleDetailErrorCount}
+                              </span>
                             </TabsTrigger>
                           )}
                           {hasDetailAttributes && (
-                            <TabsTrigger value="attributes" className="detail-tab">
-                              Attributes
+                            <TabsTrigger value="attributes" className="detail-tab gap-1.5">
+                              <span>Attributes</span>
+                              <span className="rounded-sm bg-foreground/8 px-1.5 py-0 text-[10px] text-muted-foreground">
+                                {activeObjectAttributeCount}
+                              </span>
                             </TabsTrigger>
                           )}
                           {hasDetailGeometries && (
-                            <TabsTrigger value="geometries" className="detail-tab">
-                              Geometries
+                            <TabsTrigger value="geometries" className="detail-tab gap-1.5">
+                              <span>Geometries</span>
+                              <span className="rounded-sm bg-foreground/8 px-1.5 py-0 text-[10px] text-muted-foreground">
+                                {activeObjectGeometryCount}
+                              </span>
                             </TabsTrigger>
                           )}
                         </TabsList>
@@ -2823,27 +2825,23 @@ function ObjectTreeGeometrySummary({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-1">
+    <div className="inline-flex overflow-hidden rounded-sm border border-foreground/10 bg-background/45">
       {geometryTypeLabel && (
-        <span className="rounded-sm border border-foreground/10 bg-background/45 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
+        <span className="bg-muted/70 px-1.5 py-0.5 text-[9px] font-medium text-foreground/80">
           {geometryTypeLabel}
         </span>
       )}
-      {chips.length > 0 && (
-        <div className="inline-flex overflow-hidden rounded-sm border border-foreground/10 bg-background/45">
-          {chips.map((chip, index) => (
-            <span
-              key={chip.key}
-              className={cn(
-                'px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground',
-                index > 0 && 'border-l border-foreground/10',
-              )}
-            >
-              {chip.label}
-            </span>
-          ))}
-        </div>
-      )}
+      {chips.map((chip, index) => (
+        <span
+          key={chip.key}
+          className={cn(
+            'bg-background/70 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground',
+            (geometryTypeLabel || index > 0) && 'border-l border-foreground/10',
+          )}
+        >
+          {chip.label}
+        </span>
+      ))}
     </div>
   )
 }
@@ -3076,6 +3074,55 @@ function ViewportGeometryModeBar({
   )
 }
 
+function CopyIdButton({
+  value,
+  label,
+}: {
+  value: string
+  label: string
+}) {
+  const [didCopy, setDidCopy] = useState(false)
+
+  useEffect(() => {
+    if (!didCopy) {
+      return
+    }
+
+    const timeout = window.setTimeout(() => {
+      setDidCopy(false)
+    }, 1200)
+
+    return () => window.clearTimeout(timeout)
+  }, [didCopy])
+
+  return (
+    <span
+      className="inline-flex"
+      onClick={(event) => {
+        event.stopPropagation()
+      }}
+    >
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="h-5 w-5 rounded-[3px] text-muted-foreground hover:text-foreground"
+        aria-label={`Copy full ${label} ${value}`}
+        title={didCopy ? `Copied full ${label}` : `Copy full ${label}: ${value}`}
+        onClick={(event) => {
+          event.stopPropagation()
+
+          void navigator.clipboard.writeText(value).then(() => {
+            setDidCopy(true)
+          })
+        }}
+      >
+        {didCopy ? <Check className="size-3" /> : <Copy className="size-3" />}
+      </Button>
+    </span>
+  )
+}
+
 const FeatureListRow = memo(function FeatureListRow({
   item,
   selected,
@@ -3097,7 +3144,13 @@ const FeatureListRow = memo(function FeatureListRow({
 }) {
   const { feature, objectTypes, errorCodeSummary, errorCount, isInvalid } = item
   const rowRef = useRef<HTMLDivElement | null>(null)
-  const [didCopyFeatureId, setDidCopyFeatureId] = useState(false)
+  const objectTypeCounts = useMemo(
+    () => objectTypes.map((objectType) => ({
+      count: feature.objects.filter((object) => object.type === objectType).length,
+      type: objectType,
+    })),
+    [feature.objects, objectTypes],
+  )
   const errorCountsByObjectId = useMemo(() => {
     const counts = new Map<string, number>()
 
@@ -3128,18 +3181,6 @@ const FeatureListRow = memo(function FeatureListRow({
 
     return () => resizeObserver.disconnect()
   }, [feature.id, onHeightChange])
-
-  useEffect(() => {
-    if (!didCopyFeatureId) {
-      return
-    }
-
-    const timeout = window.setTimeout(() => {
-      setDidCopyFeatureId(false)
-    }, 1200)
-
-    return () => window.clearTimeout(timeout)
-  }, [didCopyFeatureId])
 
   return (
     <Collapsible open={selected}>
@@ -3174,56 +3215,33 @@ const FeatureListRow = memo(function FeatureListRow({
                 <div className="flex flex-wrap items-center gap-1.5">
                   <div className="flex min-w-0 shrink items-center gap-1">
                     <p className="truncate text-sm font-medium leading-5">{feature.label}</p>
-                    <span
-                      className="inline-flex"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                      }}
-                    >
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-5 w-5 rounded-[3px] text-muted-foreground hover:text-foreground"
-                        aria-label={`Copy full feature ID ${feature.id}`}
-                        title={didCopyFeatureId ? 'Copied full feature ID' : `Copy full feature ID: ${feature.id}`}
-                        onClick={(event) => {
-                          event.stopPropagation()
-
-                          void navigator.clipboard.writeText(feature.id).then(() => {
-                            setDidCopyFeatureId(true)
-                          })
-                        }}
-                      >
-                        {didCopyFeatureId ? <Check className="size-3" /> : <Copy className="size-3" />}
-                      </Button>
-                    </span>
-                  </div>
-                  <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
-                    {objectTypes.length > 0 ? (
-                      objectTypes.map((objectType) => (
-                        <Badge
-                          key={objectType}
-                          variant="outline"
-                          className={cn(
-                            'px-1.5 py-0 text-[10px]',
-                            selected
-                              ? 'border-accent/30 bg-accent/10 text-accent'
-                              : isInvalid
-                                ? 'border-destructive/30 bg-destructive/12 text-destructive'
-                                : 'border-foreground/10 bg-foreground/5 text-foreground/60',
-                          )}
-                        >
-                          {objectType}
-                        </Badge>
-                      ))
-                    ) : (
-                      <span className="text-[10px] text-muted-foreground">No object types</span>
-                    )}
+                    <CopyIdButton value={feature.id} label="feature ID" />
                   </div>
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground">
-                  <span>{feature.objects.length} obj</span>
+                  {objectTypeCounts.length > 0 ? (
+                    objectTypeCounts.map(({ count, type }) => (
+                      <Badge
+                        key={type}
+                        variant="outline"
+                        className={cn(
+                          'px-1.5 py-0 text-[10px]',
+                          selected
+                            ? 'border-accent/30 bg-accent/10 text-accent'
+                            : isInvalid
+                              ? 'border-destructive/30 bg-destructive/12 text-destructive'
+                              : 'border-foreground/10 bg-foreground/5 text-foreground/60',
+                        )}
+                      >
+                        {type}
+                        {count > 1 && ` (${count})`}
+                      </Badge>
+                    ))
+                  ) : (
+                    <Badge variant="outline" className="border-foreground/10 bg-foreground/5 px-1.5 py-0 text-[10px] text-foreground/60">
+                      {feature.objects.length} obj
+                    </Badge>
+                  )}
                   <span>{feature.vertices.length} vtx</span>
                   {errorCount > 0 ? (
                     <span className="text-destructive">
@@ -3712,6 +3730,10 @@ const DetailGeometryPanel = memo(function DetailGeometryPanel({
       {geometries.map((geometry) => {
         const hasSemantics = geometry.semanticSurfaces.some((surface) => surface != null)
         const isActive = geometry.index === activeGeometryIndex
+        const lodChip = {
+          key: `lod:${geometry.index}:${geometry.lod ?? 'none'}`,
+          label: geometry.lod ? `LoD ${geometry.lod}` : 'No LoD',
+        }
 
         return (
           <div
@@ -3725,18 +3747,18 @@ const DetailGeometryPanel = memo(function DetailGeometryPanel({
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-sm font-medium text-foreground/90">
-                  {geometry.geometryType ?? `Geometry ${geometry.index}`}
+                <p className="flex items-center gap-1.5 text-sm font-medium text-foreground/90">
+                  <Pyramid className="size-3.5 text-muted-foreground" />
+                  geom {geometry.index}
                 </p>
                 <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
-                  <span>{geometry.lod ? `LOD ${geometry.lod}` : 'No LoD'}</span>
                   <span>{geometry.vertexIndices.length} vtx</span>
                   <span>{hasSemantics ? 'Semantics' : 'No semantics'}</span>
                 </div>
               </div>
-              <Badge variant="outline" className={cn('shrink-0 text-[10px]', isActive && 'border-primary/35 text-primary')}>
-                geom {geometry.index}
-              </Badge>
+              <div className="shrink-0">
+                <ObjectTreeGeometrySummary geometryTypeLabel={geometry.geometryType} chips={[lodChip]} />
+              </div>
             </div>
           </div>
         )
