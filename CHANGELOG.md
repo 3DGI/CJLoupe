@@ -5,6 +5,7 @@
 - Add desktop pinned attributes for tracking selected object values in the viewport
 - Show filename in page title
 - Refine feature and details panel metadata layout: joined geometry type/LoD chips, object type count pills, tab count badges, and shared ID copy buttons
+- Refine semantic attribute panel: stay open when selecting another semantic surface
 
 ## 0.4.0 - 2026-04-16
 

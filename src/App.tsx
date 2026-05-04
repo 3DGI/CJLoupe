@@ -157,6 +157,7 @@ function App() {
   const [isolateSelectedFeature, setIsolateSelectedFeature] = useState(false)
   const [pinnedAttributeKeys, setPinnedAttributeKeys] = useState<string[]>([])
   const [isPinnedAttributesOpen, setIsPinnedAttributesOpen] = useState(false)
+  const [isSemanticSurfaceOverlayOpen, setIsSemanticSurfaceOverlayOpen] = useState(false)
   const [detailTab, setDetailTab] = useState('errors')
   const [detailPaneMode, setDetailPaneMode] = useState<DetailPaneMode>('split')
   const [isDragging, setIsDragging] = useState(false)
@@ -707,6 +708,7 @@ function App() {
     setSelectedSemanticSurface(null)
     setPinnedAttributeKeys([])
     setIsPinnedAttributesOpen(false)
+    setIsSemanticSurfaceOverlayOpen(false)
     setViewportResetRevision((current) => current + 1)
   }, [])
 
@@ -1914,6 +1916,8 @@ function App() {
             key={`${activeSemanticSurface.objectId}:${activeSemanticSurface.geometryIndex}:${activeSemanticSurface.faceIndex}:${activeSemanticSurface.surface.surfaceIndex}`}
             positionClassName={semanticOverlayPositionClass}
             semanticSurface={activeSemanticSurface}
+            isOpen={isSemanticSurfaceOverlayOpen}
+            onOpenChange={setIsSemanticSurfaceOverlayOpen}
           />
         )}
 
@@ -2347,6 +2351,8 @@ function EditSelectionOverlay({
 function SemanticSurfaceOverlay({
   positionClassName,
   semanticSurface,
+  isOpen,
+  onOpenChange,
 }: {
   positionClassName: string
   semanticSurface: {
@@ -2355,15 +2361,16 @@ function SemanticSurfaceOverlay({
     faceIndex: number
     surface: ViewerSemanticSurface
   }
+  isOpen: boolean
+  onOpenChange: (open: boolean) => void
 }) {
   const surfaceColor = semanticSurfaceColor(semanticSurface.surface.type)
-  const [isOpen, setIsOpen] = useState(false)
 
   return (
     <div className={cn('pointer-events-none absolute z-30', positionClassName)}>
       <Collapsible
         open={isOpen}
-        onOpenChange={setIsOpen}
+        onOpenChange={onOpenChange}
         className="floating-panel pointer-events-auto flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden rounded-sm border p-2"
       >
         <div className="flex min-w-0 items-center gap-2">
@@ -2399,15 +2406,6 @@ function SemanticSurfaceOverlay({
 
         <CollapsibleContent className="min-h-0 overflow-y-auto">
           <div className="mt-3 space-y-3 border-t border-border/55 pt-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
-                {formatObjectDisplayId(semanticSurface.objectId)}
-              </Badge>
-              <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
-                geom {semanticSurface.geometryIndex}
-              </Badge>
-            </div>
-
             {Object.keys(semanticSurface.surface.attributes).length > 0 ? (
               <dl className="m-0 space-y-2">
                 {Object.entries(semanticSurface.surface.attributes).map(([key, value]) => (
