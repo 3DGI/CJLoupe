@@ -1,5 +1,7 @@
 # Changelog
 
+## 0.5.0 - 2026-05-04
+
 - Fix crash while loading file with very large geometries
 - Add button to copy feature ID to clipboard
 - Add desktop pinned attributes for tracking selected object values in the viewport
