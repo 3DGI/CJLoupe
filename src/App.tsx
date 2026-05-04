@@ -34,6 +34,7 @@ import { Suspense, lazy, memo, startTransition, useCallback, useEffect, useMemo,
 import type { ChangeEvent, ReactNode } from 'react'
 
 import { Badge } from '@/components/ui/badge'
+import { Kbd } from '@/components/ui/kbd'
 import {
   collectAvailableLods,
   getGeometryDisplayModeKey,
@@ -49,6 +50,7 @@ import { MaskIcon } from '@/components/ui/mask-icon'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTheme } from '@/components/use-theme'
 import cubeIconUrl from '@/assets/blender-icons/cube.svg'
 import editModeIconUrl from '@/assets/blender-icons/editmode_hlt.svg'
@@ -161,7 +163,7 @@ function App() {
   const [detailTab, setDetailTab] = useState('errors')
   const [detailPaneMode, setDetailPaneMode] = useState<DetailPaneMode>('split')
   const [isDragging, setIsDragging] = useState(false)
-  const [isHelpCollapsed, setIsHelpCollapsed] = useState(false)
+  const [isHelpCollapsed, setIsHelpCollapsed] = useState(true)
   const [isFileDialogOpen, setIsFileDialogOpen] = useState(false)
   const [isInfoDialogOpen, setIsInfoDialogOpen] = useState(false)
   const [isChangelogDialogOpen, setIsChangelogDialogOpen] = useState(false)
@@ -1371,6 +1373,13 @@ function App() {
   }, [centerCurrentSelection, cycleGeometryDisplayMode, cycleSelectedFaceRing, cycleSelectedFaceVertex, dataset, editMode, handlePickingModeShortcut, restoreSelectedFeatureGeometry, selectedFeatureId, toggleEditMode])
 
   const isErrorDialogVisible = Boolean(error && dismissedErrorMessage !== error)
+  const hasModalScrim =
+    isFileDialogOpen ||
+    isInfoDialogOpen ||
+    isChangelogDialogOpen ||
+    isErrorDialogVisible ||
+    isLoading ||
+    isDragging
   const isPaneContentVisible = !isPaneCollapsed
   const isFeaturePanelVisible = !isMobileLayout || mobilePanelView === 'features'
   const isDetailPanelVisible = !isMobileLayout || mobilePanelView === 'details'
@@ -1386,6 +1395,7 @@ function App() {
   const viewportGeometryBarPositionClass = isMobileLayout
     ? 'bottom-3 left-3'
     : 'right-4'
+  const showViewportTooltips = !isMobileLayout && !isHelpCollapsed && !hasModalScrim
   const mobilePanelTabs: Array<{ view: MobilePanelView; label: string; disabled?: boolean }> = [
     { view: 'features', label: 'Features' },
     { view: 'details', label: 'Details', disabled: !selectedFeature },
@@ -1406,27 +1416,13 @@ function App() {
       ]
     : editMode
       ? [
-          { keys: 'Tab', description: 'Exit inspect mode' },
-          { keys: '0-3', description: `Picking (${getPickingModeLabel(effectivePickingMode)})` },
           { keys: 'Click', description: getPickingModeDescription(effectivePickingMode) },
-          { keys: 'C', description: 'Center selection' },
-          { keys: 'S', description: 'Toggle semantic colors' },
           { keys: 'J / K', description: 'Step active ring' },
           { keys: 'R', description: 'Cycle rings' },
-          { keys: 'G', description: 'Toggle move vertex' },
-          { keys: 'I', description: 'Toggle isolate' },
-          { keys: 'X', description: 'Toggle xray' },
-          { keys: 'U', description: 'Reset feature geometry' },
         ]
       : [
-          { keys: '0-3', description: `Picking (${getPickingModeLabel(effectivePickingMode)})` },
           { keys: 'Click', description: getPickingModeDescription(effectivePickingMode) },
           { keys: 'Double Click', description: 'Recenter navigation' },
-          { keys: 'Tab', description: 'Enter inspect mode' },
-          { keys: 'C', description: 'Center selection' },
-          { keys: 'L', description: 'Cycle LoDs' },
-          { keys: 'S', description: 'Toggle semantic colors' },
-          { keys: 'I', description: 'Toggle isolate' },
         ]
 
   return (
@@ -1954,6 +1950,7 @@ function App() {
               <ViewportGeometryModeBar
                 geometryDisplayMode={geometryDisplayMode}
                 availableLods={availableLods}
+                showTooltips={showViewportTooltips}
                 onSelectGeometryDisplayMode={handleSelectGeometryDisplayMode}
               />
             )}
@@ -1967,6 +1964,7 @@ function App() {
               showVertexGizmo={showVertexGizmo}
               hasSelectedVertex={selectedVertexIndex != null}
               isolateSelectedFeature={isolateSelectedFeature}
+              showTooltips={showViewportTooltips}
               onToggleEditMode={toggleEditMode}
               onCyclePickingMode={cyclePickingMode}
               onToggleVertexGizmo={() => setShowVertexGizmo((current) => !current)}
@@ -2048,7 +2046,7 @@ function App() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="file-dialog-title"
-            className="w-full max-w-lg rounded-sm border border-border/45 bg-background/94 p-5 shadow-[0_28px_100px_rgb(0_0_0_/_0.28)]"
+            className="w-full max-w-lg rounded-sm border border-border/45 bg-background p-5 shadow-[0_28px_100px_rgb(0_0_0_/_0.28)]"
           >
             <div className="flex items-center justify-between gap-4">
               <p
@@ -2175,7 +2173,7 @@ function App() {
 
       {isLoading && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-background/42 backdrop-blur-md">
-          <div className="w-full max-w-lg rounded-sm border border-border/40 bg-background/94 p-5 shadow-[0_28px_100px_rgb(0_0_0_/_0.28)]">
+          <div className="w-full max-w-lg rounded-sm border border-border/40 bg-background p-5 shadow-[0_28px_100px_rgb(0_0_0_/_0.28)]">
             <div className="flex items-start gap-4">
               <div className="min-w-0 flex-1">
                 <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary">
@@ -2207,7 +2205,7 @@ function App() {
 
       {isErrorDialogVisible && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/42 backdrop-blur-md">
-          <div className="w-full max-w-lg rounded-sm border border-destructive/35 bg-background/94 p-5 shadow-[0_28px_100px_rgb(0_0_0_/_0.28)]">
+          <div className="w-full max-w-lg rounded-sm border border-destructive/35 bg-background p-5 shadow-[0_28px_100px_rgb(0_0_0_/_0.28)]">
             <div className="flex items-start gap-4">
               <div className="min-w-0 flex-1">
                 <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-destructive">
@@ -2233,7 +2231,7 @@ function App() {
 
       {isDragging && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm">
-          <div className="rounded-sm border-2 border-dashed border-accent/35 bg-card/85 px-10 py-8 text-center shadow-2xl">
+          <div className="rounded-sm border-2 border-dashed border-accent/35 bg-card px-10 py-8 text-center shadow-2xl">
             <p className="text-lg font-semibold text-foreground">Drop file to open</p>
             <p className="mt-1 text-sm text-muted-foreground">
               .city.json, .city.jsonl, or a val3dity report
@@ -2520,6 +2518,7 @@ function DesktopViewportToolbar({
   showVertexGizmo,
   hasSelectedVertex,
   isolateSelectedFeature,
+  showTooltips,
   onToggleEditMode,
   onCyclePickingMode,
   onToggleVertexGizmo,
@@ -2540,6 +2539,7 @@ function DesktopViewportToolbar({
   showVertexGizmo: boolean
   hasSelectedVertex: boolean
   isolateSelectedFeature: boolean
+  showTooltips: boolean
   onToggleEditMode: () => void
   onCyclePickingMode: () => void
   onToggleVertexGizmo: () => void
@@ -2551,30 +2551,41 @@ function DesktopViewportToolbar({
   onRestoreGeometry: () => void
   restoreGeometryDisabled: boolean
 }) {
+  const [isPickingMenuOpen, setIsPickingMenuOpen] = useState(false)
+  const tooltipsVisible = showTooltips && !isPickingMenuOpen
+
   return (
     <div className="floating-panel pointer-events-auto flex flex-col items-center gap-1 rounded-sm border p-1">
       <div className="floating-chip flex flex-col items-center gap-1 rounded-sm border p-1">
-        <Button
-          variant="ghost"
-          size="icon"
-          className={cn(
-            'size-7',
-            editMode
-              ? 'border border-primary/35 bg-primary/14 text-primary hover:bg-primary/18 hover:text-primary'
-              : 'text-muted-foreground hover:bg-accent/8 hover:text-foreground',
-          )}
-          onClick={onToggleEditMode}
-          aria-label={editMode ? 'Exit inspect mode' : 'Enter inspect mode'}
-          title={editMode ? 'Exit inspect' : 'Inspect'}
+        <ViewportControlTooltip
+          show={tooltipsVisible}
+          label={editMode ? 'Exit inspect' : 'Inspect'}
+          hotkey="Tab"
         >
-          <MaskIcon src={editModeIconUrl} className="size-3.5" />
-        </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              'size-7',
+              editMode
+                ? 'border border-primary/35 bg-primary/14 text-primary hover:bg-primary/18 hover:text-primary'
+                : 'text-muted-foreground hover:bg-accent/8 hover:text-foreground',
+            )}
+            onClick={onToggleEditMode}
+            aria-label={editMode ? 'Exit inspect mode' : 'Enter inspect mode'}
+            title={editMode ? 'Exit inspect' : 'Inspect'}
+          >
+            <MaskIcon src={editModeIconUrl} className="size-3.5" />
+          </Button>
+        </ViewportControlTooltip>
         <ToolbarToggleButton
           active={showVertexGizmo}
           disabled={!editMode || !hasSelectedVertex}
           onClick={onToggleVertexGizmo}
           ariaLabel="Toggle move vertex"
           iconSrc={objectOriginIconUrl}
+          showTooltip={tooltipsVisible}
+          tooltipHotkey="G"
         >
           Move vertex
         </ToolbarToggleButton>
@@ -2584,6 +2595,8 @@ function DesktopViewportToolbar({
           onClick={onToggleXray}
           ariaLabel="Toggle xray view for edit mode"
           iconSrc={cubeIconUrl}
+          showTooltip={tooltipsVisible}
+          tooltipHotkey="X"
         >
           Xray
         </ToolbarToggleButton>
@@ -2595,6 +2608,8 @@ function DesktopViewportToolbar({
             onClick={onToggleSemanticSurfaces}
             ariaLabel="Toggle semantic surface colors"
             iconSrc={materialIconUrl}
+            showTooltip={tooltipsVisible}
+            tooltipHotkey="S"
           >
             Semantics
           </ToolbarToggleButton>
@@ -2603,6 +2618,8 @@ function DesktopViewportToolbar({
             onClick={onToggleIsolateSelectedFeature}
             ariaLabel="Toggle isolate selected feature"
             iconSrc={pointcloudPointIconUrl}
+            showTooltip={tooltipsVisible}
+            tooltipHotkey="I"
           >
             Isolate
           </ToolbarToggleButton>
@@ -2612,28 +2629,35 @@ function DesktopViewportToolbar({
             showSemanticSurfaces={showSemanticSurfaces}
             onClick={onCyclePickingMode}
             onSelectMode={onSelectPickingMode}
+            showTooltip={tooltipsVisible}
+            isMenuOpen={isPickingMenuOpen}
+            onMenuOpenChange={setIsPickingMenuOpen}
           />
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            onClick={onCenterCurrentSelection}
-            aria-label="Center current selection"
-            title="Center current selection"
-          >
-            <MaskIcon src={trackerIconUrl} className="size-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            disabled={restoreGeometryDisabled}
-            onClick={onRestoreGeometry}
-            aria-label="Reset feature geometry"
-            title="Reset feature geometry"
-          >
-            <RotateCcw className="size-3.5" />
-          </Button>
+          <ViewportControlTooltip show={tooltipsVisible} label="Center" hotkey="C">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              onClick={onCenterCurrentSelection}
+              aria-label="Center current selection"
+              title="Center current selection"
+            >
+              <MaskIcon src={trackerIconUrl} className="size-3.5" />
+            </Button>
+          </ViewportControlTooltip>
+          <ViewportControlTooltip show={tooltipsVisible} label="Reset geometry" hotkey="U">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              disabled={restoreGeometryDisabled}
+              onClick={onRestoreGeometry}
+              aria-label="Reset feature geometry"
+              title="Reset feature geometry"
+            >
+              <RotateCcw className="size-3.5" />
+            </Button>
+          </ViewportControlTooltip>
         </>
       )}
     </div>
@@ -2676,8 +2700,8 @@ function DesktopViewportStatusBar({
   }, [didCopyObjectId])
 
   return (
-    <div className="floating-panel pointer-events-auto flex h-8 items-center justify-between gap-2 overflow-hidden border border-x-0 border-b-0 px-1.5">
-      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+    <div className="floating-panel pointer-events-auto flex h-8 items-center justify-between gap-2 overflow-visible border border-x-0 border-b-0 px-1.5">
+      <div className="flex min-w-0 items-center gap-1.5 overflow-visible">
         <Button
           type="button"
           variant="ghost"
@@ -2703,10 +2727,10 @@ function DesktopViewportStatusBar({
         {isPaneCollapsed && (
           <Badge
             variant="outline"
-            className="h-6 min-w-0 max-w-[min(16rem,30vw)] gap-1 overflow-hidden border-primary/25 bg-primary/10 px-1.5 py-0 text-[10px] text-primary"
+            className="h-6 min-w-0 max-w-[min(16rem,30vw)] gap-1 overflow-visible border-primary/25 bg-primary/10 px-1.5 py-0 text-[10px] text-primary"
           >
             <SquareMousePointer className="size-3 shrink-0" />
-            <span className="truncate">{activeObjectId ?? 'No object'}</span>
+            <span className="min-w-0 truncate">{activeObjectId ?? 'No object'}</span>
             {activeObjectId && (
               <Button
                 type="button"
@@ -2785,9 +2809,7 @@ function ViewportHelpPanel({
             <div className="grid gap-1.5">
               {helpItems.map((hotkey) => (
                 <div key={hotkey.keys} className="flex items-center justify-between gap-3">
-                  <Badge variant="outline" className="shrink-0 font-mono text-[10px] text-foreground/80">
-                    {hotkey.keys}
-                  </Badge>
+                  <Kbd className="shrink-0">{hotkey.keys}</Kbd>
                   <span className="text-right text-xs leading-5 text-foreground/76">
                     {hotkey.description}
                   </span>
@@ -3167,10 +3189,12 @@ const FeatureObjectTreeNode = memo(function FeatureObjectTreeNode({
 function ViewportGeometryModeBar({
   geometryDisplayMode,
   availableLods,
+  showTooltips = false,
   onSelectGeometryDisplayMode,
 }: {
   geometryDisplayMode: ViewerGeometryDisplayMode
   availableLods: string[]
+  showTooltips?: boolean
   onSelectGeometryDisplayMode: (mode: ViewerGeometryDisplayMode) => void
 }) {
   const modeKey = getGeometryDisplayModeKey(geometryDisplayMode)
@@ -3185,9 +3209,11 @@ function ViewportGeometryModeBar({
 
   return (
     <div className="floating-panel pointer-events-auto flex flex-col items-stretch gap-1.5 rounded-sm border px-2 py-2">
-      <div className="flex items-center justify-center">
-        <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">LoD</span>
-      </div>
+      <ViewportControlTooltip show={showTooltips} label="LoD" hotkey="L">
+        <div className="flex items-center justify-center">
+          <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">LoD</span>
+        </div>
+      </ViewportControlTooltip>
       <div className="flex flex-col items-stretch gap-1">
         {modes.map((entry) => {
           const isActive = entry.key === modeKey
@@ -3198,7 +3224,7 @@ function ViewportGeometryModeBar({
               type="button"
               onClick={() => onSelectGeometryDisplayMode(entry.mode)}
               className={cn(
-                'rounded-sm px-2 py-1 text-[11px] text-left transition',
+                'rounded-sm px-2 py-1 text-left text-[11px] transition',
                 isActive
                   ? 'bg-primary/12 text-primary'
                   : 'text-muted-foreground hover:bg-foreground/6 hover:text-foreground',
@@ -3696,6 +3722,36 @@ const FeatureListPanel = memo(function FeatureListPanel({
   )
 })
 
+function ViewportControlTooltip({
+  show,
+  label,
+  hotkey,
+  children,
+}: {
+  show: boolean
+  label: string
+  hotkey?: string
+  children: ReactNode
+}) {
+  return (
+    <TooltipProvider>
+      <Tooltip open={show}>
+        <TooltipTrigger asChild>{children}</TooltipTrigger>
+        <TooltipContent side="left">
+          <span className="inline-flex items-center gap-2">
+            <span>{label}</span>
+            {hotkey && (
+              <Kbd className="h-4 border-primary-foreground/25 bg-primary-foreground/15 px-1 text-[9px] text-primary-foreground">
+                {hotkey}
+              </Kbd>
+            )}
+          </span>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
 function ToolbarToggleButton({
   active,
   disabled = false,
@@ -3703,6 +3759,8 @@ function ToolbarToggleButton({
   children,
   ariaLabel,
   iconSrc,
+  showTooltip = false,
+  tooltipHotkey,
 }: {
   active: boolean
   disabled?: boolean
@@ -3710,33 +3768,37 @@ function ToolbarToggleButton({
   children: ReactNode
   ariaLabel: string
   iconSrc?: string
+  showTooltip?: boolean
+  tooltipHotkey?: string
 }) {
   const label = typeof children === 'string' ? children : ariaLabel
 
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon"
-      disabled={disabled}
-      onClick={onClick}
-      aria-label={ariaLabel}
-      aria-pressed={active}
-      title={label}
-      className={cn(
-        'size-7 justify-center rounded-sm border p-0',
-        active
-          ? 'border-primary/35 bg-primary/14 text-primary hover:bg-primary/18 hover:text-primary'
-          : 'border-border/70 bg-background/35 text-muted-foreground hover:bg-accent/8 hover:text-foreground',
-        disabled && 'border-border/45 bg-transparent text-muted-foreground/45 hover:bg-transparent hover:text-muted-foreground/45',
-      )}
-    >
-      {iconSrc ? (
-        <MaskIcon src={iconSrc} className="size-3.5" />
-      ) : (
-        <span className={cn('size-1.5 rounded-full', active ? 'bg-primary' : 'bg-muted-foreground/45')} />
-      )}
-    </Button>
+    <ViewportControlTooltip show={showTooltip} label={label} hotkey={tooltipHotkey}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        disabled={disabled}
+        onClick={onClick}
+        aria-label={ariaLabel}
+        aria-pressed={active}
+        title={label}
+        className={cn(
+          'size-7 justify-center rounded-sm border p-0',
+          active
+            ? 'border-primary/35 bg-primary/14 text-primary hover:bg-primary/18 hover:text-primary'
+            : 'border-border/70 bg-background/35 text-muted-foreground hover:bg-accent/8 hover:text-foreground',
+          disabled && 'border-border/45 bg-transparent text-muted-foreground/45 hover:bg-transparent hover:text-muted-foreground/45',
+        )}
+      >
+        {iconSrc ? (
+          <MaskIcon src={iconSrc} className="size-3.5" />
+        ) : (
+          <span className={cn('size-1.5 rounded-full', active ? 'bg-primary' : 'bg-muted-foreground/45')} />
+        )}
+      </Button>
+    </ViewportControlTooltip>
   )
 }
 
@@ -3746,14 +3808,19 @@ function ToolbarPickingButton({
   showSemanticSurfaces,
   onClick,
   onSelectMode,
+  showTooltip = false,
+  isMenuOpen,
+  onMenuOpenChange,
 }: {
   mode: ViewerPickingMode
   editMode: boolean
   showSemanticSurfaces: boolean
   onClick: () => void
   onSelectMode: (mode: ViewerPickingMode) => void
+  showTooltip?: boolean
+  isMenuOpen: boolean
+  onMenuOpenChange: (open: boolean) => void
 }) {
-  const [isOpen, setIsOpen] = useState(false)
   const active = mode !== 'none'
   const iconSrc = getPickingModeIconUrl(mode)
   const availableModes = getAvailablePickingModes(editMode, showSemanticSurfaces)
@@ -3762,68 +3829,70 @@ function ToolbarPickingButton({
     : 'border-border/70 bg-background/35 text-muted-foreground hover:bg-accent/8 hover:text-foreground'
 
   return (
-    <div
-      className="relative inline-flex"
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) {
-          setIsOpen(false)
-        }
-      }}
-    >
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        onClick={onClick}
-        aria-label={`Cycle picking mode, currently ${getPickingModeLabel(mode).toLowerCase()}`}
-        title={`Pick: ${getPickingModeLabel(mode)}`}
-        className={cn('size-7 justify-center rounded-r-none border p-0', activeClassName)}
+    <ViewportControlTooltip show={showTooltip} label="Picking mode" hotkey="0-3">
+      <div
+        className="relative inline-flex"
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) {
+            onMenuOpenChange(false)
+          }
+        }}
       >
-        <MaskIcon src={iconSrc} className="size-3.5" />
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        onClick={() => setIsOpen((current) => !current)}
-        aria-label="Choose picking mode"
-        aria-expanded={isOpen}
-        title="Choose picking mode"
-        className={cn('h-7 w-5 justify-center rounded-l-none border border-l-0 p-0', activeClassName)}
-      >
-        <ChevronDown className={cn('size-3 transition-transform', isOpen && 'rotate-180')} />
-      </Button>
-      {isOpen && (
-        <div className="absolute bottom-full right-0 z-30 mb-1 min-w-40 rounded-sm border border-border bg-popover p-1 shadow-lg">
-          {PICKING_MODE_MENU.map((entry) => {
-            const isSelected = entry === mode
-            const isAvailable = availableModes.includes(entry)
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={onClick}
+          aria-label={`Cycle picking mode, currently ${getPickingModeLabel(mode).toLowerCase()}`}
+          title={`Pick: ${getPickingModeLabel(mode)}`}
+          className={cn('size-7 justify-center rounded-r-none border p-0', activeClassName)}
+        >
+          <MaskIcon src={iconSrc} className="size-3.5" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={() => onMenuOpenChange(!isMenuOpen)}
+          aria-label="Choose picking mode"
+          aria-expanded={isMenuOpen}
+          title="Choose picking mode"
+          className={cn('h-7 w-5 justify-center rounded-l-none border border-l-0 p-0', activeClassName)}
+        >
+          <ChevronDown className={cn('size-3 transition-transform', isMenuOpen && 'rotate-180')} />
+        </Button>
+        {isMenuOpen && (
+          <div className="absolute bottom-full right-0 z-30 mb-1 min-w-40 rounded-sm border border-border bg-popover p-1 shadow-lg">
+            {PICKING_MODE_MENU.map((entry) => {
+              const isSelected = entry === mode
+              const isAvailable = availableModes.includes(entry)
 
-            return (
-              <button
-                key={entry}
-                type="button"
-                disabled={!isAvailable}
-                onClick={() => {
-                  onSelectMode(entry)
-                  setIsOpen(false)
-                }}
-                className={cn(
-                  'flex h-8 w-full items-center gap-2 rounded-sm px-2 text-left text-xs',
-                  isSelected
-                    ? 'bg-primary/14 text-primary'
-                    : 'text-foreground hover:bg-accent/10',
-                  !isAvailable && 'cursor-not-allowed text-muted-foreground/35 hover:bg-transparent',
-                )}
-              >
-                <MaskIcon src={getPickingModeIconUrl(entry)} className="size-3.5" />
-                <span>{getPickingModeLabel(entry)}</span>
-              </button>
-            )
-          })}
-        </div>
-      )}
-    </div>
+              return (
+                <button
+                  key={entry}
+                  type="button"
+                  disabled={!isAvailable}
+                  onClick={() => {
+                    onSelectMode(entry)
+                    onMenuOpenChange(false)
+                  }}
+                  className={cn(
+                    'flex h-8 w-full items-center gap-2 rounded-sm px-2 text-left text-xs',
+                    isSelected
+                      ? 'bg-primary/14 text-primary'
+                      : 'text-foreground hover:bg-accent/10',
+                    !isAvailable && 'cursor-not-allowed text-muted-foreground/35 hover:bg-transparent',
+                  )}
+                >
+                  <MaskIcon src={getPickingModeIconUrl(entry)} className="size-3.5" />
+                  <span>{getPickingModeLabel(entry)}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </ViewportControlTooltip>
   )
 }
 
@@ -4309,7 +4378,7 @@ function InfoDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="info-dialog-title"
-        className="flex min-h-0 max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-sm border border-border/45 bg-background/96 shadow-[0_28px_100px_rgb(0_0_0_/_0.28)]"
+        className="flex min-h-0 max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-sm border border-border/45 bg-background shadow-[0_28px_100px_rgb(0_0_0_/_0.28)]"
       >
         <div className="border-b border-border/40 bg-gradient-to-r from-primary/8 via-transparent to-transparent">
           <div className="flex items-start justify-between gap-4 p-5">
@@ -4420,7 +4489,7 @@ function ChangelogDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="changelog-dialog-title"
-        className="flex min-h-0 max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-sm border border-border/45 bg-background/96 shadow-[0_28px_100px_rgb(0_0_0_/_0.28)]"
+        className="flex min-h-0 max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-sm border border-border/45 bg-background shadow-[0_28px_100px_rgb(0_0_0_/_0.28)]"
       >
         <div className="flex items-start justify-between gap-4 border-b border-border/40 p-5">
           <div className="min-w-0">

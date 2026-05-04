@@ -4,9 +4,9 @@
 :root {
   --background: oklch(0.97 0.005 228);
   --foreground: oklch(0.16 0.02 228);
-  --card: oklch(0.96 0.005 224 / 92%);
+  --card: oklch(0.96 0.005 224);
   --card-foreground: oklch(0.16 0.02 228);
-  --popover: oklch(0.97 0.005 224 / 96%);
+  --popover: oklch(0.97 0.005 224);
   --popover-foreground: oklch(0.16 0.02 228);
   --primary: oklch(0.55 0.14 72);
   --primary-foreground: oklch(0.98 0.005 72);
@@ -27,9 +27,9 @@
 .dark {
   --background: oklch(0.15 0.02 228);
   --foreground: oklch(0.96 0.015 219);
-  --card: oklch(0.2 0.02 224 / 92%);
+  --card: oklch(0.2 0.02 224);
   --card-foreground: oklch(0.95 0.015 219);
-  --popover: oklch(0.18 0.018 224 / 96%);
+  --popover: oklch(0.18 0.018 224);
   --popover-foreground: oklch(0.95 0.015 219);
   --primary: oklch(0.79 0.12 72);
   --primary-foreground: oklch(0.16 0.02 228);
@@ -41,7 +41,7 @@
   --accent-foreground: oklch(0.16 0.02 228);
   --destructive: oklch(0.64 0.21 25);
   --destructive-foreground: oklch(0.98 0.01 24);
-  --border: oklch(0.32 0.02 228 / 80%);
+  --border: oklch(0.32 0.02 228);
   --input: oklch(0.24 0.02 228);
   --ring: oklch(0.79 0.12 72 / 55%);
 }
@@ -120,17 +120,11 @@
 
 @layer utilities {
   .panel-shell {
-    background:
-      linear-gradient(180deg, oklch(0.97 0.005 228 / 88%), oklch(0.96 0.005 228 / 88%)),
-      linear-gradient(135deg, oklch(0.55 0.08 230 / 8%), transparent 40%);
+    background: var(--card);
     box-shadow: 0 28px 80px rgb(0 0 0 / 8%);
-    backdrop-filter: blur(20px);
   }
 
   .dark .panel-shell {
-    background:
-      linear-gradient(180deg, rgb(11 23 39 / 92%), rgb(7 17 29 / 92%)),
-      linear-gradient(135deg, rgb(56 189 248 / 12%), transparent 40%);
     box-shadow: 0 28px 80px rgb(0 0 0 / 45%);
   }
 
@@ -145,11 +139,10 @@
   }
 
   .floating-panel {
-    background: color-mix(in oklch, var(--card) 86%, transparent);
-    border-color: color-mix(in oklch, var(--border) 88%, transparent);
+    background: var(--card);
+    border-color: var(--border);
     box-shadow: 0 18px 52px rgb(15 23 42 / 10%);
     color: color-mix(in oklch, var(--foreground) 76%, transparent);
-    backdrop-filter: blur(18px);
   }
 
   .dark .floating-panel {
@@ -157,8 +150,8 @@
   }
 
   .floating-chip {
-    background: color-mix(in oklch, var(--background) 72%, transparent);
-    border-color: color-mix(in oklch, var(--border) 78%, transparent);
+    background: var(--background);
+    border-color: var(--border);
   }
 
   .panel-header-surface {

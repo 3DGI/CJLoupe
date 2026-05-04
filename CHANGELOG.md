@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Reveal viewport hotkey hints as tooltips when the help panel is open
+- flatten chrome surfaces by removing translucency and backdrop blur
+
 ## 0.5.0 - 2026-05-04
 
 - Fix crash while loading file with very large geometries
