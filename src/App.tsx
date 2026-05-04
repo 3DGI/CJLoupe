@@ -1579,8 +1579,8 @@ function App() {
                 >
                   <div className="panel-header-surface space-y-1 p-4 pb-2.5">
                     <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                        <div className="flex min-w-0 items-center gap-2">
                           <span className="inline-flex items-center justify-center text-muted-foreground">
                             <Box className="size-3.5" />
                           </span>
@@ -1588,12 +1588,12 @@ function App() {
                             {detailTitleLabel}
                           </p>
                           {activeObject && <CopyIdButton value={activeObject.id} label="object ID" />}
-                          {activeObject && (
-                            <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
-                              {activeObject.type}
-                            </Badge>
-                          )}
                         </div>
+                        {activeObject && (
+                          <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
+                            {activeObject.type}
+                          </Badge>
+                        )}
                       </div>
 
                       {!isMobileLayout && (
