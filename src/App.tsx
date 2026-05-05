@@ -16,7 +16,7 @@ import {
   Maximize2,
   Minimize2,
   Moon,
-  Network,
+  ListTree,
   Pin,
   PinOff,
   Pyramid,
@@ -4155,7 +4155,7 @@ function PinnedAttributesOverlay({
                       <td className="min-w-0 px-1.5 py-1 align-top">
                         <div className="flex min-w-0 items-center gap-1">
                           {entry.isInherited && (
-                            <Network
+                            <ListTree
                               className="size-3 shrink-0 text-accent"
                               aria-label="Resolved from parent attribute"
                             />
