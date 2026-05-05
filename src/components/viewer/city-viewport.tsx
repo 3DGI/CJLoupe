@@ -2376,8 +2376,9 @@ function centerViewOnExtentPreservingOffset(
 }
 
 function createMaterial(objectType: string, theme: Theme, semanticMode = false) {
+  const baseColor = semanticMode ? '#64748b' : baseColorForType(objectType, theme)
   const material = new THREE.MeshStandardMaterial({
-    color: semanticMode ? '#64748b' : baseColorForType(objectType, theme),
+    color: baseColor,
     roughness: 0.82,
     metalness: 0.02,
     transparent: false,
@@ -2388,6 +2389,7 @@ function createMaterial(objectType: string, theme: Theme, semanticMode = false) 
 
   if (semanticMode) {
     material.userData.isSemanticBase = true
+    material.userData.semanticColor = baseColor
   }
 
   return material
