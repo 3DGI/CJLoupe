@@ -71,7 +71,6 @@ export interface ViewerFeature {
   validity: boolean | null
   errors: ViewerValidationError[]
   attributes: Record<string, unknown>
-  originalVertices: Vec3[]
   vertices: Vec3[]
   objects: ViewerCityObject[]
   extent: [number, number, number, number, number, number]

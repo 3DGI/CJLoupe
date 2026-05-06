@@ -5,6 +5,8 @@
 - Reveal viewport hotkey hints as tooltips when the help panel is open
 - Flatten chrome surfaces by removing translucency and backdrop blur
 - Fix bug that made object without semantic surfaces darker when toggling between light/dark mode
+- Reduce memory usage, allowing for loading of larger CityJSONL files
+- Improve error message for CityJSON files that are too large to load
 
 ## 0.5.0 - 2026-05-04
 

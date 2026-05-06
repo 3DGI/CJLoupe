@@ -99,7 +99,22 @@ export async function loadCityJsonSequenceFromFile(file: File) {
 }
 
 export async function loadCityJsonFromFile(file: File) {
-  const text = await file.text()
+  let text: string
+  try {
+    text = await file.text()
+  } catch (caughtError) {
+    throw new Error(
+      `Could not read ${file.name} (${formatByteSize(file.size)}). Very large CityJSON files can exceed browser memory limits.`,
+      { cause: caughtError },
+    )
+  }
+
+  if (!hasNonWhitespace(text) && file.size > 0) {
+    throw new Error(
+      `Could not read text from ${file.name} (${formatByteSize(file.size)}). The browser returned an empty text buffer for a non-empty file, which usually means the file is too large to read this way.`,
+    )
+  }
+
   return parseCityJson(text, file.name)
 }
 
@@ -118,14 +133,30 @@ export async function loadValidationReportFromFile(file: File) {
   return parseValidationReport(text)
 }
 
+function formatByteSize(bytes: number) {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let value = bytes
+  let unitIndex = 0
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex += 1
+  }
+
+  return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`
+}
+
+function hasNonWhitespace(text: string) {
+  return /\S/.test(text)
+}
+
 export function parseCityJson(text: string, sourceName: string): ViewerDataset {
-  const trimmedText = text.trim()
-  if (!trimmedText) {
+  if (!hasNonWhitespace(text)) {
     throw new Error('CityJSON input is empty.')
   }
 
   try {
-    const parsed = JSON.parse(trimmedText) as unknown
+    const parsed = JSON.parse(text) as unknown
     if (!isRecord(parsed) || Array.isArray(parsed)) {
       throw new Error('CityJSON input must be a JSON object or a CityJSON feature sequence.')
     }
@@ -150,28 +181,31 @@ export function parseCityJson(text: string, sourceName: string): ViewerDataset {
 }
 
 export function parseCityJsonSequence(text: string, sourceName: string): ViewerDataset {
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
+  const lines = text.split(/\r?\n/)
+  const headerLineIndex = lines.findIndex(hasNonWhitespace)
 
-  if (lines.length < 2) {
+  if (headerLineIndex < 0) {
     throw new Error('Expected a CityJSON feature sequence with a header line and at least one feature line.')
   }
 
-  const header = JSON.parse(lines[0]) as CityJsonHeader
+  const header = JSON.parse(lines[headerLineIndex]) as CityJsonHeader
   const transform = header.transform ?? {}
   const info = extractDatasetInfo(header)
 
   const features: ViewerFeature[] = []
 
-  for (const line of lines.slice(1)) {
+  for (let lineIndex = headerLineIndex + 1; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex]
+    if (!hasNonWhitespace(line)) {
+      continue
+    }
+
     const feature = JSON.parse(line) as CityJsonFeature
     if (feature.type !== 'CityJSONFeature' || !feature.CityObjects || !feature.vertices) {
       continue
     }
 
-    const worldVertices = feature.vertices.map((vertex) => applyTransform(vertex, transform))
+    const worldVertices = transformVerticesInPlace(feature.vertices, transform)
     const objects = Object.entries(feature.CityObjects)
     if (objects.length === 0) {
       continue
@@ -208,7 +242,7 @@ function parseCityJsonDocument(document: CityJsonDocument, sourceName: string): 
 
   const transform = document.transform ?? {}
   const info = extractDatasetInfo(document)
-  const worldVertices = document.vertices.map((vertex) => applyTransform(vertex, transform))
+  const worldVertices = transformVerticesInPlace(document.vertices, transform)
   const featureRootIds = collectFeatureRootIds(document.CityObjects)
   const features: ViewerFeature[] = []
   const processedObjectIds = new Set<string>()
@@ -347,8 +381,6 @@ function createViewerFeature({
     return null
   }
 
-  const originalVertices = vertices.map((vertex) => [...vertex] as Vec3)
-
   return {
     id: featureId,
     label: deriveFeatureLabel(featureId),
@@ -357,7 +389,6 @@ function createViewerFeature({
     validity: null,
     errors: [],
     attributes: rootObject.attributes ?? {},
-    originalVertices,
     vertices,
     objects: renderableObjects,
     extent,
@@ -840,15 +871,17 @@ function parseValidationLocation(...sources: Array<string | undefined>) {
   return null
 }
 
-function applyTransform(vertex: number[], transform: CityJsonTransform): Vec3 {
+function transformVerticesInPlace(vertices: number[][], transform: CityJsonTransform): Vec3[] {
   const scale = transform.scale ?? [1, 1, 1]
   const translate = transform.translate ?? [0, 0, 0]
 
-  return [
-    (vertex[0] ?? 0) * (scale[0] ?? 1) + (translate[0] ?? 0),
-    (vertex[1] ?? 0) * (scale[1] ?? 1) + (translate[1] ?? 0),
-    (vertex[2] ?? 0) * (scale[2] ?? 1) + (translate[2] ?? 0),
-  ]
+  for (const vertex of vertices) {
+    vertex[0] = (vertex[0] ?? 0) * (scale[0] ?? 1) + (translate[0] ?? 0)
+    vertex[1] = (vertex[1] ?? 0) * (scale[1] ?? 1) + (translate[1] ?? 0)
+    vertex[2] = (vertex[2] ?? 0) * (scale[2] ?? 1) + (translate[2] ?? 0)
+  }
+
+  return vertices as Vec3[]
 }
 
 function calculateExtentFromIndices(

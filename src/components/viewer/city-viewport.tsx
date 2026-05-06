@@ -113,6 +113,8 @@ type ObjectGeometryBlueprint = {
   polygonTriangleIndices: number[][]
 }
 
+type TriangleFaceIndices = ArrayLike<number>
+
 type ViewSelection = {
   selectedFeatureId: string | null
   activeObjectId: string | null
@@ -486,7 +488,7 @@ function CityViewport({
 
           const meshHits = activeRuntime.raycaster.intersectObject(activeMesh, false)
           const meshHit = meshHits[0]
-          const triangleFaceIndices = (activeMesh.userData.triangleFaceIndices as number[] | undefined) ?? []
+          const triangleFaceIndices = (activeMesh.userData.triangleFaceIndices as TriangleFaceIndices | undefined) ?? []
           const polygonIndex =
             meshHit && typeof meshHit.faceIndex === 'number'
               ? triangleFaceIndices[meshHit.faceIndex] ?? null
@@ -521,7 +523,7 @@ function CityViewport({
 
           const meshHits = activeRuntime.raycaster.intersectObject(activeMesh, false)
           const meshHit = meshHits[0]
-          const triangleFaceIndices = (activeMesh.userData.triangleFaceIndices as number[] | undefined) ?? []
+          const triangleFaceIndices = (activeMesh.userData.triangleFaceIndices as TriangleFaceIndices | undefined) ?? []
           const faceIndex =
             meshHit && typeof meshHit.faceIndex === 'number'
               ? triangleFaceIndices[meshHit.faceIndex] ?? null
@@ -545,7 +547,7 @@ function CityViewport({
           const featureId = meshHit.object.userData.featureId as string
           const objectId = meshHit.object.userData.objectId as string
           const geometryIndex = meshHit.object.userData.geometryIndex as number | null | undefined
-          const triangleFaceIndices = (meshHit.object.userData.triangleFaceIndices as number[] | undefined) ?? []
+          const triangleFaceIndices = (meshHit.object.userData.triangleFaceIndices as TriangleFaceIndices | undefined) ?? []
           const faceIndex =
             typeof meshHit.faceIndex === 'number'
               ? triangleFaceIndices[meshHit.faceIndex] ?? null
@@ -589,7 +591,7 @@ function CityViewport({
         const featureId = meshHit.object.userData.featureId as string
         const objectId = meshHit.object.userData.objectId as string
         const geometryIndex = meshHit.object.userData.geometryIndex as number | null | undefined
-        const triangleFaceIndices = (meshHit.object.userData.triangleFaceIndices as number[] | undefined) ?? []
+        const triangleFaceIndices = (meshHit.object.userData.triangleFaceIndices as TriangleFaceIndices | undefined) ?? []
         const faceIndex =
           typeof meshHit.faceIndex === 'number'
             ? triangleFaceIndices[meshHit.faceIndex] ?? null
@@ -1210,13 +1212,45 @@ function buildObjectGeometryBlueprint(
   vertices: Vec3[],
   center: Vec3,
 ): ObjectGeometryBlueprint {
-  const positions: number[] = []
+  const vertexCapacity = countRenderablePolygonVertices(polygons, vertices)
+  const positions = new Float32Array(vertexCapacity * 3)
+  const normals = new Float32Array(vertexCapacity * 3)
   const polygonTriangleIndices: number[][] = []
-  const previewIndices: number[] = []
   let offset = 0
+  let componentOffset = 0
 
   for (let polyIndex = 0; polyIndex < polygons.length; polyIndex += 1) {
     const polygon = polygons[polyIndex]
+    if (polygon.length === 1) {
+      const ring = polygon[0]
+      const polygonVertexCount = countRenderableRingVertices(ring, vertices)
+      if (polygonVertexCount < 3) {
+        polygonTriangleIndices.push([])
+        continue
+      }
+
+      const normal = computeIndexedRingNormal(ring, vertices)
+      fillIndexedRingBuffers(ring, vertices, center, normal, positions, normals, componentOffset)
+      componentOffset += polygonVertexCount * 3
+
+      if (polygonVertexCount === 3) {
+        polygonTriangleIndices.push([offset, offset + 1, offset + 2])
+      } else if (polygonVertexCount === 4 && isConvexIndexedRing(ring, vertices, normal)) {
+        polygonTriangleIndices.push([offset, offset + 1, offset + 2, offset, offset + 2, offset + 3])
+      } else {
+        const projectedPolygon = [collectRingVertices(ring, vertices)]
+        const triangles = triangulatePolygon(projectedPolygon)
+        const polygonIndices: number[] = []
+        for (const triangle of triangles) {
+          polygonIndices.push(offset + triangle[0], offset + triangle[1], offset + triangle[2])
+        }
+        polygonTriangleIndices.push(polygonIndices)
+      }
+
+      offset += polygonVertexCount
+      continue
+    }
+
     const projectedPolygon = polygon
       .map((ring) =>
         ring
@@ -1230,45 +1264,115 @@ function buildObjectGeometryBlueprint(
       continue
     }
 
-    const flatVertices = projectedPolygon.flat()
-    for (const vertex of flatVertices) {
-      positions.push(vertex[0] - center[0], vertex[1] - center[1], vertex[2] - center[2])
+    const normal = computeNormal(projectedPolygon[0])
+    let polygonVertexCount = 0
+    for (const ring of projectedPolygon) {
+      polygonVertexCount += ring.length
+      for (const vertex of ring) {
+        positions[componentOffset] = vertex[0] - center[0]
+        normals[componentOffset++] = normal.x
+        positions[componentOffset] = vertex[1] - center[1]
+        normals[componentOffset++] = normal.y
+        positions[componentOffset] = vertex[2] - center[2]
+        normals[componentOffset++] = normal.z
+      }
     }
 
     const polygonIndices: number[] = []
     const triangles = triangulatePolygon(projectedPolygon)
     for (const triangle of triangles) {
       polygonIndices.push(offset + triangle[0], offset + triangle[1], offset + triangle[2])
-      previewIndices.push(offset + triangle[0], offset + triangle[1], offset + triangle[2])
     }
     polygonTriangleIndices.push(polygonIndices)
-    offset += flatVertices.length
+    offset += polygonVertexCount
   }
 
-  const previewGeometry = new THREE.BufferGeometry()
-  previewGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
-  previewGeometry.setIndex(previewIndices)
-  previewGeometry.computeVertexNormals()
-
-  const positionArray = (previewGeometry.getAttribute('position') as THREE.BufferAttribute).array
-  const normalAttribute = previewGeometry.getAttribute('normal') as THREE.BufferAttribute | undefined
-  const normalArray = normalAttribute?.array
   const blueprint: ObjectGeometryBlueprint = {
-    positions: new Float32Array(positionArray as ArrayLike<number>),
-    normals: normalArray
-      ? new Float32Array(normalArray as ArrayLike<number>)
-      : new Float32Array(positionArray.length),
+    positions,
+    normals,
     polygonTriangleIndices,
   }
 
-  previewGeometry.dispose()
   return blueprint
+}
+
+function countRenderablePolygonVertices(polygons: PolygonRings[], vertices: Vec3[]) {
+  let count = 0
+
+  for (const polygon of polygons) {
+    let polygonCount = 0
+    for (const ring of polygon) {
+      let ringCount = 0
+      for (const index of ring) {
+        if (Array.isArray(vertices[index])) {
+          ringCount += 1
+        }
+      }
+      if (ringCount >= 3) {
+        polygonCount += ringCount
+      }
+    }
+    count += polygonCount
+  }
+
+  return count
+}
+
+function countRenderableRingVertices(ring: number[], vertices: Vec3[]) {
+  let count = 0
+  for (const index of ring) {
+    if (Array.isArray(vertices[index])) {
+      count += 1
+    }
+  }
+  return count
+}
+
+function collectRingVertices(ring: number[], vertices: Vec3[]) {
+  const ringVertices: Vec3[] = []
+  for (const index of ring) {
+    const vertex = vertices[index]
+    if (Array.isArray(vertex)) {
+      ringVertices.push(vertex)
+    }
+  }
+  return ringVertices
+}
+
+function fillIndexedRingBuffers(
+  ring: number[],
+  vertices: Vec3[],
+  center: Vec3,
+  normal: THREE.Vector3,
+  positions: Float32Array,
+  normals: Float32Array,
+  startOffset: number,
+) {
+  let componentOffset = startOffset
+
+  for (const index of ring) {
+    const vertex = vertices[index]
+    if (!Array.isArray(vertex)) {
+      continue
+    }
+
+    positions[componentOffset] = vertex[0] - center[0]
+    normals[componentOffset++] = normal.x
+    positions[componentOffset] = vertex[1] - center[1]
+    normals[componentOffset++] = normal.y
+    positions[componentOffset] = vertex[2] - center[2]
+    normals[componentOffset++] = normal.z
+  }
 }
 
 function buildGroupedObjectGeometry(
   blueprint: ObjectGeometryBlueprint,
   faceGroups: Map<number, number>,
 ) {
+  if (faceGroups.size === 0) {
+    return buildUngroupedObjectGeometry(blueprint)
+  }
+
   const groupedIndices = new Map<number, number[]>()
   const triangleFaceIndicesByGroup = new Map<number, number[]>()
 
@@ -1306,6 +1410,39 @@ function buildGroupedObjectGeometry(
   }
 
   geometry.setIndex(allIndices)
+  geometry.userData.triangleFaceIndices = triangleFaceIndices
+  geometry.computeBoundingSphere()
+  return geometry
+}
+
+function buildUngroupedObjectGeometry(blueprint: ObjectGeometryBlueprint) {
+  let indexCount = 0
+  let triangleCount = 0
+  for (const polygonIndices of blueprint.polygonTriangleIndices) {
+    indexCount += polygonIndices.length
+    triangleCount += polygonIndices.length / 3
+  }
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.BufferAttribute(blueprint.positions, 3))
+  geometry.setAttribute('normal', new THREE.BufferAttribute(blueprint.normals, 3))
+
+  const vertexCount = blueprint.positions.length / 3
+  const allIndices = vertexCount > 65535 ? new Uint32Array(indexCount) : new Uint16Array(indexCount)
+  const triangleFaceIndices = new Uint32Array(triangleCount)
+  let indexOffset = 0
+  let triangleOffset = 0
+
+  blueprint.polygonTriangleIndices.forEach((polygonIndices, polyIndex) => {
+    for (let index = 0; index < polygonIndices.length; index += 1) {
+      allIndices[indexOffset++] = polygonIndices[index]
+    }
+    for (let index = 0; index < polygonIndices.length; index += 3) {
+      triangleFaceIndices[triangleOffset++] = polyIndex
+    }
+  })
+
+  geometry.setIndex(new THREE.BufferAttribute(allIndices, 1))
   geometry.userData.triangleFaceIndices = triangleFaceIndices
   geometry.computeBoundingSphere()
   return geometry
@@ -2154,13 +2291,56 @@ function buildEdgeSegments(
 }
 
 function triangulatePolygon(rings: Vec3[][]) {
+  if (rings.length === 1 && rings[0].length === 3) {
+    return [[0, 1, 2]]
+  }
+
   const normal = computeNormal(rings[0])
   const { origin, axisU, axisV } = makeBasis(rings[0][0], normal)
 
   const outer = rings[0].map((vertex) => projectToPlane(vertex, origin, axisU, axisV))
   const holes = rings.slice(1).map((ring) => ring.map((vertex) => projectToPlane(vertex, origin, axisU, axisV)))
 
+  if (holes.length === 0 && outer.length === 4 && isConvexProjectedRing(outer)) {
+    return [[0, 1, 2], [0, 2, 3]]
+  }
+
   return THREE.ShapeUtils.triangulateShape(outer, holes)
+}
+
+function isConvexProjectedRing(points: THREE.Vector2[]) {
+  let sign = 0
+
+  for (let index = 0; index < points.length; index += 1) {
+    const previous = points[index]
+    const current = points[(index + 1) % points.length]
+    const next = points[(index + 2) % points.length]
+    const cross =
+      (current.x - previous.x) * (next.y - current.y) -
+      (current.y - previous.y) * (next.x - current.x)
+
+    if (Math.abs(cross) <= Number.EPSILON) {
+      continue
+    }
+
+    const currentSign = Math.sign(cross)
+    if (sign !== 0 && currentSign !== sign) {
+      return false
+    }
+    sign = currentSign
+  }
+
+  return sign !== 0
+}
+
+function isConvexIndexedRing(ring: number[], vertices: Vec3[], normal: THREE.Vector3) {
+  const ringVertices = collectRingVertices(ring, vertices)
+  if (ringVertices.length !== 4) {
+    return false
+  }
+
+  const { origin, axisU, axisV } = makeBasis(ringVertices[0], normal)
+  return isConvexProjectedRing(ringVertices.map((vertex) => projectToPlane(vertex, origin, axisU, axisV)))
 }
 
 function computeNormal(points: Vec3[]) {
@@ -2174,6 +2354,44 @@ function computeNormal(points: Vec3[]) {
     nx += (current[1] - next[1]) * (current[2] + next[2])
     ny += (current[2] - next[2]) * (current[0] + next[0])
     nz += (current[0] - next[0]) * (current[1] + next[1])
+  }
+
+  const normal = new THREE.Vector3(nx, ny, nz)
+  if (normal.lengthSq() === 0) {
+    return new THREE.Vector3(0, 0, 1)
+  }
+
+  return normal.normalize()
+}
+
+function computeIndexedRingNormal(ring: number[], vertices: Vec3[]) {
+  let nx = 0
+  let ny = 0
+  let nz = 0
+  let first: Vec3 | null = null
+  let previous: Vec3 | null = null
+
+  for (const index of ring) {
+    const current = vertices[index]
+    if (!Array.isArray(current)) {
+      continue
+    }
+
+    if (!first) {
+      first = current
+    }
+    if (previous) {
+      nx += (previous[1] - current[1]) * (previous[2] + current[2])
+      ny += (previous[2] - current[2]) * (previous[0] + current[0])
+      nz += (previous[0] - current[0]) * (previous[1] + current[1])
+    }
+    previous = current
+  }
+
+  if (first && previous) {
+    nx += (previous[1] - first[1]) * (previous[2] + first[2])
+    ny += (previous[2] - first[2]) * (previous[0] + first[0])
+    nz += (previous[0] - first[0]) * (previous[1] + first[1])
   }
 
   const normal = new THREE.Vector3(nx, ny, nz)
@@ -2400,7 +2618,10 @@ function baseColorForType(objectType: string, theme: Theme) {
     theme === 'light'
       ? ['#7a828c', '#6e7781', '#828b95', '#727c86', '#87909a']
       : ['#6f7883', '#78828d', '#68717b', '#838c97', '#707a85']
-  const hash = [...objectType].reduce((sum, character) => sum + character.charCodeAt(0), 0)
+  let hash = 0
+  for (let index = 0; index < objectType.length; index += 1) {
+    hash += objectType.charCodeAt(index)
+  }
   return palette[hash % palette.length]
 }
 
