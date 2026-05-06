@@ -1883,7 +1883,6 @@ function App() {
           />
         </Suspense>
 
-        <div className="pointer-events-none absolute inset-0 canvas-fade" />
         <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2">
           <div className="relative size-7 opacity-80">
             <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-foreground/65" />

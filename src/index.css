@@ -128,16 +128,6 @@
     box-shadow: 0 28px 80px rgb(0 0 0 / 45%);
   }
 
-  .canvas-fade {
-    background:
-      radial-gradient(circle at center, transparent 0, transparent 58%, oklch(0.97 0.005 228 / 40%) 100%);
-  }
-
-  .dark .canvas-fade {
-    background:
-      radial-gradient(circle at center, transparent 0, transparent 58%, rgb(2 6 12 / 58%) 100%);
-  }
-
   .floating-panel {
     background: var(--card);
     border-color: var(--border);
