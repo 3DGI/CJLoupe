@@ -7,6 +7,7 @@
 - Fix bug that made object without semantic surfaces darker when toggling between light/dark mode
 - Reduce memory usage, allowing for loading of larger CityJSONL files
 - Improve error message for CityJSON files that are too large to load
+- Improve object and semantic surface colors based on types
 
 ## 0.5.0 - 2026-05-04
 
