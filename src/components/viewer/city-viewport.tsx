@@ -29,9 +29,89 @@ import { errorColor } from '@/lib/error-palette'
 type Theme = 'light' | 'dark'
 
 const VIEWPORT_FOG_DENSITY = {
-  light: 0.000045,
-  dark: 0.00007,
+  light: 0.000005,
+  dark: 0.000005,
 } as const
+
+const OBJECT_TYPE_COLORS: Record<Theme, Record<string, string>> = {
+  light: {
+    bridge: '#7aa6b8',
+    bridgeconstructiveelement: '#6f99aa',
+    bridgefurniture: '#96a7af',
+    bridgeinstallation: '#89b6c4',
+    bridgepart: '#86adbc',
+    bridgeroom: '#9db5bf',
+    building: '#b8aa94',
+    buildingconstructiveelement: '#a99b86',
+    buildingfurniture: '#c1b195',
+    buildinginstallation: '#c3aa83',
+    buildingpart: '#c2b29a',
+    buildingroom: '#d0c0a4',
+    cityfurniture: '#d1a14b',
+    cityobjectgroup: '#8d98a6',
+    genericcityobject: '#9aa3ad',
+    landuse: '#9cad72',
+    otherconstruction: '#9b9390',
+    plantcover: '#77a66a',
+    railway: '#646d76',
+    relieffeature: '#a99a7c',
+    road: '#6d747c',
+    solitaryvegetationobject: '#5f9862',
+    square: '#8a8177',
+    tinrelief: '#a58f6c',
+    transportationobject: '#737b84',
+    transportsquare: '#8a8177',
+    tunnel: '#8b7b9d',
+    tunnelconstructiveelement: '#7e6f91',
+    tunnelfurniture: '#9a8aa8',
+    tunnelhollowspace: '#9b8caf',
+    tunnelinstallation: '#8f80a2',
+    tunnelpart: '#9484a7',
+    waterbody: '#4f93b5',
+    waterway: '#4d89aa',
+  },
+  dark: {
+    bridge: '#6f9aae',
+    bridgeconstructiveelement: '#638c9f',
+    bridgefurniture: '#879aa4',
+    bridgeinstallation: '#78a8b9',
+    bridgepart: '#7ea2b2',
+    bridgeroom: '#8fa9b5',
+    building: '#9d927f',
+    buildingconstructiveelement: '#918675',
+    buildingfurniture: '#ab9b82',
+    buildinginstallation: '#a98f6d',
+    buildingpart: '#aa9b85',
+    buildingroom: '#b7a98f',
+    cityfurniture: '#b88939',
+    cityobjectgroup: '#7f8b99',
+    genericcityobject: '#8b96a1',
+    landuse: '#879863',
+    otherconstruction: '#89817f',
+    plantcover: '#67945e',
+    railway: '#5c6670',
+    relieffeature: '#938568',
+    road: '#626b74',
+    solitaryvegetationobject: '#528857',
+    square: '#7a736b',
+    tinrelief: '#907d5f',
+    transportationobject: '#68717b',
+    transportsquare: '#7a736b',
+    tunnel: '#7d6f93',
+    tunnelconstructiveelement: '#716485',
+    tunnelfurniture: '#897b9c',
+    tunnelhollowspace: '#8a7ca1',
+    tunnelinstallation: '#817397',
+    tunnelpart: '#857697',
+    waterbody: '#477f9f',
+    waterway: '#467895',
+  },
+}
+
+const FALLBACK_OBJECT_TYPE_COLORS: Record<Theme, readonly string[]> = {
+  light: ['#8b96a1', '#938c81', '#879672', '#7e97a3', '#998b9f'],
+  dark: ['#7f8b97', '#827b72', '#788a67', '#728b98', '#887c93'],
+}
 
 type CityViewportProps = {
   data: ViewerDataset | null
@@ -2614,15 +2694,18 @@ function createMaterial(objectType: string, theme: Theme, semanticMode = false) 
 }
 
 function baseColorForType(objectType: string, theme: Theme) {
-  const palette =
-    theme === 'light'
-      ? ['#7a828c', '#6e7781', '#828b95', '#727c86', '#87909a']
-      : ['#6f7883', '#78828d', '#68717b', '#838c97', '#707a85']
-  let hash = 0
-  for (let index = 0; index < objectType.length; index += 1) {
-    hash += objectType.charCodeAt(index)
+  const key = objectType.trim().toLowerCase()
+  const matchedColor = OBJECT_TYPE_COLORS[theme][key]
+  if (matchedColor) {
+    return matchedColor
   }
-  return palette[hash % palette.length]
+
+  const fallbackPalette = FALLBACK_OBJECT_TYPE_COLORS[theme]
+  let hash = 0
+  for (let index = 0; index < key.length; index += 1) {
+    hash += key.charCodeAt(index)
+  }
+  return fallbackPalette[hash % fallbackPalette.length]
 }
 
 function createErrorMaterial(color: string) {
