@@ -36,7 +36,11 @@ const VIEWPORT_FOG_DENSITY = {
 
 const PLANARITY_DISTANCE_TOLERANCE = 0.0001
 const PLANARITY_RELATIVE_TOLERANCE = 1e-7
+const NON_PLANAR_NORMAL_EXTRA_VERTEX_RATIO = 0.1
+const NON_PLANAR_NORMAL_EXTRA_VERTEX_MIN_BUDGET = 10000
+const NON_PLANAR_NORMAL_EXTRA_VERTEX_MAX_BUDGET = 500000
 const EDIT_VERTEX_PICK_RADIUS_PIXELS = 14
+const EMPTY_FACE_INDEX_SET = new Set<number>()
 
 const OBJECT_TYPE_COLORS: Record<Theme, Record<string, string>> = {
   light: {
@@ -1091,7 +1095,12 @@ function rebuildFeatureGeometry(
     }
 
     const center = (mesh.userData.featureCenter as Vec3) ?? data.center
-    const nextBlueprint = buildObjectGeometryBlueprint(objectGeometry.polygons, vertices, center)
+    const nextBlueprint = buildObjectGeometryBlueprint(
+      objectGeometry.polygons,
+      vertices,
+      center,
+      collectObjectErrorFaceIndices(feature.errors, object.id, objectGeometry.index),
+    )
     const { faceGroups } = resolveObjectFaceGroups(runtime, feature, object, objectGeometry, selection)
     const nextGeometry = buildGroupedObjectGeometry(nextBlueprint, faceGroups)
     replaceMeshGeometry(mesh, nextGeometry)
@@ -1210,7 +1219,12 @@ function buildObjectMeshPresentation(
   featureCenter: Vec3,
   existingBlueprint?: ObjectGeometryBlueprint,
 ) {
-  const blueprint = existingBlueprint ?? buildObjectGeometryBlueprint(objectGeometry.polygons, vertices, featureCenter)
+  const blueprint = existingBlueprint ?? buildObjectGeometryBlueprint(
+    objectGeometry.polygons,
+    vertices,
+    featureCenter,
+    collectObjectErrorFaceIndices(feature.errors, object.id, objectGeometry.index),
+  )
   const { faceGroups, groupColors } = resolveObjectFaceGroups(runtime, feature, object, objectGeometry, selection)
   const geometry = buildGroupedObjectGeometry(blueprint, faceGroups)
   const baseMaterial = createMaterial(object.type, runtime.theme, runtime.showSemanticSurfaces)
@@ -1247,16 +1261,47 @@ function resolveObjectFaceGroups(
     : computeFaceErrorGroups(feature.errors, object.id, objectGeometry.index)
 }
 
+function collectObjectErrorFaceIndices(
+  errors: ViewerValidationError[],
+  objectId: string,
+  geometryIndex: number,
+) {
+  const faceIndices = new Set<number>()
+
+  for (const error of errors) {
+    if (
+      error.cityObjectId !== objectId ||
+      error.faceIndex == null ||
+      (error.geometryIndex != null && error.geometryIndex !== geometryIndex)
+    ) {
+      continue
+    }
+
+    faceIndices.add(error.faceIndex)
+  }
+
+  return faceIndices
+}
+
 function buildObjectGeometryBlueprint(
   polygons: PolygonRings[],
   vertices: Vec3[],
   center: Vec3,
+  triangleNormalFaceIndices: ReadonlySet<number> = EMPTY_FACE_INDEX_SET,
 ): ObjectGeometryBlueprint {
   let vertexCapacity = countRenderablePolygonVertices(polygons, vertices)
   let positions = new Float32Array(vertexCapacity * 3)
   let normals = new Float32Array(vertexCapacity * 3)
   const polygonTriangleIndices: number[][] = []
   let offset = 0
+  let nonPlanarNormalExtraVertexCount = 0
+  const nonPlanarNormalExtraVertexBudget = Math.min(
+    Math.max(
+      Math.floor(vertexCapacity * NON_PLANAR_NORMAL_EXTRA_VERTEX_RATIO),
+      NON_PLANAR_NORMAL_EXTRA_VERTEX_MIN_BUDGET,
+    ),
+    NON_PLANAR_NORMAL_EXTRA_VERTEX_MAX_BUDGET,
+  )
 
   function ensureVertexCapacity(requiredVertexCount: number) {
     if (requiredVertexCount <= vertexCapacity) {
@@ -1274,50 +1319,31 @@ function buildObjectGeometryBlueprint(
   }
 
   for (let polyIndex = 0; polyIndex < polygons.length; polyIndex += 1) {
-    const polygon = polygons[polyIndex]
-    if (polygon.length === 1) {
-      const ring = polygon[0]
-      const ringVertices = removeClosingDuplicateVertex(collectRingVertices(ring, vertices))
-      const polygonVertexCount = ringVertices.length
+    const sourcePolygon = polygons[polyIndex]
+    const allowTriangleNormals = triangleNormalFaceIndices.has(polyIndex)
+    if (
+      sourcePolygon.length === 1 &&
+      !allowTriangleNormals &&
+      !hasClosingDuplicateVertex(sourcePolygon[0], vertices)
+    ) {
+      const ring = sourcePolygon[0]
+      const polygonVertexCount = countRenderableRingVertices(ring, vertices)
       if (polygonVertexCount < 3) {
         polygonTriangleIndices.push([])
         continue
       }
 
-      const normal = computeNormal(ringVertices)
-      const isNonPlanar = polygonVertexCount > 3 && isNonPlanarPolygon([ringVertices], normal)
-
-      if (isNonPlanar) {
-        const triangles =
-          polygonVertexCount === 4 && isConvexRing(ringVertices, normal)
-            ? [[0, 1, 2], [0, 2, 3]]
-            : triangulatePolygon([ringVertices])
-        const polygonIndices: number[] = []
-        ensureVertexCapacity(offset + triangles.length * 3)
-        appendTriangleVertexBuffers(
-          ringVertices,
-          triangles,
-          center,
-          normal,
-          positions,
-          normals,
-          offset,
-          polygonIndices,
-        )
-        offset += triangles.length * 3
-        polygonTriangleIndices.push(polygonIndices)
-        continue
-      }
-
-      fillRingBuffers(ringVertices, center, normal, positions, normals, offset * 3)
+      const normal = computeIndexedRingNormal(ring, vertices)
+      ensureVertexCapacity(offset + polygonVertexCount)
+      fillIndexedRingBuffers(ring, vertices, center, normal, positions, normals, offset * 3)
 
       if (polygonVertexCount === 3) {
         polygonTriangleIndices.push([offset, offset + 1, offset + 2])
-      } else if (polygonVertexCount === 4 && isConvexRing(ringVertices, normal)) {
+      } else if (polygonVertexCount === 4 && isConvexIndexedRing(ring, vertices, normal)) {
         polygonTriangleIndices.push([offset, offset + 1, offset + 2, offset, offset + 2, offset + 3])
       } else {
-        const projectedPolygon = [ringVertices]
-        const triangles = triangulatePolygon(projectedPolygon)
+        const ringVertices = collectRingVertices(ring, vertices)
+        const triangles = triangulatePolygon([ringVertices])
         const polygonIndices: number[] = []
         for (const triangle of triangles) {
           polygonIndices.push(offset + triangle[0], offset + triangle[1], offset + triangle[2])
@@ -1329,61 +1355,47 @@ function buildObjectGeometryBlueprint(
       continue
     }
 
-    const projectedPolygon = polygon
-      .map((ring) =>
-        removeClosingDuplicateVertex(
-          ring
-            .map((index) => vertices[index])
-            .filter((vertex): vertex is Vec3 => Array.isArray(vertex)),
-        ),
-      )
-      .filter((ring) => ring.length >= 3)
-
-    if (projectedPolygon.length === 0) {
+    const polygon = preparePolygonGeometry(
+      sourcePolygon,
+      vertices,
+      allowTriangleNormals,
+    )
+    if (polygon.compactVertexCount === 0) {
       polygonTriangleIndices.push([])
       continue
     }
 
-    const normal = computeNormal(projectedPolygon[0])
-    const triangles = triangulatePolygon(projectedPolygon)
-    if (isNonPlanarPolygon(projectedPolygon, normal)) {
-      const polygonIndices: number[] = []
-      ensureVertexCapacity(offset + triangles.length * 3)
-      appendTriangleVertexBuffers(
-        projectedPolygon.flat(),
-        triangles,
+    const polygonIndices: number[] = []
+    const extraTriangleVertexCount = polygon.triangleVertexCount - polygon.compactVertexCount
+    const useTriangleVertices =
+      polygon.isNonPlanar &&
+      extraTriangleVertexCount > 0 &&
+      nonPlanarNormalExtraVertexCount + extraTriangleVertexCount <= nonPlanarNormalExtraVertexBudget
+    const outputVertexCount = useTriangleVertices ? polygon.triangleVertexCount : polygon.compactVertexCount
+    ensureVertexCapacity(offset + outputVertexCount)
+    if (useTriangleVertices) {
+      const writtenVertexCount = appendTriangleRingVertexBuffers(
+        polygon.rings,
+        polygon.ringOffsets,
+        polygon.triangles,
         center,
-        normal,
+        polygon.normal,
         positions,
         normals,
         offset,
         polygonIndices,
       )
-      offset += triangles.length * 3
-      polygonTriangleIndices.push(polygonIndices)
-      continue
-    }
-
-    let polygonVertexCount = 0
-    let componentOffset = offset * 3
-    for (const ring of projectedPolygon) {
-      polygonVertexCount += ring.length
-      for (const vertex of ring) {
-        positions[componentOffset] = vertex[0] - center[0]
-        normals[componentOffset++] = normal.x
-        positions[componentOffset] = vertex[1] - center[1]
-        normals[componentOffset++] = normal.y
-        positions[componentOffset] = vertex[2] - center[2]
-        normals[componentOffset++] = normal.z
+      offset += writtenVertexCount
+      nonPlanarNormalExtraVertexCount += Math.max(writtenVertexCount - polygon.compactVertexCount, 0)
+    } else {
+      fillPolygonRingBuffers(polygon.rings, center, polygon.normal, positions, normals, offset * 3)
+      for (const triangle of polygon.triangles) {
+        polygonIndices.push(offset + triangle[0], offset + triangle[1], offset + triangle[2])
       }
+      offset += polygon.compactVertexCount
     }
 
-    const polygonIndices: number[] = []
-    for (const triangle of triangles) {
-      polygonIndices.push(offset + triangle[0], offset + triangle[1], offset + triangle[2])
-    }
     polygonTriangleIndices.push(polygonIndices)
-    offset += polygonVertexCount
   }
 
   const usedComponentCount = offset * 3
@@ -1395,6 +1407,57 @@ function buildObjectGeometryBlueprint(
   }
 
   return blueprint
+}
+
+function preparePolygonGeometry(
+  polygon: PolygonRings,
+  vertices: Vec3[],
+  allowTriangleNormals: boolean,
+) {
+  const rings = polygon
+    .map((ring) => removeClosingDuplicateVertex(collectRingVertices(ring, vertices)))
+    .filter((ring) => ring.length >= 3)
+
+  if (rings.length === 0) {
+    return {
+      rings: [],
+      ringOffsets: [],
+      triangles: [],
+      normal: new THREE.Vector3(0, 0, 1),
+      isNonPlanar: false,
+      compactVertexCount: 0,
+      triangleVertexCount: 0,
+    }
+  }
+
+  const normal = computeNormal(rings[0])
+  const triangles = triangulatePolygon(rings)
+  let ringVertexCount = 0
+  for (const ring of rings) {
+    ringVertexCount += ring.length
+  }
+  const isNonPlanar = allowTriangleNormals && ringVertexCount > 3 && isNonPlanarPolygon(rings, normal)
+  const ringOffsets = isNonPlanar ? collectRingOffsets(rings) : []
+
+  return {
+    rings,
+    ringOffsets,
+    triangles,
+    normal,
+    isNonPlanar,
+    compactVertexCount: ringVertexCount,
+    triangleVertexCount: triangles.length * 3,
+  }
+}
+
+function collectRingOffsets(rings: Vec3[][]) {
+  const ringOffsets: number[] = []
+  let offset = 0
+  for (const ring of rings) {
+    ringOffsets.push(offset)
+    offset += ring.length
+  }
+  return ringOffsets
 }
 
 function countRenderablePolygonVertices(polygons: PolygonRings[], vertices: Vec3[]) {
@@ -1419,6 +1482,16 @@ function countRenderablePolygonVertices(polygons: PolygonRings[], vertices: Vec3
   return count
 }
 
+function countRenderableRingVertices(ring: number[], vertices: Vec3[]) {
+  let count = 0
+  for (const index of ring) {
+    if (Array.isArray(vertices[index])) {
+      count += 1
+    }
+  }
+  return count
+}
+
 function collectRingVertices(ring: number[], vertices: Vec3[]) {
   const ringVertices: Vec3[] = []
   for (const index of ring) {
@@ -1430,6 +1503,18 @@ function collectRingVertices(ring: number[], vertices: Vec3[]) {
   return ringVertices
 }
 
+function hasClosingDuplicateVertex(ring: number[], vertices: Vec3[]) {
+  if (ring.length < 2) {
+    return false
+  }
+
+  const first = vertices[ring[0]]
+  const last = vertices[ring[ring.length - 1]]
+  return Array.isArray(first) &&
+    Array.isArray(last) &&
+    samePoint(first, last)
+}
+
 function removeClosingDuplicateVertex(ringVertices: Vec3[]) {
   if (ringVertices.length < 2) {
     return ringVertices
@@ -1437,13 +1522,18 @@ function removeClosingDuplicateVertex(ringVertices: Vec3[]) {
 
   const first = ringVertices[0]
   const last = ringVertices[ringVertices.length - 1]
-  return first[0] === last[0] && first[1] === last[1] && first[2] === last[2]
+  return samePoint(first, last)
     ? ringVertices.slice(0, -1)
     : ringVertices
 }
 
-function fillRingBuffers(
-  ringVertices: Vec3[],
+function samePoint(first: Vec3, second: Vec3) {
+  return first[0] === second[0] && first[1] === second[1] && first[2] === second[2]
+}
+
+function fillIndexedRingBuffers(
+  ring: number[],
+  vertices: Vec3[],
   center: Vec3,
   normal: THREE.Vector3,
   positions: Float32Array,
@@ -1452,7 +1542,12 @@ function fillRingBuffers(
 ) {
   let componentOffset = startOffset
 
-  for (const vertex of ringVertices) {
+  for (const index of ring) {
+    const vertex = vertices[index]
+    if (!Array.isArray(vertex)) {
+      continue
+    }
+
     positions[componentOffset] = vertex[0] - center[0]
     normals[componentOffset++] = normal.x
     positions[componentOffset] = vertex[1] - center[1]
@@ -1462,8 +1557,31 @@ function fillRingBuffers(
   }
 }
 
-function appendTriangleVertexBuffers(
-  vertices: Vec3[],
+function fillPolygonRingBuffers(
+  rings: Vec3[][],
+  center: Vec3,
+  normal: THREE.Vector3,
+  positions: Float32Array,
+  normals: Float32Array,
+  startOffset: number,
+) {
+  let componentOffset = startOffset
+
+  for (const ring of rings) {
+    for (const vertex of ring) {
+      positions[componentOffset] = vertex[0] - center[0]
+      normals[componentOffset++] = normal.x
+      positions[componentOffset] = vertex[1] - center[1]
+      normals[componentOffset++] = normal.y
+      positions[componentOffset] = vertex[2] - center[2]
+      normals[componentOffset++] = normal.z
+    }
+  }
+}
+
+function appendTriangleRingVertexBuffers(
+  rings: Vec3[][],
+  ringOffsets: number[],
   triangles: number[][],
   center: Vec3,
   fallbackNormal: THREE.Vector3,
@@ -1476,16 +1594,16 @@ function appendTriangleVertexBuffers(
   let componentOffset = startVertexOffset * 3
 
   for (const triangle of triangles) {
-    const first = vertices[triangle[0]]
-    const second = vertices[triangle[1]]
-    const third = vertices[triangle[2]]
+    const first = getRingVertexAt(rings, ringOffsets, triangle[0])
+    const second = getRingVertexAt(rings, ringOffsets, triangle[1])
+    const third = getRingVertexAt(rings, ringOffsets, triangle[2])
     if (!first || !second || !third) {
       continue
     }
 
     const normal = computeTriangleNormal(first, second, third, fallbackNormal)
     for (const vertexIndex of triangle) {
-      const vertex = vertices[vertexIndex]
+      const vertex = getRingVertexAt(rings, ringOffsets, vertexIndex)
       if (!vertex) {
         continue
       }
@@ -1499,6 +1617,19 @@ function appendTriangleVertexBuffers(
       polygonIndices.push(vertexOffset++)
     }
   }
+
+  return vertexOffset - startVertexOffset
+}
+
+function getRingVertexAt(rings: Vec3[][], ringOffsets: number[], flatIndex: number) {
+  for (let ringIndex = ringOffsets.length - 1; ringIndex >= 0; ringIndex -= 1) {
+    const ringOffset = ringOffsets[ringIndex]
+    if (flatIndex >= ringOffset) {
+      return rings[ringIndex][flatIndex - ringOffset] ?? null
+    }
+  }
+
+  return null
 }
 
 function buildGroupedObjectGeometry(
@@ -2438,7 +2569,8 @@ function isConvexProjectedRing(points: THREE.Vector2[]) {
   return sign !== 0
 }
 
-function isConvexRing(ringVertices: Vec3[], normal: THREE.Vector3) {
+function isConvexIndexedRing(ring: number[], vertices: Vec3[], normal: THREE.Vector3) {
+  const ringVertices = collectRingVertices(ring, vertices)
   if (ringVertices.length !== 4) {
     return false
   }
@@ -2494,6 +2626,44 @@ function computeNormal(points: Vec3[]) {
     nx += (current[1] - next[1]) * (current[2] + next[2])
     ny += (current[2] - next[2]) * (current[0] + next[0])
     nz += (current[0] - next[0]) * (current[1] + next[1])
+  }
+
+  const normal = new THREE.Vector3(nx, ny, nz)
+  if (normal.lengthSq() === 0) {
+    return new THREE.Vector3(0, 0, 1)
+  }
+
+  return normal.normalize()
+}
+
+function computeIndexedRingNormal(ring: number[], vertices: Vec3[]) {
+  let nx = 0
+  let ny = 0
+  let nz = 0
+  let first: Vec3 | null = null
+  let previous: Vec3 | null = null
+
+  for (const index of ring) {
+    const current = vertices[index]
+    if (!Array.isArray(current)) {
+      continue
+    }
+
+    if (!first) {
+      first = current
+    }
+    if (previous) {
+      nx += (previous[1] - current[1]) * (previous[2] + current[2])
+      ny += (previous[2] - current[2]) * (previous[0] + current[0])
+      nz += (previous[0] - current[0]) * (previous[1] + current[1])
+    }
+    previous = current
+  }
+
+  if (first && previous) {
+    nx += (previous[1] - first[1]) * (previous[2] + first[2])
+    ny += (previous[2] - first[2]) * (previous[0] + first[0])
+    nz += (previous[0] - first[0]) * (previous[1] + first[1])
   }
 
   const normal = new THREE.Vector3(nx, ny, nz)
