@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  Plus,
   Camera,
   Check,
   CircleHelp,
@@ -17,12 +18,14 @@ import {
   Minimize2,
   Moon,
   ListTree,
+  Palette,
   Pin,
   PinOff,
   Pyramid,
   RotateCcw,
   RotateCw,
   Search,
+  Shuffle,
   SquareMousePointer,
   Sun,
   SunMoon,
@@ -35,6 +38,7 @@ import { Suspense, lazy, memo, startTransition, useCallback, useEffect, useMemo,
 import type { ChangeEvent, ReactNode } from 'react'
 
 import { Badge } from '@/components/ui/badge'
+import { ColorPicker, ColorPickerHex, ColorPickerInput } from '@/components/ui/color-picker'
 import { Kbd } from '@/components/ui/kbd'
 import {
   collectAvailableLods,
@@ -49,7 +53,9 @@ import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import { MaskIcon } from '@/components/ui/mask-icon'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -75,10 +81,11 @@ import {
   loadValidationReportFromUrl,
   mergeValidationAnnotations,
 } from '@/lib/cityjson'
-import { cn } from '@/lib/utils'
+import { cn, viewerObjectKey } from '@/lib/utils'
 import type {
   PolygonRings,
   Vec3,
+  ViewerAttributeColorState,
   ViewerCityObject,
   ViewerDataset,
   ViewerFeature,
@@ -101,7 +108,48 @@ const BAG_BUILDING_ID_PREFIX = 'NL.IMBAG.Pand.'
 type DetailPaneMode = 'split' | 'collapsed' | 'fullscreen'
 type MobileInspectMode = 'object' | 'surface'
 type MobilePanelView = 'features' | 'details'
+type InfoPanelSection = 'pinned' | 'attribute' | 'semantic'
 type HelpItem = { keys: string; description: string }
+type ContinuousAttributeColorMapId = keyof typeof ATTRIBUTE_COLOR_MAPS
+type QualitativeAttributeColorMapId = keyof typeof NOMINAL_QUALITATIVE_COLOR_MAPS
+type AttributeColorMapId = ContinuousAttributeColorMapId | QualitativeAttributeColorMapId | 'random'
+type AttributeColorDomain = { key: string; min: number; max: number }
+type NumericAttributeColorModel = {
+  kind: 'numeric'
+  key: string
+  valuesByObjectKey: Record<string, number>
+  values: number[]
+  dataMin: number
+  dataMax: number
+  numericCount: number
+  missingCount: number
+  objectCount: number
+  bins: AttributeColorBin[]
+}
+type NominalAttributeColorModel = {
+  kind: 'nominal'
+  key: string
+  valuesByObjectKey: Record<string, number>
+  directColorsByObjectKey: Record<string, string>
+  categories: AttributeColorCategory[]
+  valueCount: number
+  missingCount: number
+  objectCount: number
+}
+type AttributeColorModel = NumericAttributeColorModel | NominalAttributeColorModel
+type AttributeColorBin = {
+  start: number
+  end: number
+  count: number
+  color: string
+}
+type AttributeColorCategory = {
+  key: string
+  label: string
+  count: number
+  color: string
+  index: number
+}
 
 const VIEW_PICKING_MODES: ViewerPickingMode[] = ['none', 'object']
 const SEMANTICS_PICKING_MODES: ViewerPickingMode[] = ['none', 'object', 'face']
@@ -115,6 +163,35 @@ const FEATURE_LIST_BOTTOM_PADDING = 12
 const FEATURE_LIST_OVERSCAN = 6
 const EMPTY_CITY_OBJECTS: ViewerCityObject[] = []
 const EMPTY_ATTRIBUTES: Record<string, unknown> = {}
+const ATTRIBUTE_COLOR_MISSING = '#94a3b8'
+const ATTRIBUTE_COLOR_BIN_COUNT = 24
+const ATTRIBUTE_COLOR_MAPS = {
+  viridis: ['#440154', '#482878', '#3e4989', '#31688e', '#26828e', '#1f9e89', '#35b779', '#6ece58', '#b5de2b', '#fde725'],
+  plasma: ['#0d0887', '#46039f', '#7201a8', '#9c179e', '#bd3786', '#d8576b', '#ed7953', '#fb9f3a', '#fdca26', '#f0f921'],
+  inferno: ['#000004', '#1b0c41', '#4a0c6b', '#781c6d', '#a52c60', '#cf4446', '#ed6925', '#fb9b06', '#f7d13d', '#fcffa4'],
+  magma: ['#000004', '#180f3d', '#440f76', '#721f81', '#9e2f7f', '#cd4071', '#f1605d', '#fd9668', '#feca8d', '#fcfdbf'],
+  cividis: ['#00204d', '#173c6d', '#345d7e', '#4f7c7b', '#6c9974', '#8bb56b', '#accd66', '#d0e264', '#fdea45', '#ffffe5'],
+  turbo: ['#30123b', '#4145ab', '#4675ed', '#39a2fc', '#1bcfd4', '#24eca6', '#61fc6c', '#a4fc3b', '#f9b233', '#7a0403'],
+  coolwarm: ['#3b4cc0', '#5977e3', '#82a6fb', '#b1cbfc', '#dddcdc', '#f2cbb7', '#f7a889', '#e7745b', '#c53334', '#b40426'],
+} as const
+const NOMINAL_QUALITATIVE_COLOR_MAPS = {
+  tableau10: ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc948', '#b07aa1', '#ff9da7', '#9c755f', '#bab0ac'],
+  set3: ['#8dd3c7', '#ffffb3', '#bebada', '#fb8072', '#80b1d3', '#fdb462', '#b3de69', '#fccde5', '#d9d9d9', '#bc80bd', '#ccebc5', '#ffed6f'],
+  paired: ['#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99', '#e31a1c', '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a', '#ffff99', '#b15928'],
+  dark2: ['#1b9e77', '#d95f02', '#7570b3', '#e7298a', '#66a61e', '#e6ab02', '#a6761d', '#666666'],
+} as const
+const DEFAULT_ATTRIBUTE_COLOR_MAP_ID: AttributeColorMapId = 'viridis'
+const ATTRIBUTE_COLOR_MAP_OPTIONS = Object.keys(ATTRIBUTE_COLOR_MAPS) as ContinuousAttributeColorMapId[]
+const NOMINAL_QUALITATIVE_COLOR_MAP_OPTIONS = Object.keys(NOMINAL_QUALITATIVE_COLOR_MAPS) as QualitativeAttributeColorMapId[]
+const NOMINAL_ATTRIBUTE_COLOR_MAP_OPTIONS: AttributeColorMapId[] = [
+  'random',
+  ...NOMINAL_QUALITATIVE_COLOR_MAP_OPTIONS,
+  ...ATTRIBUTE_COLOR_MAP_OPTIONS,
+]
+const ATTRIBUTE_COLOR_DOMAIN_PREVIEW_EVENT = 'cjloupe:attribute-color-domain-preview'
+const NOMINAL_ATTRIBUTE_DISPLAY_LIMIT = 32
+const NOMINAL_ATTRIBUTE_HIGH_CARDINALITY_LIMIT = 200
+const NOMINAL_ATTRIBUTE_SINGLETON_RATIO = 0.85
 
 const CityViewport = lazy(() =>
   import('@/components/viewer/city-viewport').then((module) => ({ default: module.CityViewport })),
@@ -134,6 +211,7 @@ function App() {
   const annotationInputRef = useRef<HTMLInputElement>(null)
   const originalVerticesRef = useRef<Map<string, Vec3[]>>(new Map())
   const originalObjectGeometriesRef = useRef<Map<string, Map<string, ViewerObjectGeometry[]>>>(new Map())
+  const attributeColorDomainsByKeyRef = useRef<Map<string, AttributeColorDomain>>(new Map())
   const preInspectPickingModeRef = useRef<ViewerPickingMode>('object')
   const inspectPickingModeRef = useRef<ViewerPickingMode>('face')
 
@@ -164,7 +242,17 @@ function App() {
   const [isolateSelectedFeature, setIsolateSelectedFeature] = useState(false)
   const [pinnedAttributeKeys, setPinnedAttributeKeys] = useState<string[]>([])
   const [isPinnedAttributesOpen, setIsPinnedAttributesOpen] = useState(false)
-  const [isSemanticSurfaceOverlayOpen, setIsSemanticSurfaceOverlayOpen] = useState(false)
+  const [infoPanelOpenSections, setInfoPanelOpenSections] = useState<Record<InfoPanelSection, boolean>>({
+    pinned: true,
+    attribute: true,
+    semantic: true,
+  })
+  const [attributeColorKey, setAttributeColorKey] = useState<string | null>(null)
+  const [attributeColorInheritsParent, setAttributeColorInheritsParent] = useState(true)
+  const [attributeColorDomain, setAttributeColorDomain] = useState<AttributeColorDomain | null>(null)
+  const [attributeColorMapId, setAttributeColorMapId] = useState<AttributeColorMapId>(DEFAULT_ATTRIBUTE_COLOR_MAP_ID)
+  const [attributeNominalColorSeed, setAttributeNominalColorSeed] = useState(0)
+  const [customNominalColorMaps, setCustomNominalColorMaps] = useState<Record<string, Record<string, string>>>({})
   const [detailTab, setDetailTab] = useState('errors')
   const [detailPaneMode, setDetailPaneMode] = useState<DetailPaneMode>('split')
   const [isDragging, setIsDragging] = useState(false)
@@ -258,43 +346,137 @@ function App() {
   const hasDetailErrors = visibleDetailErrorCount > 0
   const hasDetailAttributes = activeObjectAttributeCount > 0
   const hasDetailGeometries = activeObjectGeometryCount > 0
+  const pinnableAttributeOptions = useMemo(() => {
+    if (!activeObject) {
+      return []
+    }
+
+    const pinnedSet = new Set(pinnedAttributeKeys)
+    const optionMap = new Map<string, { key: string; isInherited: boolean }>()
+    for (const key of Object.keys(activeObject.attributes).sort((left, right) => left.localeCompare(right))) {
+      if (!pinnedSet.has(key)) {
+        optionMap.set(key, { key, isInherited: false })
+      }
+    }
+
+    if (attributeColorInheritsParent) {
+      for (const ancestor of collectObjectAncestors(activeObject, selectedFeatureObjects)) {
+        for (const key of Object.keys(ancestor.attributes)) {
+          if (!optionMap.has(key) && !pinnedSet.has(key)) {
+            optionMap.set(key, { key, isInherited: true })
+          }
+        }
+      }
+    }
+
+    return [...optionMap.values()].sort((left, right) =>
+      Number(left.isInherited) - Number(right.isInherited) ||
+      left.key.localeCompare(right.key, undefined, { numeric: true, sensitivity: 'base' }),
+    )
+  }, [activeObject, attributeColorInheritsParent, pinnedAttributeKeys, selectedFeatureObjects])
   const pinnedAttributes = useMemo(() => {
-    const activeObjectAncestors = pinnedAttributeKeys.length > 0
+    const activeObjectAncestors = pinnedAttributeKeys.length > 0 && attributeColorInheritsParent
       ? collectObjectAncestors(activeObject, selectedFeatureObjects)
       : EMPTY_CITY_OBJECTS
+    const inheritedAttributes = new Map<string, unknown>()
+    for (const ancestor of activeObjectAncestors) {
+      for (const [key, value] of Object.entries(ancestor.attributes)) {
+        if (!inheritedAttributes.has(key)) {
+          inheritedAttributes.set(key, value)
+        }
+      }
+    }
 
     return pinnedAttributeKeys.map((key) => {
       if (Object.prototype.hasOwnProperty.call(activeObjectAttributes, key)) {
-        return {
-          key,
-          hasValue: true,
-          value: activeObjectAttributes[key],
-          isInherited: false,
-        }
+        return { key, hasValue: true, value: activeObjectAttributes[key], isInherited: false }
       }
 
-      const parent = activeObjectAncestors.find((object) =>
-        Object.prototype.hasOwnProperty.call(object.attributes, key),
-      )
+      if (inheritedAttributes.has(key)) {
+        return { key, hasValue: true, value: inheritedAttributes.get(key), isInherited: true }
+      }
 
-      if (parent) {
-        return {
-          key,
-          hasValue: true,
-          value: parent.attributes[key],
-          isInherited: true,
-        }
+      return { key, hasValue: false, value: undefined, isInherited: false }
+    })
+  }, [activeObject, activeObjectAttributes, attributeColorInheritsParent, pinnedAttributeKeys, selectedFeatureObjects])
+  const pinnedAttributeCount = pinnedAttributeKeys.length
+  const attributeColorMapColors = getContinuousAttributeColorMapColors(attributeColorMapId)
+  const customNominalColorsForAttribute = attributeColorKey
+    ? customNominalColorMaps[attributeColorKey] ?? EMPTY_ATTRIBUTES
+    : EMPTY_ATTRIBUTES
+  const attributeColorModel = useMemo(
+    () => buildAttributeColorModel(
+      dataset,
+      attributeColorKey,
+      attributeColorInheritsParent,
+      attributeColorMapId,
+      attributeColorMapColors,
+      attributeNominalColorSeed,
+      customNominalColorsForAttribute as Record<string, string>,
+    ),
+    [
+      attributeColorInheritsParent,
+      attributeColorKey,
+      attributeColorMapColors,
+      attributeColorMapId,
+      attributeNominalColorSeed,
+      customNominalColorsForAttribute,
+      dataset,
+    ],
+  )
+  const activeAttributeColorDomain = useMemo(() => {
+    if (!attributeColorModel || attributeColorModel.kind !== 'numeric') {
+      return null
+    }
+
+    if (attributeColorDomain?.key === attributeColorModel.key) {
+      return attributeColorDomain
+    }
+
+    return {
+      key: attributeColorModel.key,
+      min: attributeColorModel.dataMin,
+      max: attributeColorModel.dataMax,
+    }
+  }, [attributeColorDomain, attributeColorModel])
+  const attributeColorViewportState = useMemo<ViewerAttributeColorState | null>(() => {
+    if (!attributeColorModel || showSemanticSurfaces) {
+      return null
+    }
+
+    if (attributeColorModel.kind === 'nominal') {
+      if (attributeColorModel.valueCount === 0) {
+        return null
       }
 
       return {
-        key,
-        hasValue: false,
-        value: undefined,
-        isInherited: false,
+        mode: 'direct',
+        valuesByObjectKey: attributeColorModel.valuesByObjectKey,
+        directColorsByObjectKey: attributeColorModel.directColorsByObjectKey,
+        domainMin: 0,
+        domainMax: Math.max(attributeColorModel.categories.length - 1, 1),
+        dataMin: 0,
+        dataMax: Math.max(attributeColorModel.categories.length - 1, 1),
+        colors: attributeColorModel.categories.slice(0, 10).map((category) => category.color),
+        missingColor: ATTRIBUTE_COLOR_MISSING,
       }
-    })
-  }, [activeObject, activeObjectAttributes, pinnedAttributeKeys, selectedFeatureObjects])
-  const pinnedAttributeCount = pinnedAttributeKeys.length
+    }
+
+    if (!activeAttributeColorDomain || attributeColorModel.numericCount === 0) {
+      return null
+    }
+
+    return {
+      mode: 'continuous',
+      valuesByObjectKey: attributeColorModel.valuesByObjectKey,
+      domainMin: activeAttributeColorDomain.min,
+      domainMax: activeAttributeColorDomain.max,
+      dataMin: attributeColorModel.dataMin,
+      dataMax: attributeColorModel.dataMax,
+      colors: attributeColorMapColors,
+      missingColor: ATTRIBUTE_COLOR_MISSING,
+    }
+  }, [activeAttributeColorDomain, attributeColorMapColors, attributeColorModel, showSemanticSurfaces])
   const availableDetailTabs = [
     hasDetailErrors ? 'errors' : null,
     hasDetailAttributes ? 'attributes' : null,
@@ -392,6 +574,31 @@ function App() {
       setMobilePanelView('features')
     }
   }, [selectedFeatureId])
+
+  useEffect(() => {
+    if (attributeColorKey && !pinnedAttributeKeys.includes(attributeColorKey)) {
+      setAttributeColorKey(null)
+      setAttributeColorDomain(null)
+    }
+  }, [attributeColorKey, pinnedAttributeKeys])
+
+  useEffect(() => {
+    if (!attributeColorModel || attributeColorModel.kind !== 'numeric') {
+      setAttributeColorDomain(null)
+      return
+    }
+
+    setAttributeColorDomain((current) => {
+      if (current?.key === attributeColorModel.key) {
+        return current
+      }
+
+      const cachedDomain = attributeColorDomainsByKeyRef.current.get(attributeColorModel.key)
+      return cachedDomain
+        ? clampAttributeColorDomain(cachedDomain, attributeColorModel.dataMin, attributeColorModel.dataMax)
+        : getDefaultAttributeColorDomain(attributeColorModel)
+    })
+  }, [attributeColorModel])
 
   useEffect(() => {
     setDismissedErrorMessage(null)
@@ -715,7 +922,13 @@ function App() {
     setSelectedSemanticSurface(null)
     setPinnedAttributeKeys([])
     setIsPinnedAttributesOpen(false)
-    setIsSemanticSurfaceOverlayOpen(false)
+    setAttributeColorKey(null)
+    setAttributeColorDomain(null)
+    setAttributeColorInheritsParent(true)
+    setAttributeColorMapId(DEFAULT_ATTRIBUTE_COLOR_MAP_ID)
+    setAttributeNominalColorSeed(0)
+    setCustomNominalColorMaps({})
+    attributeColorDomainsByKeyRef.current = new Map()
     setViewportResetRevision((current) => current + 1)
   }, [])
 
@@ -887,6 +1100,76 @@ function App() {
 
   const handleUnpinAttribute = useCallback((key: string) => {
     setPinnedAttributeKeys((current) => current.filter((entry) => entry !== key))
+  }, [])
+
+  const handleSelectAttributeColorKey = useCallback((key: string) => {
+    setAttributeColorKey(key)
+    setShowSemanticSurfaces(false)
+    setAttributeColorDomain(attributeColorDomainsByKeyRef.current.get(key) ?? null)
+  }, [])
+
+  const handleClearAttributeColor = useCallback(() => {
+    setAttributeColorKey(null)
+    setAttributeColorDomain(null)
+  }, [])
+
+  const handleCommitAttributeColorDomain = useCallback((domain: AttributeColorDomain) => {
+    attributeColorDomainsByKeyRef.current.set(domain.key, domain)
+    setAttributeColorDomain(domain)
+  }, [])
+
+  const handleRerandomizeNominalColors = useCallback(() => {
+    setAttributeNominalColorSeed((current) => current + 1)
+    if (attributeColorKey) {
+      setCustomNominalColorMaps((current) => {
+        const rest = { ...current }
+        delete rest[attributeColorKey]
+        return rest
+      })
+    }
+  }, [attributeColorKey])
+
+  const handleCustomNominalColorChange = useCallback((attributeKey: string, categoryKey: string, color: string) => {
+    setCustomNominalColorMaps((current) => ({
+      ...current,
+      [attributeKey]: {
+        ...(current[attributeKey] ?? {}),
+        [categoryKey]: color,
+      },
+    }))
+  }, [])
+
+  const handleAttributeColorMapChange = useCallback((colorMapId: AttributeColorMapId) => {
+    setAttributeColorMapId(colorMapId)
+  }, [])
+
+  const handleToggleInfoPanelSection = useCallback((section: InfoPanelSection) => {
+    setInfoPanelOpenSections((current) => ({
+      ...current,
+      [section]: !current[section],
+    }))
+  }, [])
+
+  const handlePreviewAttributeColorDomain = useCallback((domain: AttributeColorDomain) => {
+    window.dispatchEvent(
+      new CustomEvent(ATTRIBUTE_COLOR_DOMAIN_PREVIEW_EVENT, {
+        detail: {
+          min: domain.min,
+          max: domain.max,
+        },
+      }),
+    )
+  }, [])
+
+  const toggleSemanticSurfaces = useCallback(() => {
+    setShowSemanticSurfaces((current) => {
+      const next = !current
+      if (next) {
+        setAttributeColorKey(null)
+        setAttributeColorDomain(null)
+      }
+      return next
+    })
   }, [])
 
   const handleSelectSemanticSurface = useCallback((surface: {
@@ -1433,7 +1716,7 @@ function App() {
         dataset
       ) {
         event.preventDefault()
-        setShowSemanticSurfaces((current) => !current)
+        toggleSemanticSurfaces()
         return
       }
 
@@ -1532,7 +1815,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [centerCurrentSelection, cycleGeometryDisplayMode, cycleSelectedFaceRing, cycleSelectedFaceVertex, dataset, deleteSelectedFace, editMode, handlePickingModeShortcut, restoreSelectedFeatureGeometry, selectedFaceIndex, selectedFeatureId, toggleEditMode])
+  }, [centerCurrentSelection, cycleGeometryDisplayMode, cycleSelectedFaceRing, cycleSelectedFaceVertex, dataset, deleteSelectedFace, editMode, handlePickingModeShortcut, restoreSelectedFeatureGeometry, selectedFaceIndex, selectedFeatureId, toggleEditMode, toggleSemanticSurfaces])
 
   const isErrorDialogVisible = Boolean(error && dismissedErrorMessage !== error)
   const hasModalScrim =
@@ -1546,7 +1829,12 @@ function App() {
   const isFeaturePanelVisible = !isMobileLayout || mobilePanelView === 'features'
   const isDetailPanelVisible = !isMobileLayout || mobilePanelView === 'details'
   const detailOverlayPositionClass = isMobileLayout ? 'bottom-20 left-3 right-3' : 'bottom-12 left-4 max-w-md'
-  const semanticOverlayPositionClass = isMobileLayout ? 'left-3 right-3 top-4' : 'left-4 top-4 max-w-md'
+  const infoPanelPositionClass = isMobileLayout ? 'left-3 right-3 top-4' : 'bottom-12 left-4 max-w-sm'
+  const showInfoPanelPinnedSection = isPinnedAttributesOpen && !isMobileLayout
+  const showInfoPanelAttributeSection = Boolean(attributeColorKey)
+  const showSemanticPanel = Boolean(!editMode && showSemanticSurfaces && activeSemanticSurface)
+  const showInfoPanel = showInfoPanelPinnedSection || showInfoPanelAttributeSection
+  const showInfoPanelStack = showInfoPanel || showSemanticPanel
   const mobileViewportHeightClass = isPaneCollapsed
     ? 'h-[calc(100dvh_-_(3.5rem+env(safe-area-inset-bottom)))]'
     : detailPaneMode === 'fullscreen'
@@ -2036,6 +2324,7 @@ function App() {
             selectedFaceRingIndex={activeFaceRingIndex}
             selectedVertexIndex={selectedVertexIndex}
             showSemanticSurfaces={showSemanticSurfaces}
+            attributeColor={attributeColorViewportState}
             pickingMode={effectivePickingMode}
             showVertexGizmo={showVertexGizmo}
             mobileInteraction={isMobileLayout}
@@ -2073,23 +2362,41 @@ function App() {
           />
         )}
 
-        {!editMode && showSemanticSurfaces && activeSemanticSurface && (
-          <SemanticSurfaceOverlay
-            key={`${activeSemanticSurface.objectId}:${activeSemanticSurface.geometryIndex}:${activeSemanticSurface.faceIndex}:${activeSemanticSurface.surface.surfaceIndex}`}
-            positionClassName={semanticOverlayPositionClass}
-            semanticSurface={activeSemanticSurface}
-            isOpen={isSemanticSurfaceOverlayOpen}
-            onOpenChange={setIsSemanticSurfaceOverlayOpen}
-          />
-        )}
-
-        {!isMobileLayout && isPinnedAttributesOpen && (
-          <PinnedAttributesOverlay
-            positionClassName="bottom-12 left-4 max-w-sm"
-            pinnedAttributes={pinnedAttributes}
-            onCollapse={() => setIsPinnedAttributesOpen(false)}
-            onUnpinAttribute={handleUnpinAttribute}
-          />
+        {showInfoPanelStack && (
+          <div className={cn('pointer-events-none absolute z-20 flex max-h-[calc(100dvh-5rem)] w-full flex-col gap-2', infoPanelPositionClass)}>
+            {showSemanticPanel && activeSemanticSurface && (
+              <SemanticSurfacePanel
+                isOpen={infoPanelOpenSections.semantic}
+                semanticSurface={activeSemanticSurface}
+                onToggle={() => handleToggleInfoPanelSection('semantic')}
+              />
+            )}
+            {showInfoPanel && (
+              <InfoPanel
+                openSections={infoPanelOpenSections}
+                showPinnedSection={showInfoPanelPinnedSection}
+                showAttributeSection={showInfoPanelAttributeSection}
+                pinnedAttributes={pinnedAttributes}
+                pinnableAttributeOptions={pinnableAttributeOptions}
+                activeAttributeColorKey={attributeColorKey}
+                attributeColorModel={attributeColorModel}
+                attributeColorDomain={activeAttributeColorDomain}
+                attributeColorMapId={attributeColorMapId}
+                attributeColorInheritsParent={attributeColorInheritsParent}
+                onToggleSection={handleToggleInfoPanelSection}
+                onPinAttribute={handlePinAttribute}
+                onUnpinAttribute={handleUnpinAttribute}
+                onColorAttribute={handleSelectAttributeColorKey}
+                onColorMapChange={handleAttributeColorMapChange}
+                onInheritsParentChange={setAttributeColorInheritsParent}
+                onDomainPreview={handlePreviewAttributeColorDomain}
+                onDomainChange={handleCommitAttributeColorDomain}
+                onRerandomizeNominalColors={handleRerandomizeNominalColors}
+                onCustomNominalColorChange={handleCustomNominalColorChange}
+                onClearAttributeColor={handleClearAttributeColor}
+              />
+            )}
+          </div>
         )}
 
         {isMobileLayout ? (
@@ -2103,7 +2410,7 @@ function App() {
               hasSelectedFeature={Boolean(selectedFeature)}
               showSemanticSurfaces={showSemanticSurfaces}
               mobileInspectMode={mobileInspectMode}
-              onToggleSemanticSurfaces={() => setShowSemanticSurfaces((current) => !current)}
+              onToggleSemanticSurfaces={toggleSemanticSurfaces}
               onToggleMobileInspectMode={() =>
                 setMobileInspectMode((current) => (current === 'object' ? 'surface' : 'object'))
               }
@@ -2135,7 +2442,7 @@ function App() {
               onCyclePickingMode={cyclePickingMode}
               onToggleVertexGizmo={() => setShowVertexGizmo((current) => !current)}
               onToggleXray={() => setHideOccludedEditEdges((current) => !current)}
-              onToggleSemanticSurfaces={() => setShowSemanticSurfaces((current) => !current)}
+              onToggleSemanticSurfaces={toggleSemanticSurfaces}
               onToggleIsolateSelectedFeature={() => setIsolateSelectedFeature((current) => !current)}
               onSelectPickingMode={handleSelectPickingMode}
               onCenterCurrentSelection={centerCurrentSelection}
@@ -2518,88 +2825,6 @@ function EditSelectionOverlay({
   )
 }
 
-function SemanticSurfaceOverlay({
-  positionClassName,
-  semanticSurface,
-  isOpen,
-  onOpenChange,
-}: {
-  positionClassName: string
-  semanticSurface: {
-    objectId: string
-    geometryIndex: number
-    faceIndex: number
-    surface: ViewerSemanticSurface
-  }
-  isOpen: boolean
-  onOpenChange: (open: boolean) => void
-}) {
-  const surfaceColor = semanticSurfaceColor(semanticSurface.surface.type)
-
-  return (
-    <div className={cn('pointer-events-none absolute z-30', positionClassName)}>
-      <Collapsible
-        open={isOpen}
-        onOpenChange={onOpenChange}
-        className="floating-panel pointer-events-auto flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden rounded-sm border p-2"
-      >
-        <div className="flex min-w-0 items-center gap-2">
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <Badge
-              variant="outline"
-              className="min-w-0 truncate text-foreground"
-              style={{
-                borderColor: `${surfaceColor}66`,
-                backgroundColor: `${surfaceColor}22`,
-                color: surfaceColor,
-              }}
-            >
-              {semanticSurface.surface.type}
-            </Badge>
-            <Badge variant="outline" className="shrink-0 border-border bg-background/60 text-muted-foreground">
-              face {semanticSurface.faceIndex}
-            </Badge>
-          </div>
-          <CollapsibleTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-7 shrink-0"
-              aria-label={isOpen ? 'Collapse semantic surface attributes' : 'Expand semantic surface attributes'}
-              title={isOpen ? 'Collapse' : 'Expand'}
-            >
-              {isOpen ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
-            </Button>
-          </CollapsibleTrigger>
-        </div>
-
-        <CollapsibleContent className="min-h-0 overflow-y-auto">
-          <div className="mt-3 space-y-3 border-t border-border/55 pt-3">
-            {Object.keys(semanticSurface.surface.attributes).length > 0 ? (
-              <dl className="m-0 space-y-2">
-                {Object.entries(semanticSurface.surface.attributes).map(([key, value]) => (
-                  <div
-                    key={key}
-                    className="rounded-sm border border-foreground/8 bg-foreground/3 px-2.5 py-1.5"
-                  >
-                    <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
-                      {key}
-                    </dt>
-                    <dd className="mt-1 text-sm text-foreground/80">{formatValue(value)}</dd>
-                  </div>
-                ))}
-              </dl>
-            ) : (
-              <p className="text-sm text-muted-foreground">No semantic surface attributes.</p>
-            )}
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
-    </div>
-  )
-}
-
 function MobileViewportToolbar({
   hasSelectedFeature,
   showSemanticSurfaces,
@@ -2889,7 +3114,7 @@ function DesktopViewportStatusBar({
           aria-expanded={isPinnedAttributesOpen}
           title={isPinnedAttributesOpen ? 'Collapse pinned attributes' : 'Expand pinned attributes'}
         >
-          <Pin className="size-3" />
+          <Pin  className="size-3" />
           {pinnedAttributeCount > 0 && (
             <span className="absolute right-0 top-0 inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[8px] font-semibold leading-none text-primary-foreground">
               {pinnedAttributeCount}
@@ -4264,110 +4489,855 @@ const AttributeList = memo(function AttributeList({
   )
 })
 
-function PinnedAttributesOverlay({
-  positionClassName,
+function InfoPanel({
+  openSections,
+  showPinnedSection,
+  showAttributeSection,
   pinnedAttributes,
-  onCollapse,
+  pinnableAttributeOptions,
+  activeAttributeColorKey,
+  attributeColorModel,
+  attributeColorDomain,
+  attributeColorMapId,
+  attributeColorInheritsParent,
+  onToggleSection,
+  onPinAttribute,
   onUnpinAttribute,
+  onColorAttribute,
+  onColorMapChange,
+  onInheritsParentChange,
+  onDomainPreview,
+  onDomainChange,
+  onRerandomizeNominalColors,
+  onCustomNominalColorChange,
+  onClearAttributeColor,
 }: {
-  positionClassName: string
+  openSections: Record<InfoPanelSection, boolean>
+  showPinnedSection: boolean
+  showAttributeSection: boolean
   pinnedAttributes: Array<{
     key: string
     hasValue: boolean
     value: unknown
     isInherited: boolean
   }>
-  onCollapse: () => void
+  pinnableAttributeOptions: Array<{
+    key: string
+    isInherited: boolean
+  }>
+  activeAttributeColorKey: string | null
+  attributeColorModel: AttributeColorModel | null
+  attributeColorDomain: AttributeColorDomain | null
+  attributeColorMapId: AttributeColorMapId
+  attributeColorInheritsParent: boolean
+  onToggleSection: (section: InfoPanelSection) => void
+  onPinAttribute: (key: string) => void
   onUnpinAttribute: (key: string) => void
+  onColorAttribute: (key: string) => void
+  onColorMapChange: (colorMapId: AttributeColorMapId) => void
+  onInheritsParentChange: (value: boolean) => void
+  onDomainPreview: (domain: AttributeColorDomain) => void
+  onDomainChange: (domain: AttributeColorDomain) => void
+  onRerandomizeNominalColors: () => void
+  onCustomNominalColorChange: (attributeKey: string, categoryKey: string, color: string) => void
+  onClearAttributeColor: () => void
 }) {
   return (
-    <div className={cn('pointer-events-none absolute z-20', positionClassName)}>
-      <div className="floating-panel pointer-events-auto flex max-h-[calc(100dvh-5rem)] w-full flex-col overflow-hidden rounded-sm border">
-        <div className="flex items-center justify-between gap-3 border-b border-border/55 px-3 py-2">
-          <div className="min-w-0">
-            <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-              Pinned attributes
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {pinnedAttributes.length > 0
-                ? `${pinnedAttributes.length} tracked field${pinnedAttributes.length === 1 ? '' : 's'}`
-                : 'No pinned fields'}
-            </p>
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-7 shrink-0"
-            onClick={onCollapse}
-            aria-label="Collapse pinned attributes"
-            title="Collapse pinned attributes"
-          >
-            <ChevronDown className="size-4" />
-          </Button>
+    <div className="floating-panel pointer-events-auto flex min-h-0 w-full flex-col overflow-hidden rounded-sm border">
+      <div className="border-b border-border/55 px-3 py-2">
+        <div className="min-w-0">
+          <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            Pinned attributes
+          </p>
         </div>
+      </div>
 
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="p-1.5">
-            {pinnedAttributes.length > 0 ? (
-              <table className="w-full table-fixed border-collapse text-left">
-                <thead>
-                  <tr className="border-b border-border/55">
-                    <th className="w-[42%] px-1.5 py-1 font-mono text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                      Attribute
-                    </th>
-                    <th className="px-1.5 py-1 font-mono text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                      Value
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pinnedAttributes.map((entry) => (
-                    <tr key={entry.key} className="border-b border-border/35 last:border-b-0">
-                      <td className="min-w-0 px-1.5 py-1 align-top">
-                        <div className="flex min-w-0 items-center gap-1">
-                          {entry.isInherited && (
-                            <ListTree
-                              className="size-3 shrink-0 text-accent"
-                              aria-label="Resolved from parent attribute"
-                            />
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="space-y-1.5 p-1.5">
+          <div className="rounded-sm border border-border/60 bg-foreground/3 p-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-foreground/86">Inherited values</p>
+                <p className="text-[11px] text-muted-foreground">Use parent value when missing</p>
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <Switch checked={attributeColorInheritsParent} onCheckedChange={onInheritsParentChange} aria-label="Use parent attributes" />
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8 shrink-0"
+                      disabled={pinnableAttributeOptions.length === 0}
+                      aria-label="Pin attribute"
+                      title="Pin attribute"
+                    >
+                      <Plus className="size-3.5" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" side="bottom" className="w-64 p-1">
+                    <div className="max-h-64 overflow-y-auto">
+                      {pinnableAttributeOptions.map((entry) => (
+                        <button
+                          key={entry.key}
+                          type="button"
+                          className="flex w-full min-w-0 items-center gap-2 rounded-[3px] px-2 py-1.5 text-left text-sm hover:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                          onClick={() => onPinAttribute(entry.key)}
+                        >
+                          {entry.isInherited ? (
+                            <ListTree className="size-3 shrink-0 text-accent" />
+                          ) : (
+                            <Pin className="size-3 shrink-0 text-muted-foreground" />
                           )}
-                          <span className="truncate font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground/78">
+                          <span className="min-w-0 flex-1 truncate font-mono text-[11px] uppercase tracking-[0.12em] text-foreground/82">
                             {entry.key}
                           </span>
-                        </div>
-                      </td>
-                      <td className="min-w-0 px-1.5 py-1 align-top">
-                        <div className="flex min-w-0 items-start gap-1">
-                          <div className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden whitespace-nowrap text-[12px] leading-5 text-foreground/82">
-                            {entry.hasValue ? formatValue(entry.value) : '—'}
-                          </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-5 w-5 shrink-0 rounded-[3px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                            onClick={() => onUnpinAttribute(entry.key)}
-                            aria-label={`Unpin ${entry.key}`}
-                            title={`Unpin ${entry.key}`}
-                          >
-                            <PinOff className="size-3" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-2 py-3 text-sm text-muted-foreground">
-                Pin attributes from the details panel to track them here.
+                        </button>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </div>
+            </div>
+          </div>
+          {showPinnedSection && (
+            <div className={cn(showAttributeSection && 'border-b border-border/45 pb-1')}>
+              <PinnedAttributesInfoSection
+                pinnedAttributes={pinnedAttributes}
+                activeAttributeColorKey={activeAttributeColorKey}
+                onUnpinAttribute={onUnpinAttribute}
+                onColorAttribute={onColorAttribute}
+              />
+            </div>
+          )}
+
+          {showAttributeSection && (
+            <InfoPanelSectionBlock
+              section="attribute"
+              title="Attribute colors"
+              detail={attributeColorModel?.kind ?? 'No values'}
+              isOpen={openSections.attribute}
+              onToggle={onToggleSection}
+              action={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-6 shrink-0"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onClearAttributeColor()
+                  }}
+                  aria-label="Disable attribute colors"
+                  title="Disable attribute colors"
+                >
+                  <X className="size-3.5" />
+                </Button>
+              }
+            >
+              <AttributeColorSection
+                model={attributeColorModel}
+                domain={attributeColorDomain}
+                colorMapId={attributeColorMapId}
+                onColorMapChange={onColorMapChange}
+                onDomainPreview={onDomainPreview}
+                onDomainChange={onDomainChange}
+                onRerandomizeNominalColors={onRerandomizeNominalColors}
+                onCustomNominalColorChange={onCustomNominalColorChange}
+              />
+            </InfoPanelSectionBlock>
+          )}
+        </div>
+      </ScrollArea>
+    </div>
+  )
+}
+
+function InfoPanelSectionBlock({
+  section,
+  title,
+  detail,
+  isOpen,
+  action,
+  onToggle,
+  children,
+}: {
+  section: InfoPanelSection
+  title: string
+  detail: string
+  isOpen: boolean
+  action?: ReactNode
+  onToggle: (section: InfoPanelSection) => void
+  children: ReactNode
+}) {
+  return (
+    <section className="rounded-sm border border-border/60 bg-foreground/3">
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left"
+          onClick={() => onToggle(section)}
+          aria-expanded={isOpen}
+        >
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+              {title}
+            </p>
+            <p className="mt-0.5 truncate text-xs text-foreground/78">{detail}</p>
+          </div>
+          {isOpen ? <ChevronDown className="size-4 shrink-0" /> : <ChevronUp className="size-4 shrink-0" />}
+        </button>
+        {action && <div className="flex shrink-0 items-center pr-2">{action}</div>}
+      </div>
+      {isOpen && <div className="border-t border-border/45 p-2">{children}</div>}
+    </section>
+  )
+}
+
+function SemanticSurfacePanel({
+  semanticSurface,
+  isOpen,
+  onToggle,
+}: {
+  semanticSurface: {
+    objectId: string
+    geometryIndex: number
+    faceIndex: number
+    surface: ViewerSemanticSurface
+  }
+  isOpen: boolean
+  onToggle: () => void
+}) {
+  return (
+    <div className="floating-panel pointer-events-auto w-full overflow-hidden rounded-sm border">
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left"
+        onClick={onToggle}
+        aria-expanded={isOpen}
+      >
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            Semantic surface
+          </p>
+        </div>
+        {isOpen ? <ChevronUp className="size-4 shrink-0" /> : <ChevronDown className="size-4 shrink-0" />}
+      </button>
+      {isOpen && (
+        <div className="border-t border-border/45 p-2">
+          <SemanticSurfaceInfoSection semanticSurface={semanticSurface} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PinnedAttributesInfoSection({
+  pinnedAttributes,
+  activeAttributeColorKey,
+  onUnpinAttribute,
+  onColorAttribute,
+}: {
+  pinnedAttributes: Array<{
+    key: string
+    hasValue: boolean
+    value: unknown
+    isInherited: boolean
+  }>
+  activeAttributeColorKey: string | null
+  onUnpinAttribute: (key: string) => void
+  onColorAttribute: (key: string) => void
+}) {
+  return (
+    <div className="grid min-w-0">
+      <div className="grid grid-cols-[minmax(0,1.25fr)_minmax(0,0.85fr)_1.5rem_1.5rem] items-center gap-1 border-b border-border/55 px-1.5 py-1">
+        <div className="font-mono text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+          Attribute
+        </div>
+        <div className="font-mono text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+          Value
+        </div>
+        <div className="col-start-4 text-right font-mono text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+          Color
+        </div>
+      </div>
+      {pinnedAttributes.length > 0 ? (
+        pinnedAttributes.map((entry) => {
+          const isActiveColorAttribute = activeAttributeColorKey === entry.key
+
+          return (
+            <div
+              key={entry.key}
+              className={cn(
+                'grid min-w-0 grid-cols-[minmax(0,1.25fr)_minmax(0,0.85fr)_1.5rem_1.5rem] items-center gap-1 border-b border-border/35 px-1.5 py-1 last:border-b-0',
+                isActiveColorAttribute && 'bg-primary/8',
+              )}
+            >
+              <div className="flex min-w-0 items-center gap-1">
+                {entry.isInherited && (
+                  <ListTree
+                    className="size-3 shrink-0 text-accent"
+                    aria-label="Resolved from parent attribute"
+                  />
+                )}
+                <span
+                  className={cn(
+                    'min-w-0 truncate font-mono text-[10px] uppercase leading-5 tracking-[0.12em]',
+                    isActiveColorAttribute ? 'text-primary' : 'text-muted-foreground/78',
+                  )}
+                >
+                  {entry.key}
+                </span>
+              </div>
+              <div className="min-w-0 truncate text-[12px] leading-5 text-foreground/82">
+                {entry.hasValue ? formatValue(entry.value) : '—'}
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-5 w-5 shrink-0 rounded-[3px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                onClick={() => onUnpinAttribute(entry.key)}
+                aria-label={`Unpin ${entry.key}`}
+                title={`Unpin ${entry.key}`}
+              >
+                <PinOff className="size-3" />
+              </Button>
+              <Button
+                type="button"
+                variant={isActiveColorAttribute ? 'secondary' : 'ghost'}
+                size="icon"
+                className="h-5 w-5 shrink-0 rounded-[3px]"
+                onClick={() => onColorAttribute(entry.key)}
+                aria-label={`Color objects by ${entry.key}`}
+                title={`Color objects by ${entry.key}`}
+              >
+                <Palette className="size-3" />
+              </Button>
+            </div>
+          )
+        })
+      ) : (
+        <div className="px-2 py-3 text-sm text-muted-foreground">
+          No pinned attributes.
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SemanticSurfaceInfoSection({
+  semanticSurface,
+}: {
+  semanticSurface: {
+    objectId: string
+    geometryIndex: number
+    faceIndex: number
+    surface: ViewerSemanticSurface
+  }
+}) {
+  const surfaceColor = semanticSurfaceColor(semanticSurface.surface.type)
+  const attributeEntries = Object.entries(semanticSurface.surface.attributes)
+
+  return (
+    <div className="space-y-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        <Badge
+          variant="outline"
+          className="min-w-0 truncate text-foreground"
+          style={{
+            borderColor: `${surfaceColor}66`,
+            backgroundColor: `${surfaceColor}22`,
+            color: surfaceColor,
+          }}
+        >
+          {semanticSurface.surface.type}
+        </Badge>
+        <Badge variant="outline" className="shrink-0 border-border bg-background/60 text-muted-foreground">
+          face {semanticSurface.faceIndex}
+        </Badge>
+      </div>
+
+      {attributeEntries.length > 0 ? (
+        <dl className="m-0 space-y-1.5">
+          {attributeEntries.map(([key, value]) => (
+            <div
+              key={key}
+              className="rounded-sm border border-foreground/8 bg-foreground/3 px-2.5 py-1.5"
+            >
+              <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
+                {key}
+              </dt>
+              <dd className="mt-1 text-sm text-foreground/80">{formatValue(value)}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <p className="text-sm text-muted-foreground">No semantic surface attributes.</p>
+      )}
+    </div>
+  )
+}
+
+function ColorMapSwatch({ colorMapId, className }: { colorMapId: AttributeColorMapId; className?: string }) {
+  if (colorMapId === 'random') {
+    return (
+      <div
+        className={cn(
+          'flex items-center justify-center rounded-[2px] border border-border/60 bg-foreground/5 text-muted-foreground',
+          className,
+        )}
+      >
+        <Shuffle className="size-3" />
+      </div>
+    )
+  }
+
+  const background = getColorMapPreviewBackground(colorMapId)
+  return (
+    <div
+      className={cn('rounded-[2px] border border-border/60 bg-foreground/5', className)}
+      style={background ? { backgroundImage: background } : undefined}
+    />
+  )
+}
+
+function ColorMapSelect({
+  value,
+  options,
+  onChange,
+}: {
+  value: AttributeColorMapId
+  options: readonly AttributeColorMapId[]
+  onChange: (colorMapId: AttributeColorMapId) => void
+}) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          aria-label="Attribute color map"
+          className="h-9 min-w-0 flex-1 justify-between gap-2 px-2.5 font-normal"
+        >
+          <ColorMapSwatch colorMapId={value} className="h-3 w-12 shrink-0" />
+          <span className="min-w-0 flex-1 truncate text-left text-sm">{formatColorMapName(value)}</span>
+          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" side="bottom" className="w-[var(--radix-popover-trigger-width)] p-1">
+        <div className="max-h-72 overflow-y-auto">
+          {options.map((entry) => {
+            const isSelected = entry === value
+            return (
+              <button
+                key={entry}
+                type="button"
+                className={cn(
+                  'flex w-full min-w-0 items-center gap-2 rounded-[3px] px-2 py-1.5 text-left text-sm hover:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+                  isSelected && 'bg-accent/15',
+                )}
+                onClick={() => {
+                  onChange(entry)
+                  setOpen(false)
+                }}
+              >
+                <ColorMapSwatch colorMapId={entry} className="h-3 w-12 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">{formatColorMapName(entry)}</span>
+                {isSelected && <Check className="size-3.5 shrink-0 text-accent" />}
+              </button>
+            )
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function AttributeColorSection({
+  model,
+  domain,
+  colorMapId,
+  onColorMapChange,
+  onDomainPreview,
+  onDomainChange,
+  onRerandomizeNominalColors,
+  onCustomNominalColorChange,
+}: {
+  model: AttributeColorModel | null
+  domain: AttributeColorDomain | null
+  colorMapId: AttributeColorMapId
+  onColorMapChange: (colorMapId: AttributeColorMapId) => void
+  onDomainPreview: (domain: AttributeColorDomain) => void
+  onDomainChange: (domain: AttributeColorDomain) => void
+  onRerandomizeNominalColors: () => void
+  onCustomNominalColorChange: (attributeKey: string, categoryKey: string, color: string) => void
+}) {
+  const [draftDomain, setDraftDomain] = useState<AttributeColorDomain | null>(domain)
+  const canAdjust = Boolean(model?.kind === 'numeric' && domain && model.numericCount > 0)
+  const rangeMin = model?.kind === 'numeric' ? model.dataMin : 0
+  const rangeMax = model?.kind === 'numeric' ? model.dataMax : 1
+  const rangeSpan = Math.max(rangeMax - rangeMin, 0.000001)
+  const maxBinCount = Math.max(...(model?.kind === 'numeric' ? model.bins.map((bin) => bin.count) : [1]), 1)
+  const visibleDomain = draftDomain?.key === domain?.key ? draftDomain : domain
+  const colorMapColors = getContinuousAttributeColorMapColors(colorMapId)
+  const colorMapOptions = model?.kind === 'nominal'
+    ? NOMINAL_ATTRIBUTE_COLOR_MAP_OPTIONS
+    : ATTRIBUTE_COLOR_MAP_OPTIONS
+  const colorMapValue = model?.kind === 'numeric' && colorMapId === 'random'
+    ? DEFAULT_ATTRIBUTE_COLOR_MAP_ID
+    : colorMapId
+
+  useEffect(() => {
+    setDraftDomain(domain)
+  }, [domain])
+
+  const previewDomain = (nextDomain: AttributeColorDomain) => {
+    setDraftDomain(nextDomain)
+    onDomainPreview(nextDomain)
+  }
+
+  const commitDomain = (nextDomain: AttributeColorDomain) => {
+    setDraftDomain(nextDomain)
+    onDomainPreview(nextDomain)
+    onDomainChange(nextDomain)
+  }
+
+  const updateDomainMin = (value: number) => {
+    if (model?.kind !== 'numeric' || !visibleDomain) return
+    commitDomain({
+      key: model.key,
+      min: Math.min(value, visibleDomain.max),
+      max: visibleDomain.max,
+    })
+  }
+
+  const updateDomainMax = (value: number) => {
+    if (model?.kind !== 'numeric' || !visibleDomain) return
+    commitDomain({
+      key: model.key,
+      min: visibleDomain.min,
+      max: Math.max(value, visibleDomain.min),
+    })
+  }
+
+  return (
+    <div className="space-y-3">
+        <div className="grid gap-1.5">
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+            Colormap
+          </span>
+          <div className="flex gap-2">
+            <ColorMapSelect
+              value={colorMapValue}
+              options={colorMapOptions}
+              onChange={onColorMapChange}
+            />
+            {model?.kind === 'nominal' && colorMapId === 'random' && (
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-9 w-9 shrink-0"
+                onClick={onRerandomizeNominalColors}
+                aria-label="Rerandomize nominal colors"
+                title="Rerandomize colors"
+              >
+                <Shuffle className="size-4" />
+              </Button>
             )}
           </div>
-        </ScrollArea>
-      </div>
+        </div>
+
+        {model?.kind === 'nominal' ? (
+          <NominalAttributeColorSection
+            model={model}
+            isEditableRandomMap={colorMapId === 'random'}
+            onCustomColorChange={onCustomNominalColorChange}
+          />
+        ) : model?.kind === 'numeric' && canAdjust && domain && visibleDomain ? (
+          <>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+                <span>{model.numericCount} colored</span>
+                <span>{model.missingCount} missing</span>
+              </div>
+              <div className="flex h-24 items-end gap-1 rounded-sm border border-border/60 bg-foreground/3 p-2">
+                {model.bins.map((bin, index) => {
+                  const isInsideDomain = bin.end >= visibleDomain.min && bin.start <= visibleDomain.max
+                  const binCenter = (bin.start + bin.end) / 2
+                  const colorT = (binCenter - visibleDomain.min) / Math.max(visibleDomain.max - visibleDomain.min, 0.000001)
+                  return (
+                    <div
+                      key={`${bin.start}-${bin.end}-${index}`}
+                      className="min-w-0 flex-1 rounded-[2px] transition-opacity"
+                      style={{
+                        height: `${Math.max((bin.count / maxBinCount) * 100, bin.count > 0 ? 4 : 0)}%`,
+                        backgroundColor: sampleColorMap(colorMapColors, colorT),
+                        opacity: isInsideDomain ? 0.95 : 0.22,
+                      }}
+                      title={`${formatDimensionValue(bin.start)} - ${formatDimensionValue(bin.end)}: ${bin.count}`}
+                    />
+                  )
+                })}
+              </div>
+              <div className="flex items-center justify-between gap-3 font-mono text-[10px] text-muted-foreground">
+                <span>{formatDimensionValue(rangeMin)}</span>
+                <span>{formatDimensionValue(rangeMax)}</span>
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <div className="grid gap-2 py-1">
+                <div className="flex items-center justify-between gap-3 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                  <span>Min</span>
+                  <span>Max</span>
+                </div>
+                <Slider
+                  min={rangeMin}
+                  max={rangeMax}
+                  step={rangeSpan / 200}
+                  value={[visibleDomain.min, visibleDomain.max]}
+                  minStepsBetweenThumbs={0}
+                  onValueChange={(value) => {
+                    const [nextMin, nextMax] = value
+                    if (nextMin == null || nextMax == null) return
+                    previewDomain({
+                      key: model.key,
+                      min: Math.min(nextMin, nextMax),
+                      max: Math.max(nextMin, nextMax),
+                    })
+                  }}
+                  onValueCommit={(value) => {
+                    const [nextMin, nextMax] = value
+                    if (nextMin == null || nextMax == null) return
+                    commitDomain({
+                      key: model.key,
+                      min: Math.min(nextMin, nextMax),
+                      max: Math.max(nextMin, nextMax),
+                    })
+                  }}
+                  aria-label="Attribute color range"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  type="number"
+                  value={formatNumericInputValue(visibleDomain.min)}
+                  onChange={(event) => updateDomainMin(Number(event.target.value))}
+                  aria-label="Attribute color minimum"
+                />
+                <Input
+                  type="number"
+                  value={formatNumericInputValue(visibleDomain.max)}
+                  onChange={(event) => updateDomainMax(Number(event.target.value))}
+                  aria-label="Attribute color maximum"
+                />
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-3 py-4 text-sm text-muted-foreground">
+            The selected pinned attribute has no numeric values to color.
+          </div>
+        )}
     </div>
+  )
+}
+
+function NominalAttributeColorSection({
+  model,
+  isEditableRandomMap,
+  onCustomColorChange,
+}: {
+  model: NominalAttributeColorModel
+  isEditableRandomMap: boolean
+  onCustomColorChange: (attributeKey: string, categoryKey: string, color: string) => void
+}) {
+  const sortedCategories = [...model.categories].sort((left, right) =>
+    right.count - left.count || left.label.localeCompare(right.label, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    }),
+  )
+  const singletonCount = model.categories.filter((category) => category.count === 1).length
+  const singletonRatio = model.categories.length > 0 ? singletonCount / model.categories.length : 0
+  const isHighCardinality =
+    model.categories.length > NOMINAL_ATTRIBUTE_HIGH_CARDINALITY_LIMIT ||
+    (
+      model.categories.length > NOMINAL_ATTRIBUTE_DISPLAY_LIMIT &&
+      singletonRatio >= NOMINAL_ATTRIBUTE_SINGLETON_RATIO
+    )
+  const repeatedCategories = sortedCategories.filter((category) => category.count > 1)
+
+  if (isHighCardinality) {
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+          <span>{model.valueCount} colored</span>
+          <span>{model.missingCount} missing</span>
+        </div>
+        <div className="rounded-sm border border-border/60 bg-foreground/3 px-3 py-2">
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div>
+              <p className="font-mono text-sm text-foreground">{model.categories.length}</p>
+              <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">unique</p>
+            </div>
+            <div>
+              <p className="font-mono text-sm text-foreground">{singletonCount}</p>
+              <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">single</p>
+            </div>
+            <div>
+              <p className="font-mono text-sm text-foreground">{repeatedCategories.length}</p>
+              <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">repeated</p>
+            </div>
+          </div>
+        </div>
+        {repeatedCategories.length > 0 ? (
+          <div className="space-y-1">
+            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+              Top repeated values
+            </p>
+            <NominalCategoryLegend
+              attributeKey={model.key}
+              categories={repeatedCategories.slice(0, 8)}
+              isEditable={isEditableRandomMap}
+              onCustomColorChange={onCustomColorChange}
+            />
+          </div>
+        ) : (
+          <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-3 py-2 text-xs text-muted-foreground">
+            High-cardinality nominal attribute: colors are assigned per value, but the chart is hidden because most values are unique.
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const visibleCategories = sortedCategories.slice(0, NOMINAL_ATTRIBUTE_DISPLAY_LIMIT)
+  const hiddenCategories = sortedCategories.slice(NOMINAL_ATTRIBUTE_DISPLAY_LIMIT)
+  const hiddenCount = hiddenCategories.reduce((sum, category) => sum + category.count, 0)
+  const displayCategories: AttributeColorCategory[] = hiddenCategories.length > 0
+    ? [
+        ...visibleCategories.slice(0, Math.max(NOMINAL_ATTRIBUTE_DISPLAY_LIMIT - 1, 0)),
+        {
+          key: '__other__',
+          label: `Other (${hiddenCategories.length} values)`,
+          count: hiddenCount,
+          color: ATTRIBUTE_COLOR_MISSING,
+          index: -1,
+        },
+      ]
+    : visibleCategories
+  const maxCategoryCount = Math.max(...displayCategories.map((category) => category.count), 1)
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+        <span>{model.valueCount} colored</span>
+        <span>{model.categories.length} unique / {model.missingCount} missing</span>
+      </div>
+      <div className="flex h-24 items-end gap-1 rounded-sm border border-border/60 bg-foreground/3 p-2">
+        {displayCategories.map((category) => (
+          <div
+            key={category.key}
+            className="min-w-0 flex-1 rounded-[2px]"
+            style={{
+              height: `${Math.max((category.count / maxCategoryCount) * 100, category.count > 0 ? 4 : 0)}%`,
+              backgroundColor: category.color,
+            }}
+            title={`${category.label}: ${category.count}`}
+          />
+        ))}
+      </div>
+      <NominalCategoryLegend
+        attributeKey={model.key}
+        categories={displayCategories}
+        isEditable={isEditableRandomMap}
+        onCustomColorChange={onCustomColorChange}
+      />
+    </div>
+  )
+}
+
+function NominalCategoryLegend({
+  attributeKey,
+  categories,
+  isEditable,
+  onCustomColorChange,
+}: {
+  attributeKey: string
+  categories: AttributeColorCategory[]
+  isEditable: boolean
+  onCustomColorChange: (attributeKey: string, categoryKey: string, color: string) => void
+}) {
+  return (
+    <div className="max-h-32 space-y-1 overflow-y-auto pr-1">
+      {categories.map((category) => (
+        <div key={category.key} className="grid grid-cols-[0.75rem_minmax(0,1fr)_auto] items-center gap-2 text-xs">
+          {isEditable && category.index >= 0 ? (
+            <NominalCategoryColorPicker
+              color={category.color}
+              label={category.label}
+              onChange={(color) => onCustomColorChange(attributeKey, category.key, color)}
+            />
+          ) : (
+            <span
+              className="h-3 w-3 rounded-[2px]"
+              style={{ backgroundColor: category.color }}
+              aria-hidden="true"
+            />
+          )}
+          <span className="min-w-0 truncate text-foreground/82" title={category.label}>
+            {category.label}
+          </span>
+          <span className="font-mono text-[10px] text-muted-foreground">{category.count}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function NominalCategoryColorPicker({
+  color,
+  label,
+  onChange,
+}: {
+  color: string
+  label: string
+  onChange: (color: string) => void
+}) {
+  const normalizedColor = normalizeHexColor(color)
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="h-4 w-4 shrink-0 rounded-[2px] border-border p-0"
+          style={{ backgroundColor: normalizedColor }}
+          aria-label={`Set color for ${label}`}
+          title={`Set color for ${label}`}
+        >
+          <span className="sr-only">Set color</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" side="right" className="w-fit p-2">
+        <ColorPicker>
+          <ColorPickerHex color={normalizedColor} onChange={onChange} />
+          <ColorPickerInput
+            value={normalizedColor}
+            onChange={(event) => onChange(event.target.value)}
+            aria-label={`Hex color for ${label}`}
+          />
+        </ColorPicker>
+      </PopoverContent>
+    </Popover>
   )
 }
 
@@ -4885,6 +5855,44 @@ function formatDimensionValue(value: number) {
   return value.toFixed(3).replace(/\.?0+$/, '')
 }
 
+function formatNumericInputValue(value: number) {
+  return Number.isInteger(value) ? String(value) : Number(value.toPrecision(8)).toString()
+}
+
+function formatColorMapName(colorMapId: AttributeColorMapId) {
+  return colorMapId
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/^./, (match) => match.toUpperCase())
+}
+
+function getContinuousAttributeColorMapColors(colorMapId: AttributeColorMapId) {
+  return ATTRIBUTE_COLOR_MAPS[colorMapId as ContinuousAttributeColorMapId] ?? ATTRIBUTE_COLOR_MAPS.viridis
+}
+
+function getColorMapPreviewBackground(colorMapId: AttributeColorMapId): string | null {
+  const continuous = ATTRIBUTE_COLOR_MAPS[colorMapId as ContinuousAttributeColorMapId]
+  if (continuous) {
+    return `linear-gradient(to right, ${continuous.join(', ')})`
+  }
+
+  const qualitative = NOMINAL_QUALITATIVE_COLOR_MAPS[colorMapId as QualitativeAttributeColorMapId]
+  if (qualitative) {
+    const stops: string[] = []
+    qualitative.forEach((color, index) => {
+      const start = (index / qualitative.length) * 100
+      const end = ((index + 1) / qualitative.length) * 100
+      stops.push(`${color} ${start}%`, `${color} ${end}%`)
+    })
+    return `linear-gradient(to right, ${stops.join(', ')})`
+  }
+
+  return null
+}
+
+function normalizeHexColor(color: string) {
+  return /^#[0-9a-f]{6}$/i.test(color) ? color : ATTRIBUTE_COLOR_MISSING
+}
+
 function formatMetadataPrimitive(value: string | number | boolean | null): string {
   if (value == null) {
     return '—'
@@ -4947,6 +5955,411 @@ function collectGeometryVertexIndices(polygons: PolygonRings[]) {
   }
 
   return [...indices].sort((left, right) => left - right)
+}
+
+function buildAttributeColorModel(
+  dataset: ViewerDataset | null,
+  key: string | null,
+  inheritFromParents: boolean,
+  colorMapId: AttributeColorMapId,
+  colorMapColors: readonly string[],
+  nominalColorSeed: number,
+  customNominalColors: Record<string, string>,
+): AttributeColorModel | null {
+  if (!dataset || !key) {
+    return null
+  }
+
+  const valuesByObjectKey: Record<string, number> = {}
+  const values: number[] = []
+  const nominalValuesByObjectKey: Record<string, string> = {}
+  const nominalLabelsByKey = new Map<string, string>()
+  const nominalCountsByKey = new Map<string, number>()
+  let objectCount = 0
+  let missingCount = 0
+  let hasNominalValue = false
+  let hasNonMissingValue = false
+
+  for (const feature of dataset.features) {
+    const objectById = inheritFromParents
+      ? new Map(feature.objects.map((object) => [object.id, object]))
+      : null
+
+    for (const object of feature.objects) {
+      objectCount += 1
+      const rawValue = resolveObjectAttribute(object, key, objectById)
+      const value = parseNumericAttributeValue(rawValue)
+      const objectKey = viewerObjectKey(feature.id, object.id)
+      if (value == null) {
+        const nominalValue = parseNominalAttributeValue(rawValue)
+        if (!nominalValue) {
+          missingCount += 1
+          continue
+        }
+
+        hasNominalValue = true
+        hasNonMissingValue = true
+        nominalValuesByObjectKey[objectKey] = nominalValue.key
+        nominalLabelsByKey.set(nominalValue.key, nominalValue.label)
+        nominalCountsByKey.set(nominalValue.key, (nominalCountsByKey.get(nominalValue.key) ?? 0) + 1)
+        continue
+      }
+
+      hasNonMissingValue = true
+      valuesByObjectKey[objectKey] = value
+      values.push(value)
+      const nominalValue = parseNominalAttributeValue(rawValue)
+      if (nominalValue) {
+        nominalValuesByObjectKey[objectKey] = nominalValue.key
+        nominalLabelsByKey.set(nominalValue.key, nominalValue.label)
+        nominalCountsByKey.set(nominalValue.key, (nominalCountsByKey.get(nominalValue.key) ?? 0) + 1)
+      }
+    }
+  }
+
+  if (hasNominalValue) {
+    return buildNominalAttributeColorModel({
+      key,
+      nominalValuesByObjectKey,
+      nominalLabelsByKey,
+      nominalCountsByKey,
+      missingCount,
+      objectCount,
+      colorMapId,
+      colorMapColors,
+      nominalColorSeed,
+      customNominalColors,
+    })
+  }
+
+  if (values.length === 0) {
+    return {
+      kind: 'numeric',
+      key,
+      valuesByObjectKey,
+      values,
+      dataMin: 0,
+      dataMax: 1,
+      numericCount: 0,
+      missingCount: hasNonMissingValue ? missingCount : objectCount,
+      objectCount,
+      bins: [],
+    }
+  }
+
+  const dataMin = Math.min(...values)
+  const dataMax = Math.max(...values)
+  const bins = buildAttributeColorBins(values, dataMin, dataMax, colorMapColors)
+
+  return {
+    kind: 'numeric',
+    key,
+    valuesByObjectKey,
+    values,
+    dataMin,
+    dataMax,
+    numericCount: values.length,
+    missingCount,
+    objectCount,
+    bins,
+  }
+}
+
+function buildNominalAttributeColorModel({
+  key,
+  nominalValuesByObjectKey,
+  nominalLabelsByKey,
+  nominalCountsByKey,
+  missingCount,
+  objectCount,
+  colorMapId,
+  colorMapColors,
+  nominalColorSeed,
+  customNominalColors,
+}: {
+  key: string
+  nominalValuesByObjectKey: Record<string, string>
+  nominalLabelsByKey: Map<string, string>
+  nominalCountsByKey: Map<string, number>
+  missingCount: number
+  objectCount: number
+  colorMapId: AttributeColorMapId
+  colorMapColors: readonly string[]
+  nominalColorSeed: number
+  customNominalColors: Record<string, string>
+}): NominalAttributeColorModel {
+  const sortedCategoryKeys = [...nominalCountsByKey.keys()].sort((left, right) =>
+    (nominalLabelsByKey.get(left) ?? left).localeCompare(nominalLabelsByKey.get(right) ?? right, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    }),
+  )
+  const categories = sortedCategoryKeys.map((categoryKey, index) => {
+    const label = nominalLabelsByKey.get(categoryKey) ?? categoryKey
+    return {
+      key: categoryKey,
+      label,
+      count: nominalCountsByKey.get(categoryKey) ?? 0,
+      color: getNominalAttributeColor(
+        key,
+        categoryKey,
+        index,
+        sortedCategoryKeys.length,
+        colorMapId,
+        colorMapColors,
+        nominalColorSeed,
+        customNominalColors[categoryKey],
+      ),
+      index,
+    }
+  })
+  const categoryByKey = new Map(categories.map((category) => [category.key, category]))
+  const valuesByObjectKey: Record<string, number> = {}
+  const directColorsByObjectKey: Record<string, string> = {}
+
+  for (const [objectKey, categoryKey] of Object.entries(nominalValuesByObjectKey)) {
+    const category = categoryByKey.get(categoryKey)
+    if (!category) {
+      continue
+    }
+
+    valuesByObjectKey[objectKey] = category.index
+    directColorsByObjectKey[objectKey] = category.color
+  }
+
+  return {
+    kind: 'nominal',
+    key,
+    valuesByObjectKey,
+    directColorsByObjectKey,
+    categories,
+    valueCount: Object.keys(valuesByObjectKey).length,
+    missingCount,
+    objectCount,
+  }
+}
+
+function getDefaultAttributeColorDomain(model: NumericAttributeColorModel): AttributeColorDomain {
+  return {
+    key: model.key,
+    min: model.dataMin,
+    max: model.dataMax,
+  }
+}
+
+function clampAttributeColorDomain(
+  domain: AttributeColorDomain,
+  dataMin: number,
+  dataMax: number,
+): AttributeColorDomain {
+  const min = clampNumber(domain.min, dataMin, dataMax)
+  const max = clampNumber(domain.max, dataMin, dataMax)
+  return {
+    key: domain.key,
+    min: Math.min(min, max),
+    max: Math.max(min, max),
+  }
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max)
+}
+
+function resolveObjectAttribute(
+  object: ViewerCityObject,
+  key: string,
+  objectById: Map<string, ViewerCityObject> | null,
+) {
+  const direct = object.attributes[key]
+  if (!isMissingAttributeValue(direct) || !objectById) {
+    return direct
+  }
+
+  const visited = new Set<string>()
+  const visit = (objectId: string): unknown => {
+    if (visited.has(objectId)) {
+      return null
+    }
+
+    visited.add(objectId)
+    const parent = objectById.get(objectId)
+    if (!parent) {
+      return null
+    }
+
+    const value = parent.attributes[key]
+    if (!isMissingAttributeValue(value)) {
+      return value
+    }
+
+    for (const parentId of parent.parentIds) {
+      const inheritedValue = visit(parentId)
+      if (inheritedValue != null) {
+        return inheritedValue
+      }
+    }
+
+    return null
+  }
+
+  for (const parentId of object.parentIds) {
+    const inheritedValue = visit(parentId)
+    if (inheritedValue != null) {
+      return inheritedValue
+    }
+  }
+
+  return null
+}
+
+function isMissingAttributeValue(value: unknown) {
+  return value == null || (typeof value === 'string' && value.trim().length === 0)
+}
+
+function parseNumericAttributeValue(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function parseNominalAttributeValue(value: unknown): { key: string; label: string } | null {
+  if (isMissingAttributeValue(value)) {
+    return null
+  }
+
+  if (typeof value === 'string') {
+    const label = value.trim()
+    return { key: `string:${label}`, label }
+  }
+
+  if (typeof value === 'boolean') {
+    const label = value ? 'true' : 'false'
+    return { key: `boolean:${label}`, label }
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const label = formatDimensionValue(value)
+    return { key: `number:${value}`, label }
+  }
+
+  const label = formatValue(value)
+  return { key: `value:${label}`, label }
+}
+
+function getNominalAttributeColor(
+  attributeKey: string,
+  categoryKey: string,
+  categoryIndex: number,
+  categoryCount: number,
+  colorMapId: AttributeColorMapId,
+  colorMapColors: readonly string[],
+  nominalColorSeed: number,
+  customColor: string | undefined,
+) {
+  if (colorMapId === 'random') {
+    return customColor ?? randomColorFromString(`${nominalColorSeed}:${attributeKey}:${categoryKey}`)
+  }
+
+  const qualitativeColors = NOMINAL_QUALITATIVE_COLOR_MAPS[colorMapId as QualitativeAttributeColorMapId]
+  if (qualitativeColors) {
+    return qualitativeColors[categoryIndex % qualitativeColors.length] ?? ATTRIBUTE_COLOR_MISSING
+  }
+
+  const t = categoryCount <= 1 ? 0.5 : categoryIndex / (categoryCount - 1)
+  return sampleColorMap(colorMapColors, t)
+}
+
+function randomColorFromString(value: string) {
+  let hash = 2166136261
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+
+  const hue = Math.abs(hash % 360)
+  const saturation = 58 + Math.abs((hash >>> 8) % 24)
+  const lightness = 42 + Math.abs((hash >>> 16) % 18)
+  return hslToHex(hue, saturation / 100, lightness / 100)
+}
+
+function hslToHex(hue: number, saturation: number, lightness: number) {
+  const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation
+  const huePrime = hue / 60
+  const x = chroma * (1 - Math.abs((huePrime % 2) - 1))
+  const [red1, green1, blue1] =
+    huePrime < 1
+      ? [chroma, x, 0]
+      : huePrime < 2
+        ? [x, chroma, 0]
+        : huePrime < 3
+          ? [0, chroma, x]
+          : huePrime < 4
+            ? [0, x, chroma]
+            : huePrime < 5
+              ? [x, 0, chroma]
+              : [chroma, 0, x]
+  const match = lightness - chroma / 2
+  const channels = [red1, green1, blue1].map((channel) =>
+    Math.round((channel + match) * 255),
+  )
+  return `#${channels.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`
+}
+
+function buildAttributeColorBins(
+  values: number[],
+  dataMin: number,
+  dataMax: number,
+  colorMapColors: readonly string[],
+) {
+  const binCount = Math.min(ATTRIBUTE_COLOR_BIN_COUNT, Math.max(values.length, 1))
+  const span = Math.max(dataMax - dataMin, 0.000001)
+  const bins: AttributeColorBin[] = Array.from({ length: binCount }, (_, index) => {
+    const start = dataMin + (span * index) / binCount
+    const end = index === binCount - 1 ? dataMax : dataMin + (span * (index + 1)) / binCount
+    const t = binCount === 1 ? 0.5 : index / (binCount - 1)
+    return {
+      start,
+      end,
+      count: 0,
+      color: sampleColorMap(colorMapColors, t),
+    }
+  })
+
+  for (const value of values) {
+    const index = Math.min(Math.floor(((value - dataMin) / span) * binCount), binCount - 1)
+    bins[Math.max(index, 0)].count += 1
+  }
+
+  return bins
+}
+
+function sampleColorMap(colors: readonly string[], t: number) {
+  if (colors.length === 0) {
+    return ATTRIBUTE_COLOR_MISSING
+  }
+
+  if (colors.length === 1) {
+    return colors[0] ?? ATTRIBUTE_COLOR_MISSING
+  }
+
+  const clampedT = Math.min(Math.max(t, 0), 1)
+  const scaledIndex = clampedT * (colors.length - 1)
+  const leftIndex = Math.floor(scaledIndex)
+  const rightIndex = Math.min(leftIndex + 1, colors.length - 1)
+  return mixHexColors(colors[leftIndex] ?? colors[0], colors[rightIndex] ?? colors[colors.length - 1], scaledIndex - leftIndex)
+}
+
+function mixHexColors(left: string, right: string, t: number) {
+  const leftRgb = parseHexColor(left)
+  const rightRgb = parseHexColor(right)
+  const clampedT = Math.min(Math.max(t, 0), 1)
+  const mixed = leftRgb.map((channel, index) =>
+    Math.round(channel + (rightRgb[index] - channel) * clampedT),
+  )
+  return `#${mixed.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`
+}
+
+function parseHexColor(value: string) {
+  const normalized = value.replace('#', '')
+  return [0, 1, 2].map((index) => Number.parseInt(normalized.slice(index * 2, index * 2 + 2), 16))
 }
 
 function getCurrentFaceIndexForSourceFace(geometry: ViewerObjectGeometry, sourceFaceIndex: number) {

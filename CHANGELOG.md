@@ -12,6 +12,7 @@
 - Add hotkey 'D' in inspect mode to delete the selected face
 - Improve vertex selection in inspect mode
 - Add system setting to light/dark mode button
+- Add object coloring based on colormapped object attributes
 
 ## 0.5.0 - 2026-05-04
 

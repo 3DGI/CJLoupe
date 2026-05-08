@@ -12,6 +12,18 @@ export type ViewerGeometryDisplayMode =
 
 export type ViewerPickingMode = 'none' | 'object' | 'face' | 'vertex'
 
+export type ViewerAttributeColorState = {
+  mode: 'continuous' | 'direct'
+  valuesByObjectKey: Record<string, number>
+  directColorsByObjectKey?: Record<string, string>
+  domainMin: number
+  domainMax: number
+  dataMin: number
+  dataMax: number
+  colors: readonly string[]
+  missingColor: string
+}
+
 export interface ViewerSemanticSurface {
   surfaceIndex: number
   type: string

@@ -9,6 +9,7 @@ import { TransformControls } from 'three/examples/jsm/controls/TransformControls
 import type {
   PolygonRings,
   Vec3,
+  ViewerAttributeColorState,
   ViewerCityObject,
   ViewerDataset,
   ViewerFeature,
@@ -26,6 +27,7 @@ import {
 } from '@/lib/object-geometry'
 import { errorColor } from '@/lib/error-palette'
 import { semanticSurfaceColor } from '@/lib/semantic-surface-colors'
+import { viewerObjectKey } from '@/lib/utils'
 
 type Theme = 'light' | 'dark'
 
@@ -142,6 +144,7 @@ type CityViewportProps = {
   showSemanticSurfaces: boolean
   pickingMode: ViewerPickingMode
   showVertexGizmo: boolean
+  attributeColor: ViewerAttributeColorState | null
   mobileInteraction: boolean
   mobileSelectionMode: 'object' | 'surface'
   onSelectFeature: (featureId: string, objectId?: string | null) => void
@@ -189,6 +192,9 @@ type Runtime = {
   editPivot: Vec3 | null
   theme: Theme
   showSemanticSurfaces: boolean
+  attributeColor: ViewerAttributeColorState | null
+  attributeColorSharedUniforms: AttributeColorSharedUniforms
+  preparedAttributeColorValuesByObjectKey: Record<string, number> | null
   ambientLight: THREE.AmbientLight
   hemisphereLight: THREE.HemisphereLight
   keyLight: THREE.DirectionalLight
@@ -203,6 +209,24 @@ type ObjectGeometryBlueprint = {
 }
 
 type TriangleFaceIndices = ArrayLike<number>
+
+type AttributeColorUniforms = {
+  value: { value: number }
+  hasValue: { value: number }
+  directColor: { value: THREE.Color }
+}
+
+type AttributeColorSharedUniforms = {
+  enabled: { value: number }
+  direct: { value: number }
+  min: { value: number }
+  max: { value: number }
+  colors: { value: THREE.Color[] }
+  missingColor: { value: THREE.Color }
+}
+
+const ATTRIBUTE_COLOR_STOP_COUNT = 10
+const ATTRIBUTE_COLOR_DOMAIN_PREVIEW_EVENT = 'cjloupe:attribute-color-domain-preview'
 
 type ViewSelection = {
   selectedFeatureId: string | null
@@ -235,6 +259,7 @@ function CityViewport({
   showSemanticSurfaces,
   pickingMode,
   showVertexGizmo,
+  attributeColor,
   mobileInteraction,
   mobileSelectionMode,
   onSelectFeature,
@@ -281,6 +306,7 @@ function CityViewport({
   const onViewportCenterChangeRef = useRef(onViewportCenterChange)
   const themeRef = useRef(theme)
   const showSemanticSurfacesRef = useRef(showSemanticSurfaces)
+  const attributeColorRef = useRef(attributeColor)
   const pickingModeRef = useRef(pickingMode)
   const showVertexGizmoRef = useRef(showVertexGizmo)
   const mobileInteractionRef = useRef(mobileInteraction)
@@ -320,6 +346,7 @@ function CityViewport({
   useEffect(() => { onViewportCenterChangeRef.current = onViewportCenterChange }, [onViewportCenterChange])
   useEffect(() => { themeRef.current = theme }, [theme])
   useEffect(() => { showSemanticSurfacesRef.current = showSemanticSurfaces }, [showSemanticSurfaces])
+  useEffect(() => { attributeColorRef.current = attributeColor }, [attributeColor])
   useEffect(() => { pickingModeRef.current = pickingMode }, [pickingMode])
   useEffect(() => { showVertexGizmoRef.current = showVertexGizmo }, [showVertexGizmo])
   useEffect(() => { mobileInteractionRef.current = mobileInteraction }, [mobileInteraction])
@@ -439,6 +466,9 @@ function CityViewport({
       editPivot: null,
       theme: themeRef.current,
       showSemanticSurfaces: showSemanticSurfacesRef.current,
+      attributeColor: attributeColorRef.current,
+      attributeColorSharedUniforms: createAttributeColorSharedUniforms(),
+      preparedAttributeColorValuesByObjectKey: null,
       ambientLight,
       hemisphereLight,
       keyLight,
@@ -557,7 +587,7 @@ function CityViewport({
           const activeMesh =
             selection.selectedFeatureId && selection.activeObjectId
               ? activeRuntime.meshesByObjectKey.get(
-                  objectKey(selection.selectedFeatureId, selection.activeObjectId),
+                  viewerObjectKey(selection.selectedFeatureId, selection.activeObjectId),
                 ) ?? null
               : null
 
@@ -943,6 +973,67 @@ function CityViewport({
   useEffect(() => {
     const runtime = runtimeRef.current
     const currentData = dataRef.current
+    if (!runtime) {
+      return
+    }
+
+    const previousValuesByObjectKey = runtime.attributeColor?.valuesByObjectKey ?? null
+    runtime.attributeColor = attributeColor
+    syncAttributeColorSharedUniforms(runtime.attributeColorSharedUniforms, attributeColor)
+    if (
+      attributeColor &&
+      (
+        runtime.preparedAttributeColorValuesByObjectKey !== attributeColor.valuesByObjectKey ||
+        previousValuesByObjectKey == null
+      )
+    ) {
+      applyAttributeColorToScene(runtime)
+      runtime.preparedAttributeColorValuesByObjectKey = attributeColor.valuesByObjectKey
+    }
+    renderViewport(runtime)
+    reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
+  }, [attributeColor])
+
+  useEffect(() => {
+    let pendingFrame: number | null = null
+    let pendingDomain: { min: number; max: number } | null = null
+
+    const flushPreview = () => {
+      pendingFrame = null
+      const runtime = runtimeRef.current
+      if (!runtime?.attributeColor || !pendingDomain) {
+        return
+      }
+
+      runtime.attributeColorSharedUniforms.min.value = pendingDomain.min
+      runtime.attributeColorSharedUniforms.max.value = pendingDomain.max
+      renderViewport(runtime)
+    }
+
+    const handlePreview = (event: Event) => {
+      const detail = (event as CustomEvent<{ min: number; max: number }>).detail
+      if (!detail || !Number.isFinite(detail.min) || !Number.isFinite(detail.max)) {
+        return
+      }
+
+      pendingDomain = detail
+      if (pendingFrame == null) {
+        pendingFrame = window.requestAnimationFrame(flushPreview)
+      }
+    }
+
+    window.addEventListener(ATTRIBUTE_COLOR_DOMAIN_PREVIEW_EVENT, handlePreview)
+    return () => {
+      window.removeEventListener(ATTRIBUTE_COLOR_DOMAIN_PREVIEW_EVENT, handlePreview)
+      if (pendingFrame != null) {
+        window.cancelAnimationFrame(pendingFrame)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    const runtime = runtimeRef.current
+    const currentData = dataRef.current
     if (!runtime || !currentData) {
       return
     }
@@ -1041,7 +1132,7 @@ function rebuildScene(
         featureCenter,
       )
       const mesh = new THREE.Mesh(geometry, material)
-      const nextObjectKey = objectKey(feature.id, object.id)
+      const nextObjectKey = viewerObjectKey(feature.id, object.id)
       mesh.position.set(
         featureCenter[0] - data.center[0],
         featureCenter[1] - data.center[1],
@@ -1084,7 +1175,7 @@ function rebuildFeatureGeometry(
   }
 
   for (const object of feature.objects) {
-    const mesh = runtime.meshesByObjectKey.get(objectKey(featureId, object.id))
+    const mesh = runtime.meshesByObjectKey.get(viewerObjectKey(featureId, object.id))
     if (!mesh) {
       continue
     }
@@ -1134,11 +1225,11 @@ function updateSelectionSurfacePresentation(
 ) {
   const previousObjectKey =
     previousSelection.selectedFeatureId && previousSelection.activeObjectId
-      ? objectKey(previousSelection.selectedFeatureId, previousSelection.activeObjectId)
+      ? viewerObjectKey(previousSelection.selectedFeatureId, previousSelection.activeObjectId)
       : null
   const nextObjectKey =
     selection.selectedFeatureId && selection.activeObjectId
-      ? objectKey(selection.selectedFeatureId, selection.activeObjectId)
+      ? viewerObjectKey(selection.selectedFeatureId, selection.activeObjectId)
       : null
   const didSelectedObjectChange = previousObjectKey !== nextObjectKey
   const didGeometryModeChange =
@@ -1180,7 +1271,7 @@ function updateObjectSurfacePresentation(
   object: ViewerFeature['objects'][number],
   selection: ViewSelection,
 ) {
-  const mesh = runtime.meshesByObjectKey.get(objectKey(feature.id, object.id))
+  const mesh = runtime.meshesByObjectKey.get(viewerObjectKey(feature.id, object.id))
   if (!mesh) {
     return
   }
@@ -1238,6 +1329,13 @@ function buildObjectMeshPresentation(
   const { faceGroups, groupColors } = resolveObjectFaceGroups(runtime, feature, object, objectGeometry, selection)
   const geometry = buildGroupedObjectGeometry(blueprint, faceGroups)
   const baseMaterial = createMaterial(object.type, runtime.theme, runtime.showSemanticSurfaces)
+  applyAttributeColorToMaterial(
+    baseMaterial,
+    runtime.attributeColor,
+    runtime.attributeColor?.valuesByObjectKey[viewerObjectKey(feature.id, object.id)] ?? null,
+    runtime.attributeColor?.directColorsByObjectKey?.[viewerObjectKey(feature.id, object.id)] ?? null,
+    runtime.attributeColorSharedUniforms,
+  )
   const materials = buildMaterialArray(
     baseMaterial,
     groupColors,
@@ -2928,6 +3026,150 @@ function createMaterial(objectType: string, theme: Theme, semanticMode = false) 
   return material
 }
 
+function applyAttributeColorToScene(runtime: Runtime) {
+  for (const [key, mesh] of runtime.meshesByObjectKey.entries()) {
+    const value = runtime.attributeColor?.valuesByObjectKey[key] ?? null
+    const directColor = runtime.attributeColor?.directColorsByObjectKey?.[key] ?? null
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+    for (const material of materials) {
+      if (material instanceof THREE.MeshStandardMaterial) {
+        applyAttributeColorToMaterial(
+          material,
+          runtime.attributeColor,
+          value,
+          directColor,
+          runtime.attributeColorSharedUniforms,
+        )
+      }
+    }
+  }
+}
+
+function applyAttributeColorToMaterial(
+  material: THREE.MeshStandardMaterial,
+  attributeColor: ViewerAttributeColorState | null,
+  value: number | null,
+  directColor: string | null,
+  sharedUniforms: AttributeColorSharedUniforms,
+) {
+  if (material.userData.isError || material.userData.isSemantic || material.userData.isSemanticBase) {
+    return
+  }
+
+  const existingUniforms = material.userData.attributeColorUniforms as AttributeColorUniforms | undefined
+  if (!attributeColor && !existingUniforms) {
+    return
+  }
+
+  const uniforms = existingUniforms ?? ensureAttributeColorUniforms(material, sharedUniforms)
+  uniforms.value.value = value ?? 0
+  uniforms.hasValue.value = value == null ? 0 : 1
+  uniforms.directColor.value.set(directColor ?? attributeColor?.missingColor ?? '#94a3b8')
+}
+
+function createAttributeColorSharedUniforms(): AttributeColorSharedUniforms {
+  return {
+    enabled: { value: 0 },
+    direct: { value: 0 },
+    min: { value: 0 },
+    max: { value: 1 },
+    colors: {
+      value: Array.from({ length: ATTRIBUTE_COLOR_STOP_COUNT }, () => new THREE.Color('#440154')),
+    },
+    missingColor: { value: new THREE.Color('#94a3b8') },
+  }
+}
+
+function syncAttributeColorSharedUniforms(
+  uniforms: AttributeColorSharedUniforms,
+  attributeColor: ViewerAttributeColorState | null,
+) {
+  uniforms.enabled.value = attributeColor ? 1 : 0
+  if (!attributeColor) {
+    return
+  }
+
+  uniforms.min.value = attributeColor.domainMin
+  uniforms.max.value = attributeColor.domainMax
+  uniforms.direct.value = attributeColor.mode === 'direct' ? 1 : 0
+  syncAttributeColorStops(uniforms.colors.value, attributeColor.colors)
+  uniforms.missingColor.value.set(attributeColor.missingColor)
+}
+
+function ensureAttributeColorUniforms(
+  material: THREE.MeshStandardMaterial,
+  sharedUniforms: AttributeColorSharedUniforms,
+): AttributeColorUniforms {
+  const existing = material.userData.attributeColorUniforms as AttributeColorUniforms | undefined
+  if (existing) {
+    return existing
+  }
+
+  const uniforms: AttributeColorUniforms = {
+    value: { value: 0 },
+    hasValue: { value: 0 },
+    directColor: { value: new THREE.Color('#94a3b8') },
+  }
+
+  material.userData.attributeColorUniforms = uniforms
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uAttributeColorEnabled = sharedUniforms.enabled
+    shader.uniforms.uAttributeColorValue = uniforms.value
+    shader.uniforms.uAttributeColorHasValue = uniforms.hasValue
+    shader.uniforms.uAttributeColorDirect = sharedUniforms.direct
+    shader.uniforms.uAttributeColorDirectColor = uniforms.directColor
+    shader.uniforms.uAttributeColorMin = sharedUniforms.min
+    shader.uniforms.uAttributeColorMax = sharedUniforms.max
+    shader.uniforms.uAttributeColorStops = sharedUniforms.colors
+    shader.uniforms.uAttributeColorMissing = sharedUniforms.missingColor
+    shader.fragmentShader = `
+      uniform float uAttributeColorEnabled;
+      uniform float uAttributeColorValue;
+      uniform float uAttributeColorHasValue;
+      uniform float uAttributeColorDirect;
+      uniform vec3 uAttributeColorDirectColor;
+      uniform float uAttributeColorMin;
+      uniform float uAttributeColorMax;
+      uniform vec3 uAttributeColorStops[${ATTRIBUTE_COLOR_STOP_COUNT}];
+      uniform vec3 uAttributeColorMissing;
+    ${shader.fragmentShader}`.replace(
+      '#include <color_fragment>',
+      `
+      #include <color_fragment>
+      if (uAttributeColorEnabled > 0.5) {
+        if (uAttributeColorHasValue < 0.5) {
+          diffuseColor.rgb = uAttributeColorMissing;
+        } else if (uAttributeColorDirect > 0.5) {
+          diffuseColor.rgb = uAttributeColorDirectColor;
+        } else {
+          float attributeRange = max(uAttributeColorMax - uAttributeColorMin, 0.000001);
+          float attributeT = clamp((uAttributeColorValue - uAttributeColorMin) / attributeRange, 0.0, 1.0);
+          float attributeMapPosition = attributeT * float(${ATTRIBUTE_COLOR_STOP_COUNT - 1});
+          float attributeStopFloor = floor(attributeMapPosition);
+          int attributeStopIndex = int(min(attributeStopFloor, float(${ATTRIBUTE_COLOR_STOP_COUNT - 2})));
+          float attributeMix = attributeMapPosition - attributeStopFloor;
+          diffuseColor.rgb = mix(
+            uAttributeColorStops[attributeStopIndex],
+            uAttributeColorStops[attributeStopIndex + 1],
+            attributeMix
+          );
+        }
+      }
+      `,
+    )
+  }
+  material.customProgramCacheKey = () => 'attribute-color-v3'
+  material.needsUpdate = true
+  return uniforms
+}
+
+function syncAttributeColorStops(target: THREE.Color[], colors: readonly string[]) {
+  const fallback = colors[0] ?? '#440154'
+  for (let index = 0; index < ATTRIBUTE_COLOR_STOP_COUNT; index += 1) {
+    target[index]?.set(colors[index] ?? fallback)
+  }
+}
+
 function baseColorForType(objectType: string, theme: Theme) {
   const key = objectType.trim().toLowerCase()
   const matchedColor = OBJECT_TYPE_COLORS[theme][key]
@@ -3207,10 +3449,6 @@ function buildMaterialArray(
     materials.push(color ? createGroupMaterial(color) : baseMaterial)
   }
   return materials
-}
-
-function objectKey(featureId: string, objectId: string) {
-  return `${featureId}::${objectId}`
 }
 
 function updateRaycastPointer(runtime: Runtime, event: MouseEvent) {
