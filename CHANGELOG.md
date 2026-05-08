@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.0 - 2026-05-08
+
 - Reveal viewport hotkey hints as tooltips when the help panel is open
 - Flatten chrome surfaces by removing translucency and backdrop blur
 - Fix bug that made object without semantic surfaces darker when toggling between light/dark mode
