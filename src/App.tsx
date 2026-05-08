@@ -181,12 +181,15 @@ const NOMINAL_QUALITATIVE_COLOR_MAPS = {
   dark2: ['#1b9e77', '#d95f02', '#7570b3', '#e7298a', '#66a61e', '#e6ab02', '#a6761d', '#666666'],
 } as const
 const DEFAULT_ATTRIBUTE_COLOR_MAP_ID: AttributeColorMapId = 'viridis'
-const ATTRIBUTE_COLOR_MAP_OPTIONS = Object.keys(ATTRIBUTE_COLOR_MAPS) as ContinuousAttributeColorMapId[]
-const NOMINAL_QUALITATIVE_COLOR_MAP_OPTIONS = Object.keys(NOMINAL_QUALITATIVE_COLOR_MAPS) as QualitativeAttributeColorMapId[]
-const NOMINAL_ATTRIBUTE_COLOR_MAP_OPTIONS: AttributeColorMapId[] = [
-  'random',
-  ...NOMINAL_QUALITATIVE_COLOR_MAP_OPTIONS,
-  ...ATTRIBUTE_COLOR_MAP_OPTIONS,
+type ColorMapGroup = { label: string; options: readonly AttributeColorMapId[] }
+const CONTINUOUS_COLORMAP_GROUPS: readonly ColorMapGroup[] = [
+  { label: 'Sequential', options: ['viridis', 'plasma', 'inferno', 'magma', 'cividis', 'turbo'] },
+  { label: 'Diverging', options: ['coolwarm'] },
+]
+const NOMINAL_COLORMAP_GROUPS: readonly ColorMapGroup[] = [
+  { label: 'Qualitative', options: ['random', ...Object.keys(NOMINAL_QUALITATIVE_COLOR_MAPS) as QualitativeAttributeColorMapId[]] },
+  { label: 'Sequential', options: ['viridis', 'plasma', 'inferno', 'magma', 'cividis', 'turbo'] },
+  { label: 'Diverging', options: ['coolwarm'] },
 ]
 const ATTRIBUTE_COLOR_DOMAIN_PREVIEW_EVENT = 'cjloupe:attribute-color-domain-preview'
 const NOMINAL_ATTRIBUTE_DISPLAY_LIMIT = 32
@@ -4917,11 +4920,11 @@ function ColorMapSwatch({ colorMapId, className }: { colorMapId: AttributeColorM
 
 function ColorMapSelect({
   value,
-  options,
+  groups,
   onChange,
 }: {
   value: AttributeColorMapId
-  options: readonly AttributeColorMapId[]
+  groups: readonly ColorMapGroup[]
   onChange: (colorMapId: AttributeColorMapId) => void
 }) {
   const [open, setOpen] = useState(false)
@@ -4942,27 +4945,34 @@ function ColorMapSelect({
       </PopoverTrigger>
       <PopoverContent align="start" side="bottom" className="w-[var(--radix-popover-trigger-width)] p-1">
         <div className="max-h-72 overflow-y-auto">
-          {options.map((entry) => {
-            const isSelected = entry === value
-            return (
-              <button
-                key={entry}
-                type="button"
-                className={cn(
-                  'flex w-full min-w-0 items-center gap-2 rounded-[3px] px-2 py-1.5 text-left text-sm hover:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
-                  isSelected && 'bg-accent/15',
-                )}
-                onClick={() => {
-                  onChange(entry)
-                  setOpen(false)
-                }}
-              >
-                <ColorMapSwatch colorMapId={entry} className="h-3 w-12 shrink-0" />
-                <span className="min-w-0 flex-1 truncate">{formatColorMapName(entry)}</span>
-                {isSelected && <Check className="size-3.5 shrink-0 text-accent" />}
-              </button>
-            )
-          })}
+          {groups.map((group) => (
+            <div key={group.label}>
+              <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                {group.label}
+              </div>
+              {group.options.map((entry) => {
+                const isSelected = entry === value
+                return (
+                  <button
+                    key={entry}
+                    type="button"
+                    className={cn(
+                      'flex w-full min-w-0 items-center gap-2 rounded-[3px] px-2 py-1.5 text-left text-sm hover:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+                      isSelected && 'bg-accent/15',
+                    )}
+                    onClick={() => {
+                      onChange(entry)
+                      setOpen(false)
+                    }}
+                  >
+                    <ColorMapSwatch colorMapId={entry} className="h-3 w-12 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate">{formatColorMapName(entry)}</span>
+                    {isSelected && <Check className="size-3.5 shrink-0 text-accent" />}
+                  </button>
+                )
+              })}
+            </div>
+          ))}
         </div>
       </PopoverContent>
     </Popover>
@@ -4996,9 +5006,9 @@ function AttributeColorSection({
   const maxBinCount = Math.max(...(model?.kind === 'numeric' ? model.bins.map((bin) => bin.count) : [1]), 1)
   const visibleDomain = draftDomain?.key === domain?.key ? draftDomain : domain
   const colorMapColors = getContinuousAttributeColorMapColors(colorMapId)
-  const colorMapOptions = model?.kind === 'nominal'
-    ? NOMINAL_ATTRIBUTE_COLOR_MAP_OPTIONS
-    : ATTRIBUTE_COLOR_MAP_OPTIONS
+  const colorMapGroups = model?.kind === 'nominal'
+    ? NOMINAL_COLORMAP_GROUPS
+    : CONTINUOUS_COLORMAP_GROUPS
   const colorMapValue = model?.kind === 'numeric' && colorMapId === 'random'
     ? DEFAULT_ATTRIBUTE_COLOR_MAP_ID
     : colorMapId
@@ -5045,7 +5055,7 @@ function AttributeColorSection({
           <div className="flex gap-2">
             <ColorMapSelect
               value={colorMapValue}
-              options={colorMapOptions}
+              groups={colorMapGroups}
               onChange={onColorMapChange}
             />
             {model?.kind === 'nominal' && colorMapId === 'random' && (
