@@ -201,6 +201,10 @@ type Runtime = {
   showSemanticSurfaces: boolean
   attributeColor: ViewerAttributeColorState | null
   attributeColorSharedUniforms: AttributeColorSharedUniforms
+  semanticSurfaceSharedUniforms: SemanticSurfaceSharedUniforms
+  semanticSurfaceTypeIds: Map<string, number>
+  shaderObjectIdsByObjectKey: Map<string, number>
+  nextShaderObjectId: number
   preparedAttributeColorValuesByObjectKey: Record<string, number> | null
   ambientLight: THREE.AmbientLight
   hemisphereLight: THREE.HemisphereLight
@@ -253,9 +257,22 @@ type AttributeColorSharedUniforms = {
   max: { value: number }
   colors: { value: THREE.Color[] }
   missingColor: { value: THREE.Color }
+  valueMap: { value: THREE.DataTexture }
+  valueMapSize: { value: THREE.Vector2 }
 }
 
+type SemanticSurfaceSharedUniforms = {
+  enabled: { value: number }
+  selectedObjectId: { value: number }
+  selectedFaceIndex: { value: number }
+  colors: { value: THREE.Color[] }
+  selectedFaceColor: { value: THREE.Color }
+}
+
+type BatchColorMode = 'base' | 'semantic' | 'continuous-attribute'
+
 const ATTRIBUTE_COLOR_STOP_COUNT = 10
+const SEMANTIC_SURFACE_COLOR_SLOT_COUNT = 64
 const ATTRIBUTE_COLOR_DOMAIN_PREVIEW_EVENT = 'cjloupe:attribute-color-domain-preview'
 
 type ViewSelection = {
@@ -501,6 +518,10 @@ function CityViewport({
       showSemanticSurfaces: showSemanticSurfacesRef.current,
       attributeColor: attributeColorRef.current,
       attributeColorSharedUniforms: createAttributeColorSharedUniforms(),
+      semanticSurfaceSharedUniforms: createSemanticSurfaceSharedUniforms(),
+      semanticSurfaceTypeIds: new Map(),
+      shaderObjectIdsByObjectKey: new Map(),
+      nextShaderObjectId: 1,
       preparedAttributeColorValuesByObjectKey: null,
       ambientLight,
       hemisphereLight,
@@ -823,6 +844,7 @@ function CityViewport({
       resizeObserver.disconnect()
       window.removeEventListener('resize', handleResize)
       disposeSceneContents(runtime)
+      runtime.attributeColorSharedUniforms.valueMap.value.dispose()
       transform.dispose()
       arcball.dispose()
       renderer.dispose()
@@ -968,14 +990,24 @@ function CityViewport({
     }
 
     runtime.showSemanticSurfaces = showSemanticSurfaces
+    runtime.attributeColor = attributeColorRef.current
+    syncAttributeColorSharedUniforms(runtime.attributeColorSharedUniforms, runtime.attributeColor)
 
     if (currentData) {
-      rebuildScene(runtime, currentData, selectionRef.current)
-      rebuildAnnotations(runtime)
+      const selection = selectionRef.current
+      const needsRebuild = shouldRebuildForSemanticModeToggle(runtime, currentData, selection, showSemanticSurfaces)
+      if (needsRebuild) {
+        rebuildScene(runtime, currentData, selection)
+        rebuildAnnotations(runtime)
+      } else {
+        syncSemanticSurfaceSharedUniforms(runtime, currentData)
+        syncSemanticSelectionUniforms(runtime, selection)
+        syncBatchMaterials(runtime)
+      }
       syncSelection(
         runtime,
         currentData,
-        selectionRef.current,
+        selection,
         hideOccludedEditEdgesRef.current,
         isolateSelectedFeatureRef.current,
         showVertexGizmoRef.current,
@@ -997,6 +1029,7 @@ function CityViewport({
     const previousValuesByObjectKey = runtime.attributeColor?.valuesByObjectKey ?? null
     runtime.attributeColor = attributeColor
     syncAttributeColorSharedUniforms(runtime.attributeColorSharedUniforms, attributeColor)
+    syncBatchMaterials(runtime)
     if (
       attributeColor?.mode === 'continuous' &&
       (
@@ -1004,7 +1037,7 @@ function CityViewport({
         previousValuesByObjectKey !== attributeColor.valuesByObjectKey
       )
     ) {
-      syncBatchedAttributeValueAttributes(runtime, attributeColor)
+      syncBatchedAttributeValueTexture(runtime, attributeColor)
     }
     if (
       attributeColor &&
@@ -1016,7 +1049,7 @@ function CityViewport({
       applyAttributeColorToScene(runtime)
       runtime.preparedAttributeColorValuesByObjectKey = attributeColor.valuesByObjectKey
     }
-    if (attributeColor?.mode !== 'continuous') {
+    if (currentData) {
       applyBatchSelectionAppearance(
         runtime,
         selectionRef.current,
@@ -1127,6 +1160,10 @@ function rebuildScene(
   selection: ViewSelection,
 ) {
   disposeSceneContents(runtime)
+  runtime.shaderObjectIdsByObjectKey.clear()
+  runtime.nextShaderObjectId = 1
+  syncSemanticSurfaceSharedUniforms(runtime, data)
+  syncSemanticSelectionUniforms(runtime, selection)
   runtime.featureDrafts = new Map(
     data.features.map((feature) => [feature.id, feature.vertices.map((vertex) => [...vertex] as Vec3)]),
   )
@@ -1176,10 +1213,7 @@ function rebuildScene(
           geometry,
           blueprint,
           runtime,
-          feature,
-          object,
           objectGeometry,
-          selection,
           nextObjectKey,
         )
         geometry.computeBoundingBox()
@@ -1216,6 +1250,7 @@ function rebuildScene(
   }
 
   buildSpatialBatches(runtime, data, batchItems, selection)
+  syncBatchedAttributeValueTexture(runtime, runtime.attributeColor)
 }
 
 function canBatchObject(
@@ -1241,63 +1276,86 @@ function canBatchObject(
   return faceGroups.size === 0
 }
 
+function shouldRebuildForSemanticModeToggle(
+  runtime: Runtime,
+  data: ViewerDataset,
+  selection: ViewSelection,
+  nextShowSemanticSurfaces: boolean,
+) {
+  if (nextShowSemanticSurfaces) {
+    return runtime.meshesByObjectKey.size > 0
+  }
+
+  for (const feature of data.features) {
+    for (const object of feature.objects) {
+      const objectGeometry = resolveDisplayedObjectGeometry(feature, object, selection)
+      if (!objectGeometry) {
+        continue
+      }
+
+      const { faceGroups } = computeFaceErrorGroups(
+        feature.errors,
+        object.id,
+        objectGeometry.index,
+        objectGeometry.sourceFaceIndices,
+      )
+      if (faceGroups.size > 0) {
+        return true
+      }
+    }
+  }
+
+  return false
+}
+
 function applyBatchGeometryAttributes(
   geometry: THREE.BufferGeometry,
   blueprint: ObjectGeometryBlueprint,
   runtime: Runtime,
-  feature: ViewerFeature,
-  object: ViewerFeature['objects'][number],
   objectGeometry: ViewerObjectGeometry,
-  selection: ViewSelection,
   objectKey: string,
 ) {
   const vertexCount = geometry.getAttribute('position')?.count ?? 0
   const colors = new Float32Array(vertexCount * 3)
   colors.fill(1)
 
-  if (runtime.showSemanticSurfaces) {
-    const selectedFaceIndex =
-      selection.selectedFeatureId === feature.id && selection.activeObjectId === object.id
-        ? selection.selectedFaceIndex
-        : null
-    fillSemanticVertexColors(colors, blueprint, objectGeometry.semanticSurfaces, selectedFaceIndex)
-  }
+  const shaderObjectId = getShaderObjectId(runtime, objectKey)
+  const shaderObjectIds = new Float32Array(vertexCount)
+  shaderObjectIds.fill(shaderObjectId)
 
-  const value = runtime.attributeColor?.valuesByObjectKey[objectKey]
-  const attributeValues = new Float32Array(vertexCount)
-  const attributeHasValues = new Float32Array(vertexCount)
-  if (value != null) {
-    attributeValues.fill(value)
-    attributeHasValues.fill(1)
-  }
+  const semanticSurfaceTypeIds = new Float32Array(vertexCount)
+  const semanticFaceIndices = new Float32Array(vertexCount)
+  semanticFaceIndices.fill(-1)
+  fillSemanticSurfaceAttributes(
+    semanticSurfaceTypeIds,
+    semanticFaceIndices,
+    blueprint,
+    objectGeometry.semanticSurfaces,
+    runtime.semanticSurfaceTypeIds,
+  )
 
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
-  geometry.setAttribute('attributeColorValue', new THREE.BufferAttribute(attributeValues, 1))
-  geometry.setAttribute('attributeColorHasValue', new THREE.BufferAttribute(attributeHasValues, 1))
+  geometry.setAttribute('shaderObjectId', new THREE.BufferAttribute(shaderObjectIds, 1))
+  geometry.setAttribute('semanticSurfaceTypeId', new THREE.BufferAttribute(semanticSurfaceTypeIds, 1))
+  geometry.setAttribute('semanticFaceIndex', new THREE.BufferAttribute(semanticFaceIndices, 1))
 }
 
-function fillSemanticVertexColors(
-  colors: Float32Array,
+function fillSemanticSurfaceAttributes(
+  semanticSurfaceTypeIds: Float32Array,
+  semanticFaceIndices: Float32Array,
   blueprint: ObjectGeometryBlueprint,
   semanticSurfaces: Array<ViewerSemanticSurface | null>,
-  selectedFaceIndex: number | null,
+  semanticSurfaceTypeIdsByKey: Map<string, number>,
 ) {
-  const color = new THREE.Color()
   blueprint.polygonTriangleIndices.forEach((polygonIndices, faceIndex) => {
     const surface = semanticSurfaces[faceIndex]
-    if (selectedFaceIndex === faceIndex) {
-      color.set('#f59e0b')
-    } else if (surface) {
-      color.set(semanticSurfaceColor(surface.type))
-    } else {
-      color.set('#64748b')
-    }
+    const surfaceTypeId = surface
+      ? semanticSurfaceTypeIdsByKey.get(semanticSurfaceTypeKey(surface.type)) ?? 0
+      : 0
 
     for (const vertexIndex of polygonIndices) {
-      const offset = vertexIndex * 3
-      colors[offset] = color.r
-      colors[offset + 1] = color.g
-      colors[offset + 2] = color.b
+      semanticSurfaceTypeIds[vertexIndex] = surfaceTypeId
+      semanticFaceIndices[vertexIndex] = faceIndex
     }
   })
 }
@@ -1412,7 +1470,11 @@ function buildSpatialBatches(
       maxInstanceCount,
       maxVertexCount,
       maxIndexCount,
-      createBatchMaterial(runtime.attributeColorSharedUniforms),
+      createBatchMaterial(
+        getBatchColorMode(runtime),
+        runtime.attributeColorSharedUniforms,
+        runtime.semanticSurfaceSharedUniforms,
+      ),
     )
     batch.perObjectFrustumCulled = true
     batch.sortObjects = false
@@ -1505,7 +1567,11 @@ function chunkBatchItems(items: BatchBuildItem[]) {
   return chunks
 }
 
-function createBatchMaterial(sharedUniforms: AttributeColorSharedUniforms) {
+function createBatchMaterial(
+  mode: BatchColorMode,
+  sharedUniforms: AttributeColorSharedUniforms,
+  semanticUniforms: SemanticSurfaceSharedUniforms,
+) {
   const material = new THREE.MeshStandardMaterial({
     color: '#ffffff',
     roughness: 0.72,
@@ -1516,8 +1582,45 @@ function createBatchMaterial(sharedUniforms: AttributeColorSharedUniforms) {
     depthWrite: true,
     side: THREE.DoubleSide,
   })
-  applyBatchedContinuousAttributeColorToMaterial(material, sharedUniforms)
+  material.userData.batchColorMode = mode
+  if (mode === 'semantic') {
+    applyBatchedSemanticColoringToMaterial(material, semanticUniforms)
+  } else if (mode === 'continuous-attribute') {
+    applyBatchedContinuousAttributeColorToMaterial(material, sharedUniforms)
+  }
   return material
+}
+
+function getBatchColorMode(runtime: Runtime): BatchColorMode {
+  if (runtime.showSemanticSurfaces) {
+    return 'semantic'
+  }
+
+  if (runtime.attributeColor?.mode === 'continuous') {
+    return 'continuous-attribute'
+  }
+
+  return 'base'
+}
+
+function syncBatchMaterials(runtime: Runtime) {
+  const mode = getBatchColorMode(runtime)
+  for (const batch of runtime.batchedMeshes) {
+    const currentMaterials = Array.isArray(batch.material) ? batch.material : [batch.material]
+    const currentMode = currentMaterials[0]?.userData.batchColorMode as BatchColorMode | undefined
+    if (currentMode === mode) {
+      continue
+    }
+
+    for (const material of currentMaterials) {
+      material.dispose()
+    }
+    batch.material = createBatchMaterial(
+      mode,
+      runtime.attributeColorSharedUniforms,
+      runtime.semanticSurfaceSharedUniforms,
+    )
+  }
 }
 
 function rebuildFeatureGeometry(
@@ -1569,10 +1672,7 @@ function rebuildFeatureGeometry(
         nextGeometry,
         nextBlueprint,
         runtime,
-        feature,
-        object,
         objectGeometry,
-        selection,
         objectKey,
       )
       try {
@@ -1611,8 +1711,15 @@ function updateSelectionSurfacePresentation(
     previousSelection.activeGeometryIndex !== selection.activeGeometryIndex
   const didSelectedFaceChange = previousSelection.selectedFaceIndex !== selection.selectedFaceIndex
   const didEditModeChange = previousSelection.editMode !== selection.editMode
+  const didActiveGeometryOverrideMove =
+    didSelectedObjectChange &&
+    (previousSelection.activeGeometryIndex != null || selection.activeGeometryIndex != null)
 
-  if (!didSelectedObjectChange && !didGeometryModeChange && !didSelectedFaceChange && !didEditModeChange) {
+  if (didSelectedFaceChange && !didActiveGeometryOverrideMove && !didGeometryModeChange && !didEditModeChange) {
+    return
+  }
+
+  if (!didActiveGeometryOverrideMove && !didGeometryModeChange && !didEditModeChange) {
     return
   }
 
@@ -1687,10 +1794,7 @@ function updateObjectSurfacePresentation(
       batchGeometry,
       blueprint,
       runtime,
-      feature,
-      object,
       objectGeometry,
-      selection,
       objectKey,
     )
     try {
@@ -2264,6 +2368,7 @@ function syncSelection(
   isolateSelectedFeature: boolean,
   showVertexGizmo: boolean,
 ) {
+  syncSemanticSelectionUniforms(runtime, selection)
   applySelectionAppearance(runtime, selection, isolateSelectedFeature, runtime.meshesByObjectKey.values())
   applyBatchSelectionAppearance(runtime, selection, isolateSelectedFeature, runtime.batchedObjectsByObjectKey.values())
   rebuildHandles(runtime, data, selection, hideOccludedEditEdges, showVertexGizmo)
@@ -2279,6 +2384,7 @@ function syncSelectionDelta(
   isolateSelectedFeature: boolean,
   showVertexGizmo: boolean,
 ) {
+  syncSemanticSelectionUniforms(runtime, selection)
   const previousIsolateActive = previousIsolateSelectedFeature && previousSelection.selectedFeatureId != null
   const isolateActive = isolateSelectedFeature && selection.selectedFeatureId != null
   const previousSemanticObjectSelectionActive =
@@ -2446,47 +2552,35 @@ function applyBatchSelectionAppearance(
   }
 }
 
-function syncBatchedAttributeValueAttributes(
+function syncBatchedAttributeValueTexture(
   runtime: Runtime,
-  attributeColor: ViewerAttributeColorState,
+  attributeColor: ViewerAttributeColorState | null,
 ) {
-  const touchedBatches = new Set<THREE.BatchedMesh>()
+  const objectCount = Math.max(runtime.nextShaderObjectId, 1)
+  const textureSize = Math.max(1, Math.ceil(Math.sqrt(objectCount)))
+  const data = new Float32Array(textureSize * textureSize * 4)
 
-  for (const record of runtime.batchedObjectsByObjectKey.values()) {
-    const geometryRange = record.batch.getGeometryRangeAt(record.geometryId)
-    if (!geometryRange) {
-      continue
+  if (attributeColor?.mode === 'continuous') {
+    for (const [objectKey, objectId] of runtime.shaderObjectIdsByObjectKey.entries()) {
+      const offset = objectId * 4
+      const value = attributeColor.valuesByObjectKey[objectKey]
+      data[offset] = value ?? 0
+      data[offset + 1] = value == null ? 0 : 1
     }
-
-    const valueAttribute = record.batch.geometry.getAttribute('attributeColorValue') as THREE.BufferAttribute | undefined
-    const hasValueAttribute = record.batch.geometry.getAttribute('attributeColorHasValue') as THREE.BufferAttribute | undefined
-    if (!valueAttribute || !hasValueAttribute) {
-      continue
-    }
-
-    const value = attributeColor.valuesByObjectKey[record.key]
-    const hasValue = value == null ? 0 : 1
-    const storedValue = value ?? 0
-    const end = geometryRange.vertexStart + geometryRange.reservedVertexCount
-    for (let index = geometryRange.vertexStart; index < end; index += 1) {
-      valueAttribute.setX(index, storedValue)
-      hasValueAttribute.setX(index, hasValue)
-    }
-    valueAttribute.addUpdateRange(geometryRange.vertexStart, geometryRange.reservedVertexCount)
-    hasValueAttribute.addUpdateRange(geometryRange.vertexStart, geometryRange.reservedVertexCount)
-    touchedBatches.add(record.batch)
   }
 
-  for (const batch of touchedBatches) {
-    const valueAttribute = batch.geometry.getAttribute('attributeColorValue') as THREE.BufferAttribute | undefined
-    const hasValueAttribute = batch.geometry.getAttribute('attributeColorHasValue') as THREE.BufferAttribute | undefined
-    if (valueAttribute) {
-      valueAttribute.needsUpdate = true
-    }
-    if (hasValueAttribute) {
-      hasValueAttribute.needsUpdate = true
-    }
-  }
+  const texture = new THREE.DataTexture(data, textureSize, textureSize, THREE.RGBAFormat, THREE.FloatType)
+  texture.magFilter = THREE.NearestFilter
+  texture.minFilter = THREE.NearestFilter
+  texture.wrapS = THREE.ClampToEdgeWrapping
+  texture.wrapT = THREE.ClampToEdgeWrapping
+  texture.generateMipmaps = false
+  texture.needsUpdate = true
+
+  const previousTexture = runtime.attributeColorSharedUniforms.valueMap.value
+  runtime.attributeColorSharedUniforms.valueMap.value = texture
+  runtime.attributeColorSharedUniforms.valueMapSize.value.set(textureSize, textureSize)
+  previousTexture.dispose()
 }
 
 function resolveBatchedObjectColor(
@@ -3607,49 +3701,119 @@ function applyAttributeColorToMaterial(
   uniforms.directColor.value.set(directColor ?? attributeColor?.missingColor ?? '#94a3b8')
 }
 
+function applyBatchedSemanticColoringToMaterial(
+  material: THREE.MeshStandardMaterial,
+  semanticUniforms: SemanticSurfaceSharedUniforms,
+) {
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uSemanticSurfaceEnabled = semanticUniforms.enabled
+    shader.uniforms.uSemanticSelectedObjectId = semanticUniforms.selectedObjectId
+    shader.uniforms.uSemanticSelectedFaceIndex = semanticUniforms.selectedFaceIndex
+    shader.uniforms.uSemanticSurfaceColors = semanticUniforms.colors
+    shader.uniforms.uSemanticSelectedFaceColor = semanticUniforms.selectedFaceColor
+    shader.vertexShader = `
+      attribute float shaderObjectId;
+      attribute float semanticSurfaceTypeId;
+      attribute float semanticFaceIndex;
+      varying float vShaderObjectId;
+      varying float vSemanticSurfaceTypeId;
+      varying float vSemanticFaceIndex;
+    ${shader.vertexShader}`.replace(
+      '#include <color_vertex>',
+      `
+      #include <color_vertex>
+      vShaderObjectId = shaderObjectId;
+      vSemanticSurfaceTypeId = semanticSurfaceTypeId;
+      vSemanticFaceIndex = semanticFaceIndex;
+      `,
+    )
+    shader.fragmentShader = `
+      uniform float uSemanticSurfaceEnabled;
+      uniform float uSemanticSelectedObjectId;
+      uniform float uSemanticSelectedFaceIndex;
+      uniform vec3 uSemanticSurfaceColors[${SEMANTIC_SURFACE_COLOR_SLOT_COUNT}];
+      uniform vec3 uSemanticSelectedFaceColor;
+      varying float vShaderObjectId;
+      varying float vSemanticSurfaceTypeId;
+      varying float vSemanticFaceIndex;
+    ${shader.fragmentShader}`.replace(
+      '#include <color_fragment>',
+      `
+      #include <color_fragment>
+      if (uSemanticSurfaceEnabled > 0.5) {
+        vec3 semanticInstanceTint = diffuseColor.rgb;
+        int semanticSurfaceTypeIndex = int(clamp(
+          floor(vSemanticSurfaceTypeId + 0.5),
+          0.0,
+          float(${SEMANTIC_SURFACE_COLOR_SLOT_COUNT - 1})
+        ));
+        diffuseColor.rgb = uSemanticSurfaceColors[semanticSurfaceTypeIndex] * semanticInstanceTint;
+        if (
+          uSemanticSelectedObjectId >= 0.0 &&
+          uSemanticSelectedFaceIndex >= 0.0 &&
+          abs(vShaderObjectId - uSemanticSelectedObjectId) < 0.5 &&
+          abs(vSemanticFaceIndex - uSemanticSelectedFaceIndex) < 0.5
+        ) {
+          diffuseColor.rgb = uSemanticSelectedFaceColor * semanticInstanceTint;
+        }
+      }
+      `,
+    )
+  }
+  material.customProgramCacheKey = () => 'batched-semantic-color-v1'
+  material.needsUpdate = true
+}
+
 function applyBatchedContinuousAttributeColorToMaterial(
   material: THREE.MeshStandardMaterial,
   sharedUniforms: AttributeColorSharedUniforms,
 ) {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uAttributeColorEnabled = sharedUniforms.enabled
-    shader.uniforms.uAttributeColorDirect = sharedUniforms.direct
     shader.uniforms.uAttributeColorMin = sharedUniforms.min
     shader.uniforms.uAttributeColorMax = sharedUniforms.max
     shader.uniforms.uAttributeColorStops = sharedUniforms.colors
     shader.uniforms.uAttributeColorMissing = sharedUniforms.missingColor
+    shader.uniforms.uAttributeColorValueMap = sharedUniforms.valueMap
+    shader.uniforms.uAttributeColorValueMapSize = sharedUniforms.valueMapSize
     shader.vertexShader = `
-      attribute float attributeColorValue;
-      attribute float attributeColorHasValue;
-      varying float vAttributeColorValue;
-      varying float vAttributeColorHasValue;
+      attribute float shaderObjectId;
+      varying float vShaderObjectId;
     ${shader.vertexShader}`.replace(
       '#include <color_vertex>',
       `
       #include <color_vertex>
-      vAttributeColorValue = attributeColorValue;
-      vAttributeColorHasValue = attributeColorHasValue;
+      vShaderObjectId = shaderObjectId;
       `,
     )
     shader.fragmentShader = `
       uniform float uAttributeColorEnabled;
-      uniform float uAttributeColorDirect;
       uniform float uAttributeColorMin;
       uniform float uAttributeColorMax;
       uniform vec3 uAttributeColorStops[${ATTRIBUTE_COLOR_STOP_COUNT}];
       uniform vec3 uAttributeColorMissing;
-      varying float vAttributeColorValue;
-      varying float vAttributeColorHasValue;
+      uniform sampler2D uAttributeColorValueMap;
+      uniform vec2 uAttributeColorValueMapSize;
+      varying float vShaderObjectId;
     ${shader.fragmentShader}`.replace(
       '#include <color_fragment>',
       `
       #include <color_fragment>
-      if (uAttributeColorEnabled > 0.5 && uAttributeColorDirect < 0.5) {
-        if (vAttributeColorHasValue < 0.5) {
+      if (uAttributeColorEnabled > 0.5) {
+        float attributeObjectId = floor(vShaderObjectId + 0.5);
+        vec2 attributeMapUv = (
+          vec2(
+            mod(attributeObjectId, uAttributeColorValueMapSize.x),
+            floor(attributeObjectId / uAttributeColorValueMapSize.x)
+          ) + 0.5
+        ) / uAttributeColorValueMapSize;
+        vec4 attributeValueSample = texture2D(uAttributeColorValueMap, attributeMapUv);
+        if (attributeValueSample.g < 0.5) {
           diffuseColor.rgb = uAttributeColorMissing;
         } else {
+          float attributeValue = attributeValueSample.r;
           float attributeRange = max(uAttributeColorMax - uAttributeColorMin, 0.000001);
-          float attributeT = clamp((vAttributeColorValue - uAttributeColorMin) / attributeRange, 0.0, 1.0);
+          float attributeT = clamp((attributeValue - uAttributeColorMin) / attributeRange, 0.0, 1.0);
           float attributeMapPosition = attributeT * float(${ATTRIBUTE_COLOR_STOP_COUNT - 1});
           float attributeStopFloor = min(floor(attributeMapPosition), float(${ATTRIBUTE_COLOR_STOP_COUNT - 2}));
           int attributeStopIndex = int(attributeStopFloor);
@@ -3664,11 +3828,19 @@ function applyBatchedContinuousAttributeColorToMaterial(
       `,
     )
   }
-  material.customProgramCacheKey = () => 'batched-continuous-attribute-color-v1'
+  material.customProgramCacheKey = () => 'batched-continuous-attribute-texture-v1'
   material.needsUpdate = true
 }
 
 function createAttributeColorSharedUniforms(): AttributeColorSharedUniforms {
+  const valueMap = new THREE.DataTexture(new Float32Array(4), 1, 1, THREE.RGBAFormat, THREE.FloatType)
+  valueMap.magFilter = THREE.NearestFilter
+  valueMap.minFilter = THREE.NearestFilter
+  valueMap.wrapS = THREE.ClampToEdgeWrapping
+  valueMap.wrapT = THREE.ClampToEdgeWrapping
+  valueMap.generateMipmaps = false
+  valueMap.needsUpdate = true
+
   return {
     enabled: { value: 0 },
     direct: { value: 0 },
@@ -3678,7 +3850,83 @@ function createAttributeColorSharedUniforms(): AttributeColorSharedUniforms {
       value: Array.from({ length: ATTRIBUTE_COLOR_STOP_COUNT }, () => new THREE.Color('#440154')),
     },
     missingColor: { value: new THREE.Color('#94a3b8') },
+    valueMap: { value: valueMap },
+    valueMapSize: { value: new THREE.Vector2(1, 1) },
   }
+}
+
+function createSemanticSurfaceSharedUniforms(): SemanticSurfaceSharedUniforms {
+  const colors = Array.from(
+    { length: SEMANTIC_SURFACE_COLOR_SLOT_COUNT },
+    () => new THREE.Color('#64748b'),
+  )
+  return {
+    enabled: { value: 0 },
+    selectedObjectId: { value: -1 },
+    selectedFaceIndex: { value: -1 },
+    colors: { value: colors },
+    selectedFaceColor: { value: new THREE.Color('#f59e0b') },
+  }
+}
+
+function syncSemanticSurfaceSharedUniforms(runtime: Runtime, data: ViewerDataset) {
+  runtime.semanticSurfaceSharedUniforms.enabled.value = runtime.showSemanticSurfaces ? 1 : 0
+  runtime.semanticSurfaceTypeIds.clear()
+
+  const colors = runtime.semanticSurfaceSharedUniforms.colors.value
+  for (const color of colors) {
+    color.set('#64748b')
+  }
+
+  let nextTypeId = 1
+  for (const feature of data.features) {
+    for (const object of feature.objects) {
+      for (const geometry of object.geometries) {
+        for (const surface of geometry.semanticSurfaces) {
+          if (!surface || nextTypeId >= SEMANTIC_SURFACE_COLOR_SLOT_COUNT) {
+            continue
+          }
+
+          const key = semanticSurfaceTypeKey(surface.type)
+          if (runtime.semanticSurfaceTypeIds.has(key)) {
+            continue
+          }
+
+          runtime.semanticSurfaceTypeIds.set(key, nextTypeId)
+          colors[nextTypeId]?.set(semanticSurfaceColor(surface.type))
+          nextTypeId += 1
+        }
+      }
+    }
+  }
+}
+
+function syncSemanticSelectionUniforms(runtime: Runtime, selection: ViewSelection) {
+  const uniforms = runtime.semanticSurfaceSharedUniforms
+  if (!runtime.showSemanticSurfaces || selection.editMode || !selection.selectedFeatureId || !selection.activeObjectId) {
+    uniforms.selectedObjectId.value = -1
+    uniforms.selectedFaceIndex.value = -1
+    return
+  }
+
+  const objectKey = viewerObjectKey(selection.selectedFeatureId, selection.activeObjectId)
+  uniforms.selectedObjectId.value = runtime.shaderObjectIdsByObjectKey.get(objectKey) ?? -1
+  uniforms.selectedFaceIndex.value = selection.selectedFaceIndex ?? -1
+}
+
+function getShaderObjectId(runtime: Runtime, objectKey: string) {
+  const existing = runtime.shaderObjectIdsByObjectKey.get(objectKey)
+  if (existing != null) {
+    return existing
+  }
+
+  const nextId = runtime.nextShaderObjectId++
+  runtime.shaderObjectIdsByObjectKey.set(objectKey, nextId)
+  return nextId
+}
+
+function semanticSurfaceTypeKey(surfaceType: string) {
+  return surfaceType.trim().toLowerCase()
 }
 
 function syncAttributeColorSharedUniforms(
