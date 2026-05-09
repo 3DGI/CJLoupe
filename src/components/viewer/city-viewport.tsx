@@ -41,6 +41,10 @@ const PLANARITY_RELATIVE_TOLERANCE = 1e-7
 const NON_PLANAR_NORMAL_EXTRA_VERTEX_RATIO = 0.1
 const NON_PLANAR_NORMAL_EXTRA_VERTEX_MIN_BUDGET = 10000
 const NON_PLANAR_NORMAL_EXTRA_VERTEX_MAX_BUDGET = 500000
+const BATCH_TARGET_OBJECT_COUNT = 500
+const BATCH_MAX_OBJECT_COUNT = 900
+const BATCH_MAX_VERTEX_COUNT = 60000
+const BATCH_MAX_INDEX_COUNT = 120000
 const EDIT_VERTEX_PICK_RADIUS_PIXELS = 14
 const EMPTY_FACE_INDEX_SET = new Set<number>()
 
@@ -177,6 +181,9 @@ type Runtime = {
   pointer: THREE.Vector2
   meshesByObjectKey: Map<string, THREE.Mesh>
   meshesByFeatureId: Map<string, THREE.Mesh[]>
+  batchedMeshes: THREE.BatchedMesh[]
+  batchedObjectsByObjectKey: Map<string, BatchedObjectRecord>
+  batchedObjectsByFeatureId: Map<string, BatchedObjectRecord[]>
   editPoints: THREE.Points | null
   selectedEditPoint: THREE.Points | null
   transformProxy: THREE.Object3D | null
@@ -209,6 +216,29 @@ type ObjectGeometryBlueprint = {
 }
 
 type TriangleFaceIndices = ArrayLike<number>
+
+type BatchedObjectRecord = {
+  key: string
+  featureId: string
+  objectId: string
+  objectType: string
+  hasRenderableChildren: boolean
+  geometryIndex: number
+  featureCenter: Vec3
+  baseColorLight: string
+  baseColorDark: string
+  triangleFaceIndices: TriangleFaceIndices
+  batch: THREE.BatchedMesh
+  instanceId: number
+  geometryId: number
+}
+
+type BatchBuildItem = Omit<BatchedObjectRecord, 'batch' | 'instanceId' | 'geometryId'> & {
+  geometry: THREE.BufferGeometry
+  tileKey: string
+  vertexCount: number
+  indexCount: number
+}
 
 type AttributeColorUniforms = {
   value: { value: number }
@@ -451,6 +481,9 @@ function CityViewport({
       pointer: new THREE.Vector2(),
       meshesByObjectKey: new Map(),
       meshesByFeatureId: new Map(),
+      batchedMeshes: [],
+      batchedObjectsByObjectKey: new Map(),
+      batchedObjectsByFeatureId: new Map(),
       editPoints: null,
       selectedEditPoint: null,
       transformProxy: null,
@@ -584,24 +617,18 @@ function CityViewport({
             return
           }
 
-          const activeMesh =
+          const activeObjectKey =
             selection.selectedFeatureId && selection.activeObjectId
-              ? activeRuntime.meshesByObjectKey.get(
-                  viewerObjectKey(selection.selectedFeatureId, selection.activeObjectId),
-                ) ?? null
+              ? viewerObjectKey(selection.selectedFeatureId, selection.activeObjectId)
               : null
-
-          if (!activeMesh) {
+          if (!activeObjectKey) {
             return
           }
 
-          const meshHits = activeRuntime.raycaster.intersectObject(activeMesh, false)
-          const meshHit = meshHits[0]
-          const triangleFaceIndices = (activeMesh.userData.triangleFaceIndices as TriangleFaceIndices | undefined) ?? []
-          const faceIndex =
-            meshHit && typeof meshHit.faceIndex === 'number'
-              ? triangleFaceIndices[meshHit.faceIndex] ?? null
-              : null
+          const meshHits = activeRuntime.raycaster.intersectObjects(getPickableObjects(activeRuntime), false)
+          const activeHit = meshHits.find((hit) => resolveObjectHit(hit)?.key === activeObjectKey)
+          const resolvedHit = activeHit ? resolveObjectHit(activeHit) : null
+          const faceIndex = resolvedHit?.faceIndex ?? null
 
           onSelectFaceRef.current(faceIndex)
           return
@@ -609,23 +636,17 @@ function CityViewport({
 
         if (pickingMode === 'face') {
           const meshHits = activeRuntime.raycaster.intersectObjects(
-            getVisibleObjectMeshes(activeRuntime),
+            getPickableObjects(activeRuntime),
             false,
           )
           const meshHit = meshHits[0]
-          if (!meshHit) {
+          const resolvedHit = meshHit ? resolveObjectHit(meshHit) : null
+          if (!resolvedHit) {
             onSelectSemanticSurfaceRef.current(null)
             return
           }
 
-          const featureId = meshHit.object.userData.featureId as string
-          const objectId = meshHit.object.userData.objectId as string
-          const geometryIndex = meshHit.object.userData.geometryIndex as number | null | undefined
-          const triangleFaceIndices = (meshHit.object.userData.triangleFaceIndices as TriangleFaceIndices | undefined) ?? []
-          const faceIndex =
-            typeof meshHit.faceIndex === 'number'
-              ? triangleFaceIndices[meshHit.faceIndex] ?? null
-              : null
+          const { featureId, objectId, geometryIndex, faceIndex } = resolvedHit
 
           const feature = currentData.features.find((candidate) => candidate.id === featureId) ?? null
           const object = feature?.objects.find((candidate) => candidate.id === objectId) ?? null
@@ -653,23 +674,17 @@ function CityViewport({
 
       if (mobileSurfaceSelection) {
         const meshHits = activeRuntime.raycaster.intersectObjects(
-          getVisibleObjectMeshes(activeRuntime),
+          getPickableObjects(activeRuntime),
           false,
         )
         const meshHit = meshHits[0]
-        if (!meshHit) {
+        const resolvedHit = meshHit ? resolveObjectHit(meshHit) : null
+        if (!resolvedHit) {
           onSelectSemanticSurfaceRef.current(null)
           return
         }
 
-        const featureId = meshHit.object.userData.featureId as string
-        const objectId = meshHit.object.userData.objectId as string
-        const geometryIndex = meshHit.object.userData.geometryIndex as number | null | undefined
-        const triangleFaceIndices = (meshHit.object.userData.triangleFaceIndices as TriangleFaceIndices | undefined) ?? []
-        const faceIndex =
-          typeof meshHit.faceIndex === 'number'
-            ? triangleFaceIndices[meshHit.faceIndex] ?? null
-            : null
+        const { featureId, objectId, geometryIndex, faceIndex } = resolvedHit
 
         const feature = currentData.features.find((candidate) => candidate.id === featureId) ?? null
         const object = feature?.objects.find((candidate) => candidate.id === objectId) ?? null
@@ -691,13 +706,13 @@ function CityViewport({
       }
 
       const meshHits = activeRuntime.raycaster.intersectObjects(
-        getVisibleObjectMeshes(activeRuntime),
+        getPickableObjects(activeRuntime),
         false,
       )
       const meshHit = meshHits[0]
-      if (meshHit) {
-        const featureId = meshHit.object.userData.featureId as string
-        const objectId = meshHit.object.userData.objectId as string
+      const resolvedHit = meshHit ? resolveObjectHit(meshHit) : null
+      if (resolvedHit) {
+        const { featureId, objectId } = resolvedHit
         onSelectSemanticSurfaceRef.current(null)
         onSelectFeatureRef.current(featureId, objectId)
         return
@@ -717,7 +732,7 @@ function CityViewport({
 
       updateRaycastPointer(activeRuntime, event)
       const meshHits = activeRuntime.raycaster.intersectObjects(
-        getVisibleObjectMeshes(activeRuntime),
+        getPickableObjects(activeRuntime),
         false,
       )
       const meshHit = meshHits[0]
@@ -955,7 +970,8 @@ function CityViewport({
     runtime.showSemanticSurfaces = showSemanticSurfaces
 
     if (currentData) {
-      updateSceneSurfacePresentation(runtime, currentData, selectionRef.current)
+      rebuildScene(runtime, currentData, selectionRef.current)
+      rebuildAnnotations(runtime)
       syncSelection(
         runtime,
         currentData,
@@ -977,9 +993,19 @@ function CityViewport({
       return
     }
 
+    const previousAttributeColor = runtime.attributeColor
     const previousValuesByObjectKey = runtime.attributeColor?.valuesByObjectKey ?? null
     runtime.attributeColor = attributeColor
     syncAttributeColorSharedUniforms(runtime.attributeColorSharedUniforms, attributeColor)
+    if (
+      attributeColor?.mode === 'continuous' &&
+      (
+        previousAttributeColor?.mode !== 'continuous' ||
+        previousValuesByObjectKey !== attributeColor.valuesByObjectKey
+      )
+    ) {
+      syncBatchedAttributeValueAttributes(runtime, attributeColor)
+    }
     if (
       attributeColor &&
       (
@@ -989,6 +1015,14 @@ function CityViewport({
     ) {
       applyAttributeColorToScene(runtime)
       runtime.preparedAttributeColorValuesByObjectKey = attributeColor.valuesByObjectKey
+    }
+    if (attributeColor?.mode !== 'continuous') {
+      applyBatchSelectionAppearance(
+        runtime,
+        selectionRef.current,
+        isolateSelectedFeatureRef.current,
+        runtime.batchedObjectsByObjectKey.values(),
+      )
     }
     renderViewport(runtime)
     reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
@@ -1001,7 +1035,7 @@ function CityViewport({
     const flushPreview = () => {
       pendingFrame = null
       const runtime = runtimeRef.current
-      if (!runtime?.attributeColor || !pendingDomain) {
+      if (!runtime?.attributeColor || runtime.attributeColor.mode !== 'continuous' || !pendingDomain) {
         return
       }
 
@@ -1101,6 +1135,7 @@ function rebuildScene(
   const sizeY = data.extent[4] - data.extent[1]
   const sizeZ = data.extent[5] - data.extent[2]
   runtime.sceneScale = Math.max(sizeX, sizeY, sizeZ)
+  const batchItems: BatchBuildItem[] = []
 
   for (const feature of data.features) {
     const draftVertices = runtime.featureDrafts.get(feature.id)
@@ -1122,44 +1157,367 @@ function rebuildScene(
         continue
       }
 
-      const { blueprint, geometry, material } = buildObjectMeshPresentation(
-        runtime,
-        feature,
-        object,
-        objectGeometry,
-        selection,
-        draftVertices,
-        featureCenter,
-      )
-      const mesh = new THREE.Mesh(geometry, material)
       const nextObjectKey = viewerObjectKey(feature.id, object.id)
-      mesh.position.set(
-        featureCenter[0] - data.center[0],
-        featureCenter[1] - data.center[1],
-        featureCenter[2] - data.center[2],
-      )
-      mesh.userData = {
-        featureId: feature.id,
-        objectId: object.id,
-        objectType: object.type,
-        hasRenderableChildren: object.hasRenderableChildren,
-        geometryIndex: objectGeometry.index,
-        featureCenter,
-        baseColorLight: baseColorForType(object.type, 'light'),
-        baseColorDark: baseColorForType(object.type, 'dark'),
-        triangleFaceIndices: geometry.userData.triangleFaceIndices,
-        geometryBlueprint: blueprint,
-      }
-      runtime.meshesByObjectKey.set(nextObjectKey, mesh)
-      const featureMeshes = runtime.meshesByFeatureId.get(feature.id)
-      if (featureMeshes) {
-        featureMeshes.push(mesh)
+
+      if (canBatchObject(runtime, feature, object, objectGeometry)) {
+        const blueprint = buildObjectGeometryBlueprint(
+          objectGeometry.polygons,
+          draftVertices,
+          featureCenter,
+          collectObjectErrorFaceIndices(
+            feature.errors,
+            object.id,
+            objectGeometry.index,
+            objectGeometry.sourceFaceIndices,
+          ),
+        )
+        const geometry = buildUngroupedObjectGeometry(blueprint)
+        applyBatchGeometryAttributes(
+          geometry,
+          blueprint,
+          runtime,
+          feature,
+          object,
+          objectGeometry,
+          selection,
+          nextObjectKey,
+        )
+        geometry.computeBoundingBox()
+        batchItems.push({
+          key: nextObjectKey,
+          featureId: feature.id,
+          objectId: object.id,
+          objectType: object.type,
+          hasRenderableChildren: object.hasRenderableChildren,
+          geometryIndex: objectGeometry.index,
+          featureCenter,
+          baseColorLight: baseColorForType(object.type, 'light'),
+          baseColorDark: baseColorForType(object.type, 'dark'),
+          triangleFaceIndices: geometry.userData.triangleFaceIndices,
+          geometry,
+          tileKey: getBatchTileKey(featureCenter, data),
+          vertexCount: geometry.getAttribute('position')?.count ?? 0,
+          indexCount: geometry.getIndex()?.count ?? 0,
+        })
       } else {
-        runtime.meshesByFeatureId.set(feature.id, [mesh])
+        addStandaloneObjectMesh(
+          runtime,
+          data,
+          feature,
+          object,
+          objectGeometry,
+          selection,
+          draftVertices,
+          featureCenter,
+          nextObjectKey,
+        )
       }
-      runtime.rootGroup.add(mesh)
     }
   }
+
+  buildSpatialBatches(runtime, data, batchItems, selection)
+}
+
+function canBatchObject(
+  runtime: Runtime,
+  feature: ViewerFeature,
+  object: ViewerFeature['objects'][number],
+  objectGeometry: ViewerObjectGeometry,
+) {
+  if (runtime.showSemanticSurfaces) {
+    return true
+  }
+
+  if (runtime.attributeColor) {
+    return true
+  }
+
+  const { faceGroups } = computeFaceErrorGroups(
+    feature.errors,
+    object.id,
+    objectGeometry.index,
+    objectGeometry.sourceFaceIndices,
+  )
+  return faceGroups.size === 0
+}
+
+function applyBatchGeometryAttributes(
+  geometry: THREE.BufferGeometry,
+  blueprint: ObjectGeometryBlueprint,
+  runtime: Runtime,
+  feature: ViewerFeature,
+  object: ViewerFeature['objects'][number],
+  objectGeometry: ViewerObjectGeometry,
+  selection: ViewSelection,
+  objectKey: string,
+) {
+  const vertexCount = geometry.getAttribute('position')?.count ?? 0
+  const colors = new Float32Array(vertexCount * 3)
+  colors.fill(1)
+
+  if (runtime.showSemanticSurfaces) {
+    const selectedFaceIndex =
+      selection.selectedFeatureId === feature.id && selection.activeObjectId === object.id
+        ? selection.selectedFaceIndex
+        : null
+    fillSemanticVertexColors(colors, blueprint, objectGeometry.semanticSurfaces, selectedFaceIndex)
+  }
+
+  const value = runtime.attributeColor?.valuesByObjectKey[objectKey]
+  const attributeValues = new Float32Array(vertexCount)
+  const attributeHasValues = new Float32Array(vertexCount)
+  if (value != null) {
+    attributeValues.fill(value)
+    attributeHasValues.fill(1)
+  }
+
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+  geometry.setAttribute('attributeColorValue', new THREE.BufferAttribute(attributeValues, 1))
+  geometry.setAttribute('attributeColorHasValue', new THREE.BufferAttribute(attributeHasValues, 1))
+}
+
+function fillSemanticVertexColors(
+  colors: Float32Array,
+  blueprint: ObjectGeometryBlueprint,
+  semanticSurfaces: Array<ViewerSemanticSurface | null>,
+  selectedFaceIndex: number | null,
+) {
+  const color = new THREE.Color()
+  blueprint.polygonTriangleIndices.forEach((polygonIndices, faceIndex) => {
+    const surface = semanticSurfaces[faceIndex]
+    if (selectedFaceIndex === faceIndex) {
+      color.set('#f59e0b')
+    } else if (surface) {
+      color.set(semanticSurfaceColor(surface.type))
+    } else {
+      color.set('#64748b')
+    }
+
+    for (const vertexIndex of polygonIndices) {
+      const offset = vertexIndex * 3
+      colors[offset] = color.r
+      colors[offset + 1] = color.g
+      colors[offset + 2] = color.b
+    }
+  })
+}
+
+function resolveInitialBatchedObjectColor(runtime: Runtime, item: BatchBuildItem) {
+  if (runtime.showSemanticSurfaces) {
+    return '#ffffff'
+  }
+
+  const attributeColor = runtime.attributeColor
+  if (attributeColor?.mode === 'direct') {
+    return attributeColor.directColorsByObjectKey?.[item.key] ?? attributeColor.missingColor
+  }
+
+  if (attributeColor?.mode === 'continuous') {
+    return '#ffffff'
+  }
+
+  return runtime.theme === 'light' ? item.baseColorLight : item.baseColorDark
+}
+
+function addStandaloneObjectMesh(
+  runtime: Runtime,
+  data: ViewerDataset,
+  feature: ViewerFeature,
+  object: ViewerFeature['objects'][number],
+  objectGeometry: ViewerObjectGeometry,
+  selection: ViewSelection,
+  draftVertices: Vec3[],
+  featureCenter: Vec3,
+  objectKey: string,
+) {
+  const { blueprint, geometry, material } = buildObjectMeshPresentation(
+    runtime,
+    feature,
+    object,
+    objectGeometry,
+    selection,
+    draftVertices,
+    featureCenter,
+  )
+  const mesh = new THREE.Mesh(geometry, material)
+  mesh.position.set(
+    featureCenter[0] - data.center[0],
+    featureCenter[1] - data.center[1],
+    featureCenter[2] - data.center[2],
+  )
+  mesh.userData = {
+    featureId: feature.id,
+    objectId: object.id,
+    objectType: object.type,
+    hasRenderableChildren: object.hasRenderableChildren,
+    geometryIndex: objectGeometry.index,
+    featureCenter,
+    baseColorLight: baseColorForType(object.type, 'light'),
+    baseColorDark: baseColorForType(object.type, 'dark'),
+    triangleFaceIndices: geometry.userData.triangleFaceIndices,
+    geometryBlueprint: blueprint,
+  }
+  runtime.meshesByObjectKey.set(objectKey, mesh)
+  const featureMeshes = runtime.meshesByFeatureId.get(feature.id)
+  if (featureMeshes) {
+    featureMeshes.push(mesh)
+  } else {
+    runtime.meshesByFeatureId.set(feature.id, [mesh])
+  }
+  runtime.rootGroup.add(mesh)
+}
+
+function getBatchTileKey(center: Vec3, data: ViewerDataset) {
+  const gridDimension = Math.max(1, Math.ceil(Math.sqrt(data.features.length / BATCH_TARGET_OBJECT_COUNT)))
+  const spanX = Math.max(data.extent[3] - data.extent[0], 0.000001)
+  const spanY = Math.max(data.extent[4] - data.extent[1], 0.000001)
+  const x = Math.min(
+    gridDimension - 1,
+    Math.max(0, Math.floor(((center[0] - data.extent[0]) / spanX) * gridDimension)),
+  )
+  const y = Math.min(
+    gridDimension - 1,
+    Math.max(0, Math.floor(((center[1] - data.extent[1]) / spanY) * gridDimension)),
+  )
+  return `${x}:${y}`
+}
+
+function buildSpatialBatches(
+  runtime: Runtime,
+  data: ViewerDataset,
+  items: BatchBuildItem[],
+  selection: ViewSelection,
+) {
+  if (items.length === 0) {
+    return
+  }
+
+  const chunks = chunkBatchItems(items)
+  const identity = new THREE.Matrix4()
+  const translation = new THREE.Matrix4()
+  const color = new THREE.Color()
+
+  for (const chunk of chunks) {
+    const maxInstanceCount = chunk.length
+    const maxVertexCount = chunk.reduce((sum, item) => sum + item.vertexCount, 0)
+    const maxIndexCount = chunk.reduce((sum, item) => sum + item.indexCount, 0)
+    if (maxInstanceCount === 0 || maxVertexCount === 0 || maxIndexCount === 0) {
+      for (const item of chunk) {
+        item.geometry.dispose()
+      }
+      continue
+    }
+
+    const batch = new THREE.BatchedMesh(
+      maxInstanceCount,
+      maxVertexCount,
+      maxIndexCount,
+      createBatchMaterial(runtime.attributeColorSharedUniforms),
+    )
+    batch.perObjectFrustumCulled = true
+    batch.sortObjects = false
+    batch.userData.recordsByInstanceId = new Map<number, BatchedObjectRecord>()
+    runtime.batchedMeshes.push(batch)
+    runtime.rootGroup.add(batch)
+
+    for (const item of chunk) {
+      const geometryId = batch.addGeometry(item.geometry)
+      const instanceId = batch.addInstance(geometryId)
+      translation.copy(identity)
+      translation.setPosition(
+        item.featureCenter[0] - data.center[0],
+        item.featureCenter[1] - data.center[1],
+        item.featureCenter[2] - data.center[2],
+      )
+      batch.setMatrixAt(instanceId, translation)
+      batch.setColorAt(instanceId, color.set(resolveInitialBatchedObjectColor(runtime, item)))
+
+      const record: BatchedObjectRecord = {
+        key: item.key,
+        featureId: item.featureId,
+        objectId: item.objectId,
+        objectType: item.objectType,
+        hasRenderableChildren: item.hasRenderableChildren,
+        geometryIndex: item.geometryIndex,
+        featureCenter: item.featureCenter,
+        baseColorLight: item.baseColorLight,
+        baseColorDark: item.baseColorDark,
+        triangleFaceIndices: item.triangleFaceIndices,
+        batch,
+        instanceId,
+        geometryId,
+      }
+      ;(batch.userData.recordsByInstanceId as Map<number, BatchedObjectRecord>).set(instanceId, record)
+      runtime.batchedObjectsByObjectKey.set(item.key, record)
+      const featureRecords = runtime.batchedObjectsByFeatureId.get(item.featureId)
+      if (featureRecords) {
+        featureRecords.push(record)
+      } else {
+        runtime.batchedObjectsByFeatureId.set(item.featureId, [record])
+      }
+      item.geometry.dispose()
+    }
+
+    batch.computeBoundingSphere()
+    batch.computeBoundingBox()
+  }
+
+  applyBatchSelectionAppearance(runtime, selection, false, runtime.batchedObjectsByObjectKey.values())
+}
+
+function chunkBatchItems(items: BatchBuildItem[]) {
+  const sortedItems = [...items].sort((left, right) =>
+    left.tileKey.localeCompare(right.tileKey) ||
+    left.featureId.localeCompare(right.featureId, undefined, { numeric: true, sensitivity: 'base' }) ||
+    left.objectId.localeCompare(right.objectId, undefined, { numeric: true, sensitivity: 'base' }),
+  )
+  const chunks: BatchBuildItem[][] = []
+  let current: BatchBuildItem[] = []
+  let currentTile = ''
+  let vertexCount = 0
+  let indexCount = 0
+
+  const flush = () => {
+    if (current.length > 0) {
+      chunks.push(current)
+      current = []
+      vertexCount = 0
+      indexCount = 0
+    }
+  }
+
+  for (const item of sortedItems) {
+    const tileChanged = current.length > 0 && item.tileKey !== currentTile
+    const exceedsObjectLimit = current.length >= BATCH_MAX_OBJECT_COUNT
+    const exceedsVertexLimit = current.length > 0 && vertexCount + item.vertexCount > BATCH_MAX_VERTEX_COUNT
+    const exceedsIndexLimit = current.length > 0 && indexCount + item.indexCount > BATCH_MAX_INDEX_COUNT
+    if (tileChanged || exceedsObjectLimit || exceedsVertexLimit || exceedsIndexLimit) {
+      flush()
+    }
+
+    currentTile = item.tileKey
+    current.push(item)
+    vertexCount += item.vertexCount
+    indexCount += item.indexCount
+  }
+
+  flush()
+  return chunks
+}
+
+function createBatchMaterial(sharedUniforms: AttributeColorSharedUniforms) {
+  const material = new THREE.MeshStandardMaterial({
+    color: '#ffffff',
+    roughness: 0.72,
+    metalness: 0.02,
+    vertexColors: true,
+    transparent: false,
+    opacity: 1,
+    depthWrite: true,
+    side: THREE.DoubleSide,
+  })
+  applyBatchedContinuousAttributeColorToMaterial(material, sharedUniforms)
+  return material
 }
 
 function rebuildFeatureGeometry(
@@ -1175,17 +1533,19 @@ function rebuildFeatureGeometry(
   }
 
   for (const object of feature.objects) {
-    const mesh = runtime.meshesByObjectKey.get(viewerObjectKey(featureId, object.id))
-    if (!mesh) {
-      continue
-    }
-
     const objectGeometry = resolveDisplayedObjectGeometry(feature, object, selection)
     if (!objectGeometry) {
       continue
     }
 
-    const center = (mesh.userData.featureCenter as Vec3) ?? data.center
+    const objectKey = viewerObjectKey(featureId, object.id)
+    const mesh = runtime.meshesByObjectKey.get(objectKey)
+    const batchedRecord = runtime.batchedObjectsByObjectKey.get(objectKey)
+    if (!mesh && !batchedRecord) {
+      continue
+    }
+
+    const center = (mesh?.userData.featureCenter as Vec3 | undefined) ?? batchedRecord?.featureCenter ?? data.center
     const nextBlueprint = buildObjectGeometryBlueprint(
       objectGeometry.polygons,
       vertices,
@@ -1197,22 +1557,33 @@ function rebuildFeatureGeometry(
         objectGeometry.sourceFaceIndices,
       ),
     )
-    const { faceGroups } = resolveObjectFaceGroups(runtime, feature, object, objectGeometry, selection)
-    const nextGeometry = buildGroupedObjectGeometry(nextBlueprint, faceGroups)
-    replaceMeshGeometry(mesh, nextGeometry)
-    mesh.userData.geometryBlueprint = nextBlueprint
-    mesh.userData.geometryIndex = objectGeometry.index
-  }
-}
-
-function updateSceneSurfacePresentation(
-  runtime: Runtime,
-  data: ViewerDataset,
-  selection: ViewSelection,
-) {
-  for (const feature of data.features) {
-    for (const object of feature.objects) {
-      updateObjectSurfacePresentation(runtime, feature, object, selection)
+    if (mesh) {
+      const { faceGroups } = resolveObjectFaceGroups(runtime, feature, object, objectGeometry, selection)
+      const nextGeometry = buildGroupedObjectGeometry(nextBlueprint, faceGroups)
+      replaceMeshGeometry(mesh, nextGeometry)
+      mesh.userData.geometryBlueprint = nextBlueprint
+      mesh.userData.geometryIndex = objectGeometry.index
+    } else if (batchedRecord) {
+      const nextGeometry = buildUngroupedObjectGeometry(nextBlueprint)
+      applyBatchGeometryAttributes(
+        nextGeometry,
+        nextBlueprint,
+        runtime,
+        feature,
+        object,
+        objectGeometry,
+        selection,
+        objectKey,
+      )
+      try {
+        batchedRecord.batch.setGeometryAt(batchedRecord.geometryId, nextGeometry)
+        batchedRecord.triangleFaceIndices = nextGeometry.userData.triangleFaceIndices
+        batchedRecord.geometryIndex = objectGeometry.index
+        batchedRecord.batch.computeBoundingSphere()
+        batchedRecord.batch.computeBoundingBox()
+      } finally {
+        nextGeometry.dispose()
+      }
     }
   }
 }
@@ -1271,8 +1642,10 @@ function updateObjectSurfacePresentation(
   object: ViewerFeature['objects'][number],
   selection: ViewSelection,
 ) {
-  const mesh = runtime.meshesByObjectKey.get(viewerObjectKey(feature.id, object.id))
-  if (!mesh) {
+  const objectKey = viewerObjectKey(feature.id, object.id)
+  const mesh = runtime.meshesByObjectKey.get(objectKey)
+  const batchedRecord = runtime.batchedObjectsByObjectKey.get(objectKey)
+  if (!mesh && !batchedRecord) {
     return
   }
 
@@ -1287,7 +1660,7 @@ function updateObjectSurfacePresentation(
     (feature.extent[1] + feature.extent[4]) * 0.5,
     (feature.extent[2] + feature.extent[5]) * 0.5,
   ]
-  const existingBlueprint = mesh.userData.geometryBlueprint as ObjectGeometryBlueprint | undefined
+  const existingBlueprint = mesh?.userData.geometryBlueprint as ObjectGeometryBlueprint | undefined
   const { blueprint, geometry, material } = buildObjectMeshPresentation(
     runtime,
     feature,
@@ -1298,11 +1671,42 @@ function updateObjectSurfacePresentation(
     featureCenter,
     existingBlueprint,
   )
-  replaceMeshGeometry(mesh, geometry)
-  replaceMeshMaterial(mesh, material)
-  mesh.userData.geometryBlueprint = blueprint
-  mesh.userData.geometryIndex = objectGeometry.index
-  mesh.userData.triangleFaceIndices = geometry.userData.triangleFaceIndices
+  if (mesh) {
+    replaceMeshGeometry(mesh, geometry)
+    replaceMeshMaterial(mesh, material)
+    mesh.userData.geometryBlueprint = blueprint
+    mesh.userData.geometryIndex = objectGeometry.index
+    mesh.userData.triangleFaceIndices = geometry.userData.triangleFaceIndices
+    return
+  }
+
+  if (batchedRecord) {
+    geometry.dispose()
+    const batchGeometry = buildUngroupedObjectGeometry(blueprint)
+    applyBatchGeometryAttributes(
+      batchGeometry,
+      blueprint,
+      runtime,
+      feature,
+      object,
+      objectGeometry,
+      selection,
+      objectKey,
+    )
+    try {
+      batchedRecord.batch.setGeometryAt(batchedRecord.geometryId, batchGeometry)
+      batchedRecord.triangleFaceIndices = batchGeometry.userData.triangleFaceIndices
+      batchedRecord.geometryIndex = objectGeometry.index
+      batchedRecord.batch.computeBoundingSphere()
+      batchedRecord.batch.computeBoundingBox()
+    } finally {
+      batchGeometry.dispose()
+    }
+    const materials = Array.isArray(material) ? material : [material]
+    for (const entry of materials) {
+      entry.dispose()
+    }
+  }
 }
 
 function buildObjectMeshPresentation(
@@ -1861,6 +2265,7 @@ function syncSelection(
   showVertexGizmo: boolean,
 ) {
   applySelectionAppearance(runtime, selection, isolateSelectedFeature, runtime.meshesByObjectKey.values())
+  applyBatchSelectionAppearance(runtime, selection, isolateSelectedFeature, runtime.batchedObjectsByObjectKey.values())
   rebuildHandles(runtime, data, selection, hideOccludedEditEdges, showVertexGizmo)
 }
 
@@ -1894,6 +2299,12 @@ function syncSelectionDelta(
     selection,
     isolateSelectedFeature,
     collectAffectedFeatureMeshes(runtime, previousSelection.selectedFeatureId, selection.selectedFeatureId),
+  )
+  applyBatchSelectionAppearance(
+    runtime,
+    selection,
+    isolateSelectedFeature,
+    collectAffectedBatchRecords(runtime, previousSelection.selectedFeatureId, selection.selectedFeatureId),
   )
   rebuildHandles(runtime, data, selection, hideOccludedEditEdges, showVertexGizmo)
 }
@@ -2007,6 +2418,135 @@ function applyMeshSelectionAppearance(
   }
 
   mesh.visible = (!isolateActive || isSelectedFeature) && !hideParentMesh
+}
+
+function applyBatchSelectionAppearance(
+  runtime: Runtime,
+  selection: ViewSelection,
+  isolateSelectedFeature: boolean,
+  records: Iterable<BatchedObjectRecord>,
+) {
+  const isolateActive = isolateSelectedFeature && selection.selectedFeatureId != null
+  const palette = getViewportPalette(runtime.theme)
+  const color = new THREE.Color()
+
+  for (const record of records) {
+    const isSelectedFeature = record.featureId === selection.selectedFeatureId
+    const isActiveObject = isSelectedFeature && record.objectId === selection.activeObjectId
+    const hideParentMesh =
+      selection.geometryDisplayMode.kind === 'best' &&
+      record.hasRenderableChildren &&
+      !isActiveObject
+    const visible = (!isolateActive || isSelectedFeature) && !hideParentMesh
+    record.batch.setVisibleAt(record.instanceId, visible)
+    record.batch.setColorAt(
+      record.instanceId,
+      color.set(resolveBatchedObjectColor(runtime, record, selection, palette)),
+    )
+  }
+}
+
+function syncBatchedAttributeValueAttributes(
+  runtime: Runtime,
+  attributeColor: ViewerAttributeColorState,
+) {
+  const touchedBatches = new Set<THREE.BatchedMesh>()
+
+  for (const record of runtime.batchedObjectsByObjectKey.values()) {
+    const geometryRange = record.batch.getGeometryRangeAt(record.geometryId)
+    if (!geometryRange) {
+      continue
+    }
+
+    const valueAttribute = record.batch.geometry.getAttribute('attributeColorValue') as THREE.BufferAttribute | undefined
+    const hasValueAttribute = record.batch.geometry.getAttribute('attributeColorHasValue') as THREE.BufferAttribute | undefined
+    if (!valueAttribute || !hasValueAttribute) {
+      continue
+    }
+
+    const value = attributeColor.valuesByObjectKey[record.key]
+    const hasValue = value == null ? 0 : 1
+    const storedValue = value ?? 0
+    const end = geometryRange.vertexStart + geometryRange.reservedVertexCount
+    for (let index = geometryRange.vertexStart; index < end; index += 1) {
+      valueAttribute.setX(index, storedValue)
+      hasValueAttribute.setX(index, hasValue)
+    }
+    valueAttribute.addUpdateRange(geometryRange.vertexStart, geometryRange.reservedVertexCount)
+    hasValueAttribute.addUpdateRange(geometryRange.vertexStart, geometryRange.reservedVertexCount)
+    touchedBatches.add(record.batch)
+  }
+
+  for (const batch of touchedBatches) {
+    const valueAttribute = batch.geometry.getAttribute('attributeColorValue') as THREE.BufferAttribute | undefined
+    const hasValueAttribute = batch.geometry.getAttribute('attributeColorHasValue') as THREE.BufferAttribute | undefined
+    if (valueAttribute) {
+      valueAttribute.needsUpdate = true
+    }
+    if (hasValueAttribute) {
+      hasValueAttribute.needsUpdate = true
+    }
+  }
+}
+
+function resolveBatchedObjectColor(
+  runtime: Runtime,
+  record: BatchedObjectRecord,
+  selection: ViewSelection,
+  palette: ReturnType<typeof getViewportPalette>,
+) {
+  const attributeColor = runtime.attributeColor
+  if (attributeColor) {
+    if (attributeColor.mode === 'direct') {
+      return attributeColor.directColorsByObjectKey?.[record.key] ?? attributeColor.missingColor
+    }
+
+    return '#ffffff'
+  }
+
+  if (runtime.showSemanticSurfaces) {
+    if (record.featureId === selection.selectedFeatureId && record.objectId === selection.activeObjectId) {
+      return '#ffffff'
+    }
+    if (record.featureId === selection.selectedFeatureId) {
+      return '#d8e0e8'
+    }
+    return '#ffffff'
+  }
+
+  const isSelectedFeature = record.featureId === selection.selectedFeatureId
+  const isActiveObject = isSelectedFeature && record.objectId === selection.activeObjectId
+  if (isActiveObject) {
+    return palette.activeObject
+  }
+  if (isSelectedFeature) {
+    return palette.selectedFeature
+  }
+  return runtime.theme === 'light' ? record.baseColorLight : record.baseColorDark
+}
+
+function collectAffectedBatchRecords(
+  runtime: Runtime,
+  ...featureIds: Array<string | null>
+) {
+  const records = new Set<BatchedObjectRecord>()
+
+  for (const featureId of featureIds) {
+    if (!featureId) {
+      continue
+    }
+
+    const featureRecords = runtime.batchedObjectsByFeatureId.get(featureId)
+    if (!featureRecords) {
+      continue
+    }
+
+    for (const record of featureRecords) {
+      records.add(record)
+    }
+  }
+
+  return records
 }
 
 function collectAffectedFeatureMeshes(
@@ -3067,6 +3607,67 @@ function applyAttributeColorToMaterial(
   uniforms.directColor.value.set(directColor ?? attributeColor?.missingColor ?? '#94a3b8')
 }
 
+function applyBatchedContinuousAttributeColorToMaterial(
+  material: THREE.MeshStandardMaterial,
+  sharedUniforms: AttributeColorSharedUniforms,
+) {
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uAttributeColorEnabled = sharedUniforms.enabled
+    shader.uniforms.uAttributeColorDirect = sharedUniforms.direct
+    shader.uniforms.uAttributeColorMin = sharedUniforms.min
+    shader.uniforms.uAttributeColorMax = sharedUniforms.max
+    shader.uniforms.uAttributeColorStops = sharedUniforms.colors
+    shader.uniforms.uAttributeColorMissing = sharedUniforms.missingColor
+    shader.vertexShader = `
+      attribute float attributeColorValue;
+      attribute float attributeColorHasValue;
+      varying float vAttributeColorValue;
+      varying float vAttributeColorHasValue;
+    ${shader.vertexShader}`.replace(
+      '#include <color_vertex>',
+      `
+      #include <color_vertex>
+      vAttributeColorValue = attributeColorValue;
+      vAttributeColorHasValue = attributeColorHasValue;
+      `,
+    )
+    shader.fragmentShader = `
+      uniform float uAttributeColorEnabled;
+      uniform float uAttributeColorDirect;
+      uniform float uAttributeColorMin;
+      uniform float uAttributeColorMax;
+      uniform vec3 uAttributeColorStops[${ATTRIBUTE_COLOR_STOP_COUNT}];
+      uniform vec3 uAttributeColorMissing;
+      varying float vAttributeColorValue;
+      varying float vAttributeColorHasValue;
+    ${shader.fragmentShader}`.replace(
+      '#include <color_fragment>',
+      `
+      #include <color_fragment>
+      if (uAttributeColorEnabled > 0.5 && uAttributeColorDirect < 0.5) {
+        if (vAttributeColorHasValue < 0.5) {
+          diffuseColor.rgb = uAttributeColorMissing;
+        } else {
+          float attributeRange = max(uAttributeColorMax - uAttributeColorMin, 0.000001);
+          float attributeT = clamp((vAttributeColorValue - uAttributeColorMin) / attributeRange, 0.0, 1.0);
+          float attributeMapPosition = attributeT * float(${ATTRIBUTE_COLOR_STOP_COUNT - 1});
+          float attributeStopFloor = min(floor(attributeMapPosition), float(${ATTRIBUTE_COLOR_STOP_COUNT - 2}));
+          int attributeStopIndex = int(attributeStopFloor);
+          float attributeMix = attributeMapPosition - attributeStopFloor;
+          diffuseColor.rgb = mix(
+            uAttributeColorStops[attributeStopIndex],
+            uAttributeColorStops[attributeStopIndex + 1],
+            attributeMix
+          );
+        }
+      }
+      `,
+    )
+  }
+  material.customProgramCacheKey = () => 'batched-continuous-attribute-color-v1'
+  material.needsUpdate = true
+}
+
 function createAttributeColorSharedUniforms(): AttributeColorSharedUniforms {
   return {
     enabled: { value: 0 },
@@ -3458,8 +4059,63 @@ function updateRaycastPointer(runtime: Runtime, event: MouseEvent) {
   runtime.raycaster.setFromCamera(runtime.pointer, runtime.camera)
 }
 
-function getVisibleObjectMeshes(runtime: Runtime) {
-  return [...runtime.meshesByObjectKey.values()].filter((mesh) => mesh.visible)
+function getPickableObjects(runtime: Runtime) {
+  return [
+    ...[...runtime.meshesByObjectKey.values()].filter((mesh) => mesh.visible),
+    ...runtime.batchedMeshes.filter((batch) => batch.visible),
+  ]
+}
+
+function resolveObjectHit(hit: THREE.Intersection) {
+  const batchId = (hit as THREE.Intersection & { batchId?: number }).batchId
+  if (typeof batchId === 'number' && hit.object instanceof THREE.BatchedMesh) {
+    const recordsByInstanceId = hit.object.userData.recordsByInstanceId as Map<number, BatchedObjectRecord> | undefined
+    const record = recordsByInstanceId?.get(batchId) ?? null
+    if (!record) {
+      return null
+    }
+
+    const geometryRange = hit.object.getGeometryRangeAt(record.geometryId)
+    if (!geometryRange) {
+      return null
+    }
+    const localFaceIndex = typeof hit.faceIndex === 'number'
+      ? hit.faceIndex - Math.floor((geometryRange.start ?? 0) / 3)
+      : null
+    const faceIndex =
+      localFaceIndex != null && localFaceIndex >= 0
+        ? record.triangleFaceIndices[localFaceIndex] ?? null
+        : null
+    return {
+      key: record.key,
+      featureId: record.featureId,
+      objectId: record.objectId,
+      geometryIndex: record.geometryIndex,
+      faceIndex,
+    }
+  }
+
+  if (hit.object instanceof THREE.Mesh) {
+    const triangleFaceIndices = (hit.object.userData.triangleFaceIndices as TriangleFaceIndices | undefined) ?? []
+    const featureId = hit.object.userData.featureId as string | undefined
+    const objectId = hit.object.userData.objectId as string | undefined
+    if (!featureId || !objectId) {
+      return null
+    }
+
+    return {
+      key: viewerObjectKey(featureId, objectId),
+      featureId,
+      objectId,
+      geometryIndex: hit.object.userData.geometryIndex as number | null | undefined,
+      faceIndex:
+        typeof hit.faceIndex === 'number'
+          ? triangleFaceIndices[hit.faceIndex] ?? null
+          : null,
+    }
+  }
+
+  return null
 }
 
 function getDatasetViewKey(data: ViewerDataset) {
@@ -3594,7 +4250,7 @@ function isScenePointVisibleFromCamera(runtime: Runtime, scenePoint: THREE.Vecto
   const ndc = scenePoint.clone().project(runtime.camera)
   const raycaster = new THREE.Raycaster()
   raycaster.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), runtime.camera)
-  const hits = raycaster.intersectObjects(getVisibleObjectMeshes(runtime), false)
+  const hits = raycaster.intersectObjects(getPickableObjects(runtime), false)
   if (hits.length === 0) {
     return true
   }
@@ -3713,6 +4369,16 @@ function disposeSceneContents(runtime: Runtime) {
   }
   runtime.meshesByObjectKey.clear()
   runtime.meshesByFeatureId.clear()
+
+  for (const batch of runtime.batchedMeshes) {
+    const materials = Array.isArray(batch.material) ? batch.material : [batch.material]
+    for (const mat of materials) mat.dispose()
+    batch.dispose()
+    runtime.rootGroup.remove(batch)
+  }
+  runtime.batchedMeshes = []
+  runtime.batchedObjectsByObjectKey.clear()
+  runtime.batchedObjectsByFeatureId.clear()
 
   clearEditPointOverlays(runtime)
   clearTransientGroup(runtime.annotationGroup)
