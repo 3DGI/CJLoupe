@@ -47,8 +47,21 @@ const BATCH_MAX_OBJECT_COUNT = 900
 const BATCH_MAX_VERTEX_COUNT = 60000
 const BATCH_MAX_INDEX_COUNT = 120000
 const EDIT_VERTEX_PICK_RADIUS_PIXELS = 14
-const SELECTION_OUTLINE_THICKNESS_PIXELS = 10
+const SELECTION_OUTLINE_THICKNESS_PIXELS = 3
 const EMPTY_FACE_INDEX_SET = new Set<number>()
+
+const SELECTION_EFFECT_COLORS: Record<Theme, { outline: string; overlay: string; overlayOpacity: number }> = {
+  light: {
+    outline: '#7ee7e7',
+    overlay: '#7ee7e7',
+    overlayOpacity: 0.24,
+  },
+  dark: {
+    outline: '#7ee7e7',
+    overlay: '#7ee7e7',
+    overlayOpacity: 0.3,
+  },
+}
 
 const OBJECT_TYPE_COLORS: Record<Theme, Record<string, string>> = {
   light: {
@@ -190,6 +203,7 @@ type Runtime = {
   selectionOverlayMaterial: SelectionOverlayMaterial
   selectionOutlineDepthMaterial: THREE.MeshBasicMaterial
   selectionOutlineObjectKey: string | null
+  selectionOutlineVisible: boolean
   raycaster: THREE.Raycaster
   pointer: THREE.Vector2
   meshesByObjectKey: Map<string, THREE.Mesh>
@@ -276,10 +290,7 @@ type AttributeColorSharedUniforms = {
 
 type SemanticSurfaceSharedUniforms = {
   enabled: { value: number }
-  selectedObjectId: { value: number }
-  selectedFaceIndex: { value: number }
   colors: { value: THREE.Color[] }
-  selectedFaceColor: { value: THREE.Color }
 }
 
 type BatchColorMode = 'base' | 'semantic' | 'continuous-attribute'
@@ -433,7 +444,7 @@ class SelectionOutlineEffectMaterial extends THREE.ShaderMaterial {
       depthWrite: false,
       uniforms: {
         map: { value: null },
-        color: { value: new THREE.Color('#f59e0b') },
+        color: { value: new THREE.Color(SELECTION_EFFECT_COLORS.dark.outline) },
         thickness: { value: SELECTION_OUTLINE_THICKNESS_PIXELS },
       },
       vertexShader: /* glsl */`
@@ -500,7 +511,7 @@ class SelectionOverlayMaterial extends THREE.ShaderMaterial {
       depthWrite: false,
       uniforms: {
         map: { value: null },
-        color: { value: new THREE.Color('#22d3ee') },
+        color: { value: new THREE.Color(SELECTION_EFFECT_COLORS.dark.overlay) },
         opacity: { value: 0.18 },
       },
       vertexShader: /* glsl */`
@@ -790,6 +801,7 @@ function CityViewport({
       selectionOverlayMaterial,
       selectionOutlineDepthMaterial,
       selectionOutlineObjectKey: null,
+      selectionOutlineVisible: true,
       raycaster: new THREE.Raycaster(),
       pointer: new THREE.Vector2(),
       meshesByObjectKey: new Map(),
@@ -1298,7 +1310,6 @@ function CityViewport({
         rebuildAnnotations(runtime)
       } else {
         syncSemanticSurfaceSharedUniforms(runtime, currentData)
-        syncSemanticSelectionUniforms(runtime, selection)
         syncBatchMaterials(runtime)
       }
       syncSelection(
@@ -1460,7 +1471,6 @@ function rebuildScene(
   runtime.shaderObjectIdsByObjectKey.clear()
   runtime.nextShaderObjectId = 1
   syncSemanticSurfaceSharedUniforms(runtime, data)
-  syncSemanticSelectionUniforms(runtime, selection)
   runtime.featureDrafts = new Map(
     data.features.map((feature) => [feature.id, feature.vertices.map((vertex) => [...vertex] as Vec3)]),
   )
@@ -1537,7 +1547,6 @@ function rebuildScene(
           feature,
           object,
           objectGeometry,
-          selection,
           draftVertices,
           featureCenter,
           nextObjectKey,
@@ -1621,11 +1630,8 @@ function applyBatchGeometryAttributes(
   shaderObjectIds.fill(shaderObjectId)
 
   const semanticSurfaceTypeIds = new Float32Array(vertexCount)
-  const semanticFaceIndices = new Float32Array(vertexCount)
-  semanticFaceIndices.fill(-1)
   fillSemanticSurfaceAttributes(
     semanticSurfaceTypeIds,
-    semanticFaceIndices,
     blueprint,
     objectGeometry.semanticSurfaces,
     runtime.semanticSurfaceTypeIds,
@@ -1634,12 +1640,10 @@ function applyBatchGeometryAttributes(
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
   geometry.setAttribute('shaderObjectId', new THREE.BufferAttribute(shaderObjectIds, 1))
   geometry.setAttribute('semanticSurfaceTypeId', new THREE.BufferAttribute(semanticSurfaceTypeIds, 1))
-  geometry.setAttribute('semanticFaceIndex', new THREE.BufferAttribute(semanticFaceIndices, 1))
 }
 
 function fillSemanticSurfaceAttributes(
   semanticSurfaceTypeIds: Float32Array,
-  semanticFaceIndices: Float32Array,
   blueprint: ObjectGeometryBlueprint,
   semanticSurfaces: Array<ViewerSemanticSurface | null>,
   semanticSurfaceTypeIdsByKey: Map<string, number>,
@@ -1652,7 +1656,6 @@ function fillSemanticSurfaceAttributes(
 
     for (const vertexIndex of polygonIndices) {
       semanticSurfaceTypeIds[vertexIndex] = surfaceTypeId
-      semanticFaceIndices[vertexIndex] = faceIndex
     }
   })
 }
@@ -1680,7 +1683,6 @@ function addStandaloneObjectMesh(
   feature: ViewerFeature,
   object: ViewerFeature['objects'][number],
   objectGeometry: ViewerObjectGeometry,
-  selection: ViewSelection,
   draftVertices: Vec3[],
   featureCenter: Vec3,
   objectKey: string,
@@ -1690,7 +1692,6 @@ function addStandaloneObjectMesh(
     feature,
     object,
     objectGeometry,
-    selection,
     draftVertices,
     featureCenter,
   )
@@ -1958,7 +1959,7 @@ function rebuildFeatureGeometry(
       ),
     )
     if (mesh) {
-      const { faceGroups } = resolveObjectFaceGroups(runtime, feature, object, objectGeometry, selection)
+      const { faceGroups } = resolveObjectFaceGroups(runtime, feature, object, objectGeometry)
       const nextGeometry = buildGroupedObjectGeometry(nextBlueprint, faceGroups)
       replaceMeshGeometry(mesh, nextGeometry)
       mesh.userData.geometryBlueprint = nextBlueprint
@@ -2070,7 +2071,6 @@ function updateObjectSurfacePresentation(
     feature,
     object,
     objectGeometry,
-    selection,
     draftVertices,
     featureCenter,
     existingBlueprint,
@@ -2115,7 +2115,6 @@ function buildObjectMeshPresentation(
   feature: ViewerFeature,
   object: ViewerFeature['objects'][number],
   objectGeometry: ViewerObjectGeometry,
-  selection: ViewSelection,
   vertices: Vec3[],
   featureCenter: Vec3,
   existingBlueprint?: ObjectGeometryBlueprint,
@@ -2131,7 +2130,7 @@ function buildObjectMeshPresentation(
       objectGeometry.sourceFaceIndices,
     ),
   )
-  const { faceGroups, groupColors } = resolveObjectFaceGroups(runtime, feature, object, objectGeometry, selection)
+  const { faceGroups, groupColors } = resolveObjectFaceGroups(runtime, feature, object, objectGeometry)
   const geometry = buildGroupedObjectGeometry(blueprint, faceGroups)
   const baseMaterial = createMaterial(object.type, runtime.theme, runtime.showSemanticSurfaces)
   applyAttributeColorToMaterial(
@@ -2159,18 +2158,9 @@ function resolveObjectFaceGroups(
   feature: ViewerFeature,
   object: ViewerFeature['objects'][number],
   objectGeometry: ViewerObjectGeometry,
-  selection: ViewSelection,
 ) {
-  const selectedSemanticFaceIndex =
-    runtime.showSemanticSurfaces &&
-    !selection.editMode &&
-    selection.selectedFeatureId === feature.id &&
-    selection.activeObjectId === object.id
-      ? selection.selectedFaceIndex
-      : null
-
   return runtime.showSemanticSurfaces
-    ? computeFaceSemanticGroups(objectGeometry.semanticSurfaces, selectedSemanticFaceIndex)
+    ? computeFaceSemanticGroups(objectGeometry.semanticSurfaces)
     : computeFaceErrorGroups(feature.errors, object.id, objectGeometry.index, objectGeometry.sourceFaceIndices)
 }
 
@@ -2665,7 +2655,6 @@ function syncSelection(
   isolateSelectedFeature: boolean,
   showVertexGizmo: boolean,
 ) {
-  syncSemanticSelectionUniforms(runtime, selection)
   syncSelectionOutlineProxy(runtime, data, selection)
   applySelectionAppearance(runtime, selection, isolateSelectedFeature, runtime.meshesByObjectKey.values())
   applyBatchSelectionAppearance(runtime, selection, isolateSelectedFeature, runtime.batchedObjectsByObjectKey.values())
@@ -2682,19 +2671,11 @@ function syncSelectionDelta(
   isolateSelectedFeature: boolean,
   showVertexGizmo: boolean,
 ) {
-  syncSemanticSelectionUniforms(runtime, selection)
   syncSelectionOutlineProxy(runtime, data, selection)
   const previousIsolateActive = previousIsolateSelectedFeature && previousSelection.selectedFeatureId != null
   const isolateActive = isolateSelectedFeature && selection.selectedFeatureId != null
-  const previousSemanticObjectSelectionActive =
-    runtime.showSemanticSurfaces && !previousSelection.editMode && previousSelection.activeObjectId != null
-  const semanticObjectSelectionActive =
-    runtime.showSemanticSurfaces && !selection.editMode && selection.activeObjectId != null
 
-  if (
-    previousIsolateActive !== isolateActive ||
-    previousSemanticObjectSelectionActive !== semanticObjectSelectionActive
-  ) {
+  if (previousIsolateActive !== isolateActive) {
     syncSelection(runtime, data, selection, hideOccludedEditEdges, isolateSelectedFeature, showVertexGizmo)
     return
   }
@@ -2721,12 +2702,7 @@ function syncSelectionOutlineProxy(
 ) {
   clearSelectionOutlineProxy(runtime)
 
-  if (
-    selection.editMode ||
-    !selection.selectedFeatureId ||
-    !selection.activeObjectId ||
-    !runtime.renderer.capabilities.isWebGL2
-  ) {
+  if (!selection.selectedFeatureId || !selection.activeObjectId || !runtime.renderer.capabilities.isWebGL2) {
     return
   }
 
@@ -2741,12 +2717,24 @@ function syncSelectionOutlineProxy(
   }
 
   runtime.selectionOutlineObjectKey = viewerObjectKey(feature.id, object.id)
+  runtime.selectionOutlineVisible = !(selection.editMode && selection.selectedFaceIndex != null)
+  const outlinePolygons =
+    selection.selectedFaceIndex != null
+      ? objectGeometry.polygons[selection.selectedFaceIndex]
+        ? [objectGeometry.polygons[selection.selectedFaceIndex]]
+        : []
+      : selection.editMode
+        ? []
+        : objectGeometry.polygons
+  if (outlinePolygons.length === 0) {
+    return
+  }
   const featureCenter: Vec3 = [
     (feature.extent[0] + feature.extent[3]) * 0.5,
     (feature.extent[1] + feature.extent[4]) * 0.5,
     (feature.extent[2] + feature.extent[5]) * 0.5,
   ]
-  const blueprint = buildObjectGeometryBlueprint(objectGeometry.polygons, draftVertices, featureCenter)
+  const blueprint = buildObjectGeometryBlueprint(outlinePolygons, draftVertices, featureCenter)
   const geometry = buildUngroupedObjectGeometry(blueprint)
   const mesh = new THREE.Mesh(geometry, runtime.selectionOutlineSeedMaterial)
   mesh.position.set(
@@ -2765,6 +2753,7 @@ function clearSelectionOutlineProxy(runtime: Runtime) {
     runtime.selectionOutlineGroup.remove(child)
   }
   runtime.selectionOutlineObjectKey = null
+  runtime.selectionOutlineVisible = true
 }
 
 function renderSelectionOutline(runtime: Runtime) {
@@ -2816,11 +2805,18 @@ function renderSelectionOutline(runtime: Runtime) {
   renderer.render(runtime.selectionOutlineScene, runtime.camera)
   runtime.selectionOutlineSeedMaterial.depthTest = false
 
+  const selectionColors = SELECTION_EFFECT_COLORS[runtime.theme]
   runtime.selectionOverlayMaterial.map = firstTarget.texture
-  runtime.selectionOverlayMaterial.color.set(runtime.theme === 'light' ? '#0891b2' : '#22d3ee')
-  runtime.selectionOverlayMaterial.overlayOpacity = runtime.theme === 'light' ? 0.16 : 0.2
+  runtime.selectionOverlayMaterial.color.set(selectionColors.overlay)
+  runtime.selectionOverlayMaterial.overlayOpacity = selectionColors.overlayOpacity
   renderer.setRenderTarget(previousRenderTarget)
   runtime.selectionOverlayQuad.render(renderer)
+
+  if (!runtime.selectionOutlineVisible) {
+    renderer.autoClear = previousAutoClear
+    renderer.setClearColor(previousClearColor, previousClearAlpha)
+    return
+  }
 
   let readTarget = firstTarget
   let writeTarget = secondTarget
@@ -2848,7 +2844,7 @@ function renderSelectionOutline(runtime: Runtime) {
   const effectMaterial = runtime.selectionOutlineEffectQuad.material as SelectionOutlineEffectMaterial
   effectMaterial.map = readTarget.texture
   effectMaterial.thickness = SELECTION_OUTLINE_THICKNESS_PIXELS
-  effectMaterial.color.set(runtime.theme === 'light' ? '#22d3ee' : '#22d3ee')
+  effectMaterial.color.set(selectionColors.outline)
   renderer.setRenderTarget(previousRenderTarget)
   runtime.selectionOutlineEffectQuad.render(renderer)
 
@@ -4157,35 +4153,21 @@ function applyBatchedSemanticColoringToMaterial(
 ) {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uSemanticSurfaceEnabled = semanticUniforms.enabled
-    shader.uniforms.uSemanticSelectedObjectId = semanticUniforms.selectedObjectId
-    shader.uniforms.uSemanticSelectedFaceIndex = semanticUniforms.selectedFaceIndex
     shader.uniforms.uSemanticSurfaceColors = semanticUniforms.colors
-    shader.uniforms.uSemanticSelectedFaceColor = semanticUniforms.selectedFaceColor
     shader.vertexShader = `
-      attribute float shaderObjectId;
       attribute float semanticSurfaceTypeId;
-      attribute float semanticFaceIndex;
-      varying float vShaderObjectId;
       varying float vSemanticSurfaceTypeId;
-      varying float vSemanticFaceIndex;
     ${shader.vertexShader}`.replace(
       '#include <color_vertex>',
       `
       #include <color_vertex>
-      vShaderObjectId = shaderObjectId;
       vSemanticSurfaceTypeId = semanticSurfaceTypeId;
-      vSemanticFaceIndex = semanticFaceIndex;
       `,
     )
     shader.fragmentShader = `
       uniform float uSemanticSurfaceEnabled;
-      uniform float uSemanticSelectedObjectId;
-      uniform float uSemanticSelectedFaceIndex;
       uniform vec3 uSemanticSurfaceColors[${SEMANTIC_SURFACE_COLOR_SLOT_COUNT}];
-      uniform vec3 uSemanticSelectedFaceColor;
-      varying float vShaderObjectId;
       varying float vSemanticSurfaceTypeId;
-      varying float vSemanticFaceIndex;
     ${shader.fragmentShader}`.replace(
       '#include <color_fragment>',
       `
@@ -4198,14 +4180,6 @@ function applyBatchedSemanticColoringToMaterial(
           float(${SEMANTIC_SURFACE_COLOR_SLOT_COUNT - 1})
         ));
         diffuseColor.rgb = uSemanticSurfaceColors[semanticSurfaceTypeIndex] * semanticInstanceTint;
-        if (
-          uSemanticSelectedObjectId >= 0.0 &&
-          uSemanticSelectedFaceIndex >= 0.0 &&
-          abs(vShaderObjectId - uSemanticSelectedObjectId) < 0.5 &&
-          abs(vSemanticFaceIndex - uSemanticSelectedFaceIndex) < 0.5
-        ) {
-          diffuseColor.rgb = uSemanticSelectedFaceColor * semanticInstanceTint;
-        }
       }
       `,
     )
@@ -4312,10 +4286,7 @@ function createSemanticSurfaceSharedUniforms(): SemanticSurfaceSharedUniforms {
   )
   return {
     enabled: { value: 0 },
-    selectedObjectId: { value: -1 },
-    selectedFaceIndex: { value: -1 },
     colors: { value: colors },
-    selectedFaceColor: { value: new THREE.Color('#f59e0b') },
   }
 }
 
@@ -4349,19 +4320,6 @@ function syncSemanticSurfaceSharedUniforms(runtime: Runtime, data: ViewerDataset
       }
     }
   }
-}
-
-function syncSemanticSelectionUniforms(runtime: Runtime, selection: ViewSelection) {
-  const uniforms = runtime.semanticSurfaceSharedUniforms
-  if (!runtime.showSemanticSurfaces || selection.editMode || !selection.selectedFeatureId || !selection.activeObjectId) {
-    uniforms.selectedObjectId.value = -1
-    uniforms.selectedFaceIndex.value = -1
-    return
-  }
-
-  const objectKey = viewerObjectKey(selection.selectedFeatureId, selection.activeObjectId)
-  uniforms.selectedObjectId.value = runtime.shaderObjectIdsByObjectKey.get(objectKey) ?? -1
-  uniforms.selectedFaceIndex.value = selection.selectedFaceIndex ?? -1
 }
 
 function getShaderObjectId(runtime: Runtime, objectKey: string) {
@@ -4593,18 +4551,10 @@ function getViewportPalette(theme: Theme) {
       rimLight: '#f7fbff',
       rimIntensity: 0.42,
       exposure: 0.96,
-      selectedFeature: '#6eb7d1',
-      selectionEmissive: '#133245',
-      selectionEmissiveIntensity: 0.08,
-      activeObject: '#d8942d',
-      activeEmissive: '#5d3a12',
-      activeEmissiveIntensity: 0.1,
-      semanticActiveEmissiveIntensity: 0.18,
       baseEmissive: '#000000',
       baseEmissiveIntensity: 0,
       errorEmissive: '#000000',
       errorIntensity: 0.08,
-      errorSelectedIntensity: 0.05,
       editPoint: '#f8fafc',
       selectedEditPoint: '#06b6d4',
       editBaseEdge: '#eef2f7',
@@ -4633,18 +4583,10 @@ function getViewportPalette(theme: Theme) {
     rimLight: '#edf4fb',
     rimIntensity: 0.56,
     exposure: 0.9,
-    selectedFeature: '#77bdd4',
-    selectionEmissive: '#0f2f3f',
-    selectionEmissiveIntensity: 0.1,
-    activeObject: '#de9a30',
-    activeEmissive: '#5a3812',
-    activeEmissiveIntensity: 0.12,
-    semanticActiveEmissiveIntensity: 0.22,
     baseEmissive: '#000000',
     baseEmissiveIntensity: 0,
     errorEmissive: '#000000',
     errorIntensity: 0.08,
-    errorSelectedIntensity: 0.05,
     editPoint: '#f8fafc',
     selectedEditPoint: '#06b6d4',
     editBaseEdge: '#eef2f7',
@@ -4702,7 +4644,6 @@ function getCurrentFaceIndexForSourceFace(sourceFaceIndices: number[], sourceFac
 
 function computeFaceSemanticGroups(
   semanticSurfaces: Array<ViewerSemanticSurface | null>,
-  selectedFaceIndex: number | null,
 ): { faceGroups: Map<number, number>; groupColors: Map<number, string> } {
   const typeToGroup = new Map<string, number>()
   const faceGroups = new Map<number, number>()
@@ -4723,12 +4664,6 @@ function computeFaceSemanticGroups(
 
     faceGroups.set(faceIndex, group)
   })
-
-  if (selectedFaceIndex != null && selectedFaceIndex >= 0 && selectedFaceIndex < semanticSurfaces.length) {
-    const selectedGroup = nextGroup++
-    faceGroups.set(selectedFaceIndex, selectedGroup)
-    groupColors.set(selectedGroup, '#f59e0b')
-  }
 
   return { faceGroups, groupColors }
 }
