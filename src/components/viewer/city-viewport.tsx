@@ -3145,8 +3145,8 @@ function ensureAttributeColorUniforms(
           float attributeRange = max(uAttributeColorMax - uAttributeColorMin, 0.000001);
           float attributeT = clamp((uAttributeColorValue - uAttributeColorMin) / attributeRange, 0.0, 1.0);
           float attributeMapPosition = attributeT * float(${ATTRIBUTE_COLOR_STOP_COUNT - 1});
-          float attributeStopFloor = floor(attributeMapPosition);
-          int attributeStopIndex = int(min(attributeStopFloor, float(${ATTRIBUTE_COLOR_STOP_COUNT - 2})));
+          float attributeStopFloor = min(floor(attributeMapPosition), float(${ATTRIBUTE_COLOR_STOP_COUNT - 2}));
+          int attributeStopIndex = int(attributeStopFloor);
           float attributeMix = attributeMapPosition - attributeStopFloor;
           diffuseColor.rgb = mix(
             uAttributeColorStops[attributeStopIndex],
@@ -3158,7 +3158,7 @@ function ensureAttributeColorUniforms(
       `,
     )
   }
-  material.customProgramCacheKey = () => 'attribute-color-v3'
+  material.customProgramCacheKey = () => 'attribute-color-v4'
   material.needsUpdate = true
   return uniforms
 }
