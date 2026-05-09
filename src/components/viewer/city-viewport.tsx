@@ -184,8 +184,10 @@ type Runtime = {
   selectionOutlineTargets: [THREE.WebGLRenderTarget, THREE.WebGLRenderTarget]
   selectionOutlineSeedQuad: FullScreenQuad
   selectionOutlineJfaQuad: FullScreenQuad
+  selectionOverlayQuad: FullScreenQuad
   selectionOutlineEffectQuad: FullScreenQuad
   selectionOutlineSeedMaterial: SelectionOutlineSeedMaterial
+  selectionOverlayMaterial: SelectionOverlayMaterial
   selectionOutlineDepthMaterial: THREE.MeshBasicMaterial
   selectionOutlineObjectKey: string | null
   raycaster: THREE.Raycaster
@@ -477,6 +479,65 @@ class SelectionOutlineEffectMaterial extends THREE.ShaderMaterial {
   }
 }
 
+class SelectionOverlayMaterial extends THREE.ShaderMaterial {
+  set map(value: THREE.Texture | null) {
+    this.uniforms.map.value = value
+  }
+
+  get color() {
+    return this.uniforms.color.value as THREE.Color
+  }
+
+  set overlayOpacity(value: number) {
+    this.uniforms.opacity.value = value
+  }
+
+  constructor() {
+    super({
+      glslVersion: THREE.GLSL3,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      uniforms: {
+        map: { value: null },
+        color: { value: new THREE.Color('#22d3ee') },
+        opacity: { value: 0.18 },
+      },
+      vertexShader: /* glsl */`
+        out vec2 vUv;
+
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */`
+        precision highp float;
+        precision highp int;
+
+        uniform sampler2D map;
+        uniform vec3 color;
+        uniform float opacity;
+        in vec2 vUv;
+
+        out vec4 outColor;
+
+        void main() {
+          ivec2 size = textureSize(map, 0);
+          ivec2 currCoord = ivec2(vUv * vec2(size));
+          vec3 seed = texelFetch(map, currCoord, 0).rgb;
+
+          if (seed.b >= 0.0) {
+            discard;
+          }
+
+          outColor = vec4(color, opacity);
+        }
+      `,
+    })
+  }
+}
+
 function createSelectionOutlineTarget() {
   return new THREE.WebGLRenderTarget(1, 1, {
     format: THREE.RGBAFormat,
@@ -692,6 +753,8 @@ function CityViewport({
     selectionOutlineScene.add(selectionOutlineGroup)
     const selectionOutlineSeedMaterial = new SelectionOutlineSeedMaterial()
     selectionOutlineSeedMaterial.side = THREE.DoubleSide
+    const selectionOverlayMaterial = new SelectionOverlayMaterial()
+    selectionOverlayMaterial.side = THREE.DoubleSide
     const selectionOutlineDepthMaterial = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide })
     selectionOutlineDepthMaterial.colorWrite = false
     selectionOutlineDepthMaterial.depthWrite = true
@@ -702,6 +765,7 @@ function CityViewport({
     ]
     const selectionOutlineSeedQuad = new FullScreenQuad(selectionOutlineSeedMaterial)
     const selectionOutlineJfaQuad = new FullScreenQuad(new SelectionOutlineJFAMaterial())
+    const selectionOverlayQuad = new FullScreenQuad(selectionOverlayMaterial)
     const selectionOutlineEffectQuad = new FullScreenQuad(new SelectionOutlineEffectMaterial())
 
     const runtime: Runtime = {
@@ -720,8 +784,10 @@ function CityViewport({
       selectionOutlineTargets,
       selectionOutlineSeedQuad,
       selectionOutlineJfaQuad,
+      selectionOverlayQuad,
       selectionOutlineEffectQuad,
       selectionOutlineSeedMaterial,
+      selectionOverlayMaterial,
       selectionOutlineDepthMaterial,
       selectionOutlineObjectKey: null,
       raycaster: new THREE.Raycaster(),
@@ -2750,6 +2816,12 @@ function renderSelectionOutline(runtime: Runtime) {
   renderer.render(runtime.selectionOutlineScene, runtime.camera)
   runtime.selectionOutlineSeedMaterial.depthTest = false
 
+  runtime.selectionOverlayMaterial.map = firstTarget.texture
+  runtime.selectionOverlayMaterial.color.set(runtime.theme === 'light' ? '#0891b2' : '#22d3ee')
+  runtime.selectionOverlayMaterial.overlayOpacity = runtime.theme === 'light' ? 0.16 : 0.2
+  renderer.setRenderTarget(previousRenderTarget)
+  runtime.selectionOverlayQuad.render(renderer)
+
   let readTarget = firstTarget
   let writeTarget = secondTarget
   let step = Math.min(
@@ -2843,8 +2915,10 @@ function disposeSelectionOutlineResources(runtime: Runtime) {
   }
   runtime.selectionOutlineSeedQuad.dispose()
   runtime.selectionOutlineJfaQuad.dispose()
+  runtime.selectionOverlayQuad.dispose()
   runtime.selectionOutlineEffectQuad.dispose()
   runtime.selectionOutlineSeedMaterial.dispose()
+  runtime.selectionOverlayMaterial.dispose()
   runtime.selectionOutlineDepthMaterial.dispose()
   ;(runtime.selectionOutlineJfaQuad.material as THREE.Material).dispose()
   ;(runtime.selectionOutlineEffectQuad.material as THREE.Material).dispose()
@@ -2858,10 +2932,6 @@ function applySelectionAppearance(
 ) {
   const isolateActive = isolateSelectedFeature && selection.selectedFeatureId != null
   const palette = getViewportPalette(runtime.theme)
-  const semanticHighlightLift = new THREE.Color('#f8fafc')
-  const semanticShadow = new THREE.Color('#020617')
-  const semanticObjectSelectionActive =
-    runtime.showSemanticSurfaces && !selection.editMode && selection.activeObjectId != null
 
   for (const mesh of meshes) {
     applyMeshSelectionAppearance(
@@ -2870,9 +2940,6 @@ function applySelectionAppearance(
       selection,
       isolateActive,
       palette,
-      semanticHighlightLift,
-      semanticShadow,
-      semanticObjectSelectionActive,
     )
   }
 }
@@ -2883,9 +2950,6 @@ function applyMeshSelectionAppearance(
   selection: ViewSelection,
   isolateActive: boolean,
   palette: ReturnType<typeof getViewportPalette>,
-  semanticHighlightLift: THREE.Color,
-  semanticShadow: THREE.Color,
-  semanticObjectSelectionActive: boolean,
 ) {
   const featureId = mesh.userData.featureId as string
   const objectId = mesh.userData.objectId as string
@@ -2905,53 +2969,20 @@ function applyMeshSelectionAppearance(
   for (const material of materials) {
     const mat = material as THREE.MeshStandardMaterial
     if (mat.userData.isError) {
-      mat.emissive.set(isSelectedFeature ? palette.selectionEmissive : palette.errorEmissive)
-      mat.emissiveIntensity = isSelectedFeature ? palette.errorSelectedIntensity : palette.errorIntensity
+      mat.emissive.set(palette.errorEmissive)
+      mat.emissiveIntensity = palette.errorIntensity
     } else if (mat.userData.isSemantic || mat.userData.isSemanticBase) {
       if (typeof mat.userData.semanticColor === 'string') {
         mat.color.set(mat.userData.semanticColor)
       }
-      if (semanticObjectSelectionActive) {
-        if (isActiveObject) {
-          mat.color.lerp(semanticHighlightLift, 0.14)
-        } else if (isSelectedFeature) {
-          mat.color.lerp(semanticShadow, 0.14)
-        } else {
-          mat.color.lerp(semanticShadow, 0.28)
-        }
-        mat.emissive.set(isActiveObject ? palette.activeEmissive : '#000000')
-        mat.emissiveIntensity = isActiveObject ? palette.semanticActiveEmissiveIntensity : 0
-        mat.roughness = isActiveObject ? 0.58 : isSelectedFeature ? 0.8 : 0.86
-      } else {
-        mat.emissive.set(
-          isActiveObject
-            ? palette.activeEmissive
-            : isSelectedFeature
-              ? palette.selectionEmissive
-              : '#000000',
-        )
-        mat.emissiveIntensity = isActiveObject
-          ? palette.activeEmissiveIntensity
-          : isSelectedFeature
-            ? palette.selectionEmissiveIntensity
-            : 0
-        mat.roughness = 0.72
-      }
+      mat.emissive.set('#000000')
+      mat.emissiveIntensity = 0
+      mat.roughness = 0.72
     } else {
-      mat.color.set(isActiveObject ? palette.activeObject : isSelectedFeature ? palette.selectedFeature : baseColor)
-      mat.emissive.set(
-        isActiveObject
-          ? palette.activeEmissive
-          : isSelectedFeature
-            ? palette.selectionEmissive
-            : palette.baseEmissive,
-      )
-      mat.emissiveIntensity = isActiveObject
-        ? palette.activeEmissiveIntensity
-        : isSelectedFeature
-          ? palette.selectionEmissiveIntensity
-          : palette.baseEmissiveIntensity
-      mat.roughness = isActiveObject ? 0.38 : 0.72
+      mat.color.set(baseColor)
+      mat.emissive.set(palette.baseEmissive)
+      mat.emissiveIntensity = palette.baseEmissiveIntensity
+      mat.roughness = 0.72
     }
     mat.opacity = 1
     mat.transparent = false
@@ -2968,7 +2999,6 @@ function applyBatchSelectionAppearance(
   records: Iterable<BatchedObjectRecord>,
 ) {
   const isolateActive = isolateSelectedFeature && selection.selectedFeatureId != null
-  const palette = getViewportPalette(runtime.theme)
   const color = new THREE.Color()
 
   for (const record of records) {
@@ -2982,7 +3012,7 @@ function applyBatchSelectionAppearance(
     record.batch.setVisibleAt(record.instanceId, visible)
     record.batch.setColorAt(
       record.instanceId,
-      color.set(resolveBatchedObjectColor(runtime, record, selection, palette)),
+      color.set(resolveBatchedObjectColor(runtime, record)),
     )
   }
 }
@@ -3021,8 +3051,6 @@ function syncBatchedAttributeValueTexture(
 function resolveBatchedObjectColor(
   runtime: Runtime,
   record: BatchedObjectRecord,
-  selection: ViewSelection,
-  palette: ReturnType<typeof getViewportPalette>,
 ) {
   const attributeColor = runtime.attributeColor
   if (attributeColor) {
@@ -3034,23 +3062,9 @@ function resolveBatchedObjectColor(
   }
 
   if (runtime.showSemanticSurfaces) {
-    if (record.featureId === selection.selectedFeatureId && record.objectId === selection.activeObjectId) {
-      return '#ffffff'
-    }
-    if (record.featureId === selection.selectedFeatureId) {
-      return '#d8e0e8'
-    }
     return '#ffffff'
   }
 
-  const isSelectedFeature = record.featureId === selection.selectedFeatureId
-  const isActiveObject = isSelectedFeature && record.objectId === selection.activeObjectId
-  if (isActiveObject) {
-    return palette.activeObject
-  }
-  if (isSelectedFeature) {
-    return palette.selectedFeature
-  }
   return runtime.theme === 'light' ? record.baseColorLight : record.baseColorDark
 }
 
