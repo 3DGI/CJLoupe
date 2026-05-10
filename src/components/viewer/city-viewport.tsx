@@ -261,6 +261,7 @@ type BatchedObjectRecord = {
   baseColorLight: string
   baseColorDark: string
   triangleFaceIndices: TriangleFaceIndices
+  blueprint: ObjectGeometryBlueprint
   batch: THREE.BatchedMesh
   instanceId: number
   geometryId: number
@@ -1543,6 +1544,7 @@ function rebuildScene(
           baseColorLight: baseColorForType(object.type, 'light'),
           baseColorDark: baseColorForType(object.type, 'dark'),
           triangleFaceIndices: geometry.userData.triangleFaceIndices,
+          blueprint,
           geometry,
           tileKey: getBatchTileKey(featureCenter, data),
           vertexCount: geometry.getAttribute('position')?.count ?? 0,
@@ -1811,6 +1813,7 @@ function buildSpatialBatches(
         baseColorLight: item.baseColorLight,
         baseColorDark: item.baseColorDark,
         triangleFaceIndices: item.triangleFaceIndices,
+        blueprint: item.blueprint,
         batch,
         instanceId,
         geometryId,
@@ -1984,6 +1987,7 @@ function rebuildFeatureGeometry(
       try {
         batchedRecord.batch.setGeometryAt(batchedRecord.geometryId, nextGeometry)
         batchedRecord.triangleFaceIndices = nextGeometry.userData.triangleFaceIndices
+        batchedRecord.blueprint = nextBlueprint
         batchedRecord.geometryIndex = objectGeometry.index
         batchedRecord.batch.computeBoundingSphere()
         batchedRecord.batch.computeBoundingBox()
@@ -2105,6 +2109,7 @@ function updateObjectSurfacePresentation(
     try {
       batchedRecord.batch.setGeometryAt(batchedRecord.geometryId, batchGeometry)
       batchedRecord.triangleFaceIndices = batchGeometry.userData.triangleFaceIndices
+      batchedRecord.blueprint = blueprint
       batchedRecord.geometryIndex = objectGeometry.index
       batchedRecord.batch.computeBoundingSphere()
       batchedRecord.batch.computeBoundingBox()
@@ -2703,6 +2708,42 @@ function syncSelectionDelta(
   rebuildHandles(runtime, data, selection, hideOccludedEditEdges, showVertexGizmo)
 }
 
+function extractOutlineGeometrySubset(
+  sourceGeometry: THREE.BufferGeometry,
+  triangleFaceIndices: TriangleFaceIndices,
+  predicate: (faceIndex: number) => boolean,
+): THREE.BufferGeometry {
+  const sourceIndexAttr = sourceGeometry.getIndex()
+  if (!sourceIndexAttr) {
+    return sourceGeometry.clone()
+  }
+
+  const sourceIndexArray = sourceIndexAttr.array
+  const triangleCount = triangleFaceIndices.length
+  const indices: number[] = []
+
+  for (let triangle = 0; triangle < triangleCount; triangle += 1) {
+    if (predicate(triangleFaceIndices[triangle])) {
+      const base = triangle * 3
+      indices.push(sourceIndexArray[base], sourceIndexArray[base + 1], sourceIndexArray[base + 2])
+    }
+  }
+
+  if (indices.length === 0) {
+    return sourceGeometry.clone()
+  }
+
+  const TypedArrayCtor = sourceIndexArray instanceof Uint32Array ? Uint32Array : Uint16Array
+  const subsetIndices = new TypedArrayCtor(indices)
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', sourceGeometry.getAttribute('position').clone())
+  geometry.setAttribute('normal', sourceGeometry.getAttribute('normal').clone())
+  geometry.setIndex(new THREE.BufferAttribute(subsetIndices, 1))
+  geometry.computeBoundingSphere()
+  return geometry
+}
+
 function syncSelectionOutlineProxy(
   runtime: Runtime,
   data: ViewerDataset,
@@ -2719,47 +2760,104 @@ function syncSelectionOutlineProxy(
   const objectGeometry = feature && object
     ? resolveDisplayedObjectGeometry(feature, object, selection)
     : null
-  const draftVertices = feature ? runtime.featureDrafts.get(feature.id) ?? feature.vertices : null
-  if (!feature || !object || !objectGeometry || !draftVertices) {
+  if (!feature || !object || !objectGeometry) {
     return
   }
 
-  runtime.selectionOutlineObjectKey = viewerObjectKey(feature.id, object.id)
+  const objectKey = viewerObjectKey(feature.id, object.id)
+  runtime.selectionOutlineObjectKey = objectKey
   runtime.selectionOutlineVisible = !(selection.editMode && selection.selectedFaceIndex != null)
-  const outlinePolygons =
+
+  const sourcePolygons = objectGeometry.polygons
+  const selectedFace = selection.selectedFaceIndex != null
+    ? sourcePolygons[selection.selectedFaceIndex] ?? null
+    : null
+  const hasSelectedFace = selection.selectedFaceIndex != null && selectedFace != null
+
+  const shouldBuildOutline =
     selection.selectedFaceIndex != null
-      ? objectGeometry.polygons[selection.selectedFaceIndex]
-        ? [objectGeometry.polygons[selection.selectedFaceIndex]]
-        : []
-      : selection.editMode
-        ? []
-        : objectGeometry.polygons
-  if (outlinePolygons.length === 0) {
+      ? hasSelectedFace
+      : !selection.editMode && sourcePolygons.length > 0
+  if (!shouldBuildOutline) {
     return
   }
+
   const featureCenter: Vec3 = [
     (feature.extent[0] + feature.extent[3]) * 0.5,
     (feature.extent[1] + feature.extent[4]) * 0.5,
     (feature.extent[2] + feature.extent[5]) * 0.5,
   ]
-  const blueprint = buildObjectGeometryBlueprint(outlinePolygons, draftVertices, featureCenter)
-  const geometry = buildUngroupedObjectGeometry(blueprint)
-  const mesh = new THREE.Mesh(geometry, runtime.selectionOutlineSeedMaterial)
-  mesh.position.set(
+  const meshPosition = new THREE.Vector3(
     featureCenter[0] - data.center[0],
     featureCenter[1] - data.center[1],
     featureCenter[2] - data.center[2],
   )
-  runtime.selectionOutlineGroup.add(mesh)
 
-  if (selection.selectedFaceIndex != null) {
-    const occluderPolygons = objectGeometry.polygons.filter((_, index) => index !== selection.selectedFaceIndex)
-    if (occluderPolygons.length > 0) {
-      const occluderBlueprint = buildObjectGeometryBlueprint(occluderPolygons, draftVertices, featureCenter)
-      const occluderGeometry = buildUngroupedObjectGeometry(occluderBlueprint)
-      const occluderMesh = new THREE.Mesh(occluderGeometry, runtime.selectionOutlineDepthMaterial)
-      occluderMesh.position.copy(mesh.position)
-      runtime.selectionOutlineOccluderGroup.add(occluderMesh)
+  const standaloneMesh = runtime.meshesByObjectKey.get(objectKey)
+  if (standaloneMesh) {
+    const sourceGeometry = standaloneMesh.geometry
+    const triangleFaceIndices = standaloneMesh.userData.triangleFaceIndices
+
+    if (hasSelectedFace && triangleFaceIndices) {
+      const outlineGeometry = extractOutlineGeometrySubset(
+        sourceGeometry,
+        triangleFaceIndices,
+        (faceIndex) => faceIndex === selection.selectedFaceIndex,
+      )
+      const outlineMesh = new THREE.Mesh(outlineGeometry, runtime.selectionOutlineSeedMaterial)
+      outlineMesh.position.copy(meshPosition)
+      runtime.selectionOutlineGroup.add(outlineMesh)
+
+      if (sourcePolygons.length > 1) {
+        const occluderGeometry = extractOutlineGeometrySubset(
+          sourceGeometry,
+          triangleFaceIndices,
+          (faceIndex) => faceIndex !== selection.selectedFaceIndex,
+        )
+        const occluderMesh = new THREE.Mesh(occluderGeometry, runtime.selectionOutlineDepthMaterial)
+        occluderMesh.position.copy(meshPosition)
+        runtime.selectionOutlineOccluderGroup.add(occluderMesh)
+      }
+    } else {
+      const outlineGeometry = sourceGeometry.clone()
+      const outlineMesh = new THREE.Mesh(outlineGeometry, runtime.selectionOutlineSeedMaterial)
+      outlineMesh.position.copy(meshPosition)
+      runtime.selectionOutlineGroup.add(outlineMesh)
+    }
+    return
+  }
+
+  const batchedRecord = runtime.batchedObjectsByObjectKey.get(objectKey)
+  if (batchedRecord) {
+    const blueprint = batchedRecord.blueprint
+
+    if (hasSelectedFace) {
+      const outlineGeometry = buildUngroupedObjectGeometry({
+        positions: blueprint.positions,
+        normals: blueprint.normals,
+        polygonTriangleIndices: [blueprint.polygonTriangleIndices[selection.selectedFaceIndex!]],
+      })
+      const outlineMesh = new THREE.Mesh(outlineGeometry, runtime.selectionOutlineSeedMaterial)
+      outlineMesh.position.copy(meshPosition)
+      runtime.selectionOutlineGroup.add(outlineMesh)
+
+      if (sourcePolygons.length > 1) {
+        const occluderPolygonIndices = blueprint.polygonTriangleIndices
+          .filter((_, index) => index !== selection.selectedFaceIndex)
+        const occluderGeometry = buildUngroupedObjectGeometry({
+          positions: blueprint.positions,
+          normals: blueprint.normals,
+          polygonTriangleIndices: occluderPolygonIndices,
+        })
+        const occluderMesh = new THREE.Mesh(occluderGeometry, runtime.selectionOutlineDepthMaterial)
+        occluderMesh.position.copy(meshPosition)
+        runtime.selectionOutlineOccluderGroup.add(occluderMesh)
+      }
+    } else {
+      const outlineGeometry = buildUngroupedObjectGeometry(blueprint)
+      const outlineMesh = new THREE.Mesh(outlineGeometry, runtime.selectionOutlineSeedMaterial)
+      outlineMesh.position.copy(meshPosition)
+      runtime.selectionOutlineGroup.add(outlineMesh)
     }
   }
 }
@@ -5028,6 +5126,7 @@ function disposeSceneContents(runtime: Runtime) {
   }
   runtime.meshesByObjectKey.clear()
   runtime.meshesByFeatureId.clear()
+  clearSelectionOutlineProxy(runtime)
 
   for (const batch of runtime.batchedMeshes) {
     const materials = Array.isArray(batch.material) ? batch.material : [batch.material]
