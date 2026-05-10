@@ -4,7 +4,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
-  Plus,
   Camera,
   Check,
   CircleHelp,
@@ -25,6 +24,7 @@ import {
   RotateCcw,
   RotateCw,
   Search,
+  Settings2,
   Shuffle,
   SquareMousePointer,
   Sun,
@@ -4521,10 +4521,34 @@ function InfoPanel({
 }) {
   return (
     <div className="floating-panel pointer-events-auto flex min-h-0 w-full flex-col overflow-hidden rounded-sm border">
-      <div className="flex shrink-0 items-center justify-between border-b border-border/55 px-3 py-2">
-        <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-          Pinned attributes
-        </p>
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/55 px-3 py-2">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            Pinned attributes
+          </p>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-5 shrink-0 rounded-[3px] p-0 text-muted-foreground hover:text-foreground"
+                aria-label="Configure pinned attributes"
+                title="Configure pinned attributes"
+              >
+                <Settings2 className="size-3" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" side="bottom" className="w-72 p-0">
+              <PinnedAttributesSettingsPopover
+                inheritsParent={attributeColorInheritsParent}
+                onInheritsParentChange={onInheritsParentChange}
+                pinnableAttributeOptions={pinnableAttributeOptions}
+                onPinAttribute={onPinAttribute}
+              />
+            </PopoverContent>
+          </Popover>
+        </div>
         <Button
           type="button"
           variant="ghost"
@@ -4540,53 +4564,6 @@ function InfoPanel({
 
       <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-1.5 p-1.5">
-          <div className="rounded-sm border border-border/60 bg-foreground/3 p-2">
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-xs font-medium text-foreground/86">Inherited values</p>
-                <p className="text-[11px] text-muted-foreground">Use parent value when missing</p>
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <Switch checked={attributeColorInheritsParent} onCheckedChange={onInheritsParentChange} aria-label="Use parent attributes" />
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      className="h-8 w-8 shrink-0"
-                      disabled={pinnableAttributeOptions.length === 0}
-                      aria-label="Pin attribute"
-                      title="Pin attribute"
-                    >
-                      <Plus className="size-3.5" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent align="end" side="bottom" className="w-64 p-1">
-                    <div className="max-h-64 overflow-y-auto">
-                      {pinnableAttributeOptions.map((entry) => (
-                        <button
-                          key={entry.key}
-                          type="button"
-                          className="flex w-full min-w-0 items-center gap-2 rounded-[3px] px-2 py-1.5 text-left text-sm hover:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                          onClick={() => onPinAttribute(entry.key)}
-                        >
-                          {entry.isInherited ? (
-                            <ListTree className="size-3 shrink-0 text-accent" />
-                          ) : (
-                            <Pin className="size-3 shrink-0 text-muted-foreground" />
-                          )}
-                          <span className="min-w-0 flex-1 truncate font-mono text-[11px] uppercase tracking-[0.12em] text-foreground/82">
-                            {entry.key}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </div>
-            </div>
-          </div>
           {showPinnedSection && (
             <div className={cn(showAttributeSection && 'border-b border-border/45 pb-1')}>
               <PinnedAttributesInfoSection
@@ -4636,6 +4613,78 @@ function InfoPanel({
           )}
         </div>
       </ScrollArea>
+    </div>
+  )
+}
+
+function PinnedAttributesSettingsPopover({
+  inheritsParent,
+  onInheritsParentChange,
+  pinnableAttributeOptions,
+  onPinAttribute,
+}: {
+  inheritsParent: boolean
+  onInheritsParentChange: (value: boolean) => void
+  pinnableAttributeOptions: Array<{ key: string; isInherited: boolean }>
+  onPinAttribute: (key: string) => void
+}) {
+  const [search, setSearch] = useState('')
+  const filteredOptions = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    if (!query) return pinnableAttributeOptions
+    return pinnableAttributeOptions.filter((entry) => entry.key.toLowerCase().includes(query))
+  }, [pinnableAttributeOptions, search])
+
+  return (
+    <div className="flex flex-col">
+      <div className="flex items-center justify-between gap-2 border-b border-border/55 px-3 py-2.5">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-foreground/86">Inherited values</p>
+          <p className="text-[11px] text-muted-foreground">Use parent value when missing</p>
+        </div>
+        <Switch
+          checked={inheritsParent}
+          onCheckedChange={onInheritsParentChange}
+          aria-label="Use parent attributes"
+        />
+      </div>
+      <div className="border-b border-border/55 p-2">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search attributes…"
+            className="h-8 pl-7 text-xs"
+            autoFocus
+          />
+        </div>
+      </div>
+      <div className="max-h-64 overflow-y-auto p-1">
+        {filteredOptions.length === 0 ? (
+          <p className="px-2 py-3 text-center text-xs text-muted-foreground">
+            {pinnableAttributeOptions.length === 0 ? 'No attributes to pin.' : 'No matches.'}
+          </p>
+        ) : (
+          filteredOptions.map((entry) => (
+            <button
+              key={entry.key}
+              type="button"
+              className="flex w-full min-w-0 items-center gap-2 rounded-[3px] px-2 py-1.5 text-left text-sm hover:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              onClick={() => onPinAttribute(entry.key)}
+            >
+              {entry.isInherited ? (
+                <ListTree className="size-3 shrink-0 text-accent" />
+              ) : (
+                <Pin className="size-3 shrink-0 text-muted-foreground" />
+              )}
+              <span className="min-w-0 flex-1 truncate font-mono text-[11px] uppercase tracking-[0.12em] text-foreground/82">
+                {entry.key}
+              </span>
+            </button>
+          ))
+        )}
+      </div>
     </div>
   )
 }
@@ -4758,15 +4807,12 @@ function PinnedAttributesInfoSection({
 }) {
   return (
     <div className="grid min-w-0">
-      <div className="grid grid-cols-[minmax(0,1.25fr)_minmax(0,0.85fr)_1.5rem_1.5rem] items-center gap-1 border-b border-border/55 px-1.5 py-1">
+      <div className="grid grid-cols-[minmax(0,1.25fr)_minmax(0,0.85fr)_auto] items-center gap-1 border-b border-border/55 px-1.5 py-1">
         <div className="font-mono text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
           Attribute
         </div>
         <div className="font-mono text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
           Value
-        </div>
-        <div className="col-start-4 text-right font-mono text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          Color
         </div>
       </div>
       {pinnedAttributes.length > 0 ? (
@@ -4777,7 +4823,7 @@ function PinnedAttributesInfoSection({
             <div
               key={entry.key}
               className={cn(
-                'grid min-w-0 grid-cols-[minmax(0,1.25fr)_minmax(0,0.85fr)_1.5rem_1.5rem] items-center gap-1 border-b border-border/35 px-1.5 py-1 last:border-b-0',
+                'grid min-w-0 grid-cols-[minmax(0,1.25fr)_minmax(0,0.85fr)_auto] items-center gap-1 border-b border-border/35 px-1.5 py-1 last:border-b-0',
                 isActiveColorAttribute && 'bg-primary/8',
               )}
             >
@@ -4800,28 +4846,33 @@ function PinnedAttributesInfoSection({
               <div className="min-w-0 truncate text-[12px] leading-5 text-foreground/82">
                 {entry.hasValue ? formatValue(entry.value) : '—'}
               </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-5 w-5 shrink-0 rounded-[3px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                onClick={() => onUnpinAttribute(entry.key)}
-                aria-label={`Unpin ${entry.key}`}
-                title={`Unpin ${entry.key}`}
-              >
-                <PinOff className="size-3" />
-              </Button>
-              <Button
-                type="button"
-                variant={isActiveColorAttribute ? 'secondary' : 'ghost'}
-                size="icon"
-                className="h-5 w-5 shrink-0 rounded-[3px]"
-                onClick={() => onColorAttribute(entry.key)}
-                aria-label={`Color objects by ${entry.key}`}
-                title={`Color objects by ${entry.key}`}
-              >
-                <Palette className="size-3" />
-              </Button>
+              <div className="flex shrink-0 items-center gap-0.5">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-5 w-5 shrink-0 rounded-[3px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => onUnpinAttribute(entry.key)}
+                  aria-label={`Unpin ${entry.key}`}
+                  title={`Unpin ${entry.key}`}
+                >
+                  <PinOff className="size-3" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    'h-5 w-5 shrink-0 rounded-[3px]',
+                    isActiveColorAttribute && 'border border-primary text-primary hover:bg-primary/10 hover:text-primary',
+                  )}
+                  onClick={() => onColorAttribute(entry.key)}
+                  aria-label={`Color objects by ${entry.key}`}
+                  title={`Color objects by ${entry.key}`}
+                >
+                  <Palette className="size-3" />
+                </Button>
+              </div>
             </div>
           )
         })
