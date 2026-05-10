@@ -281,7 +281,7 @@ function App() {
 
   const featureMap = useMemo(() => {
     return new Map(dataset?.features.map((feature) => [feature.id, feature]) ?? [])
-  }, [dataset])
+  }, [dataset, geometryRevision])
 
   const selectedFeature = selectedFeatureId ? featureMap.get(selectedFeatureId) ?? null : null
   const availableLods = useMemo(() => collectAvailableLods(dataset), [dataset])
@@ -1546,63 +1546,38 @@ function App() {
         return current
       }
 
-      return {
-        ...current,
-        features: current.features.map((feature) => {
-          if (feature.id !== selectedFeatureId) {
-            return feature
-          }
-
-          return {
-            ...feature,
-            objects: feature.objects.map((object) => {
-              if (object.id !== activeObjectId) {
-                return object
-              }
-
-              const targetGeometry = object.geometries.find(
-                (geometry) => geometry.index === resolvedActiveGeometryIndex,
-              )
-              if (!targetGeometry?.polygons[selectedFaceIndex]) {
-                return object
-              }
-
-              let featureGeometrySnapshots = originalObjectGeometriesRef.current.get(selectedFeatureId)
-              if (!featureGeometrySnapshots) {
-                featureGeometrySnapshots = new Map()
-                originalObjectGeometriesRef.current.set(selectedFeatureId, featureGeometrySnapshots)
-              }
-              if (!featureGeometrySnapshots.has(object.id)) {
-                featureGeometrySnapshots.set(object.id, cloneObjectGeometries(object.geometries))
-              }
-
-              return {
-                ...object,
-                geometries: object.geometries.map((geometry) => {
-                  if (
-                    geometry.index !== resolvedActiveGeometryIndex ||
-                    !geometry.polygons[selectedFaceIndex]
-                  ) {
-                    return geometry
-                  }
-
-                  const polygons = geometry.polygons.filter((_, index) => index !== selectedFaceIndex)
-                  const semanticSurfaces = geometry.semanticSurfaces.filter((_, index) => index !== selectedFaceIndex)
-                  const sourceFaceIndices = geometry.sourceFaceIndices.filter((_, index) => index !== selectedFaceIndex)
-
-                  return {
-                    ...geometry,
-                    polygons,
-                    semanticSurfaces,
-                    sourceFaceIndices,
-                    vertexIndices: collectGeometryVertexIndices(polygons),
-                  }
-                }),
-              }
-            }),
-          }
-        }),
+      const feature = current.features.find((candidate) => candidate.id === selectedFeatureId)
+      if (!feature) {
+        return current
       }
+
+      const object = feature.objects.find((candidate) => candidate.id === activeObjectId)
+      if (!object) {
+        return current
+      }
+
+      const targetGeometry = object.geometries.find(
+        (geometry) => geometry.index === resolvedActiveGeometryIndex,
+      )
+      if (!targetGeometry?.polygons[selectedFaceIndex]) {
+        return current
+      }
+
+      let featureGeometrySnapshots = originalObjectGeometriesRef.current.get(selectedFeatureId)
+      if (!featureGeometrySnapshots) {
+        featureGeometrySnapshots = new Map()
+        originalObjectGeometriesRef.current.set(selectedFeatureId, featureGeometrySnapshots)
+      }
+      if (!featureGeometrySnapshots.has(object.id)) {
+        featureGeometrySnapshots.set(object.id, cloneObjectGeometries(object.geometries))
+      }
+
+      targetGeometry.polygons = targetGeometry.polygons.filter((_, index) => index !== selectedFaceIndex)
+      targetGeometry.semanticSurfaces = targetGeometry.semanticSurfaces.filter((_, index) => index !== selectedFaceIndex)
+      targetGeometry.sourceFaceIndices = targetGeometry.sourceFaceIndices.filter((_, index) => index !== selectedFaceIndex)
+      targetGeometry.vertexIndices = collectGeometryVertexIndices(targetGeometry.polygons)
+
+      return current
     })
 
     setSelectedFaceIndex(null)
@@ -1635,30 +1610,23 @@ function App() {
         return current
       }
 
-      return {
-        ...current,
-        features: current.features.map((feature) => {
-          if (feature.id !== selectedFeatureId) {
-            return feature
-          }
-
-          return {
-            ...feature,
-            vertices: originalVertices ? cloneVertices(originalVertices) : feature.vertices,
-            objects: feature.objects.map((object) => {
-              const geometries = originalObjectGeometries?.get(object.id)
-              if (!geometries) {
-                return object
-              }
-
-              return {
-                ...object,
-                geometries: cloneObjectGeometries(geometries),
-              }
-            }),
-          }
-        }),
+      const feature = current.features.find((candidate) => candidate.id === selectedFeatureId)
+      if (!feature) {
+        return current
       }
+
+      if (originalVertices) {
+        feature.vertices = cloneVertices(originalVertices)
+      }
+
+      for (const object of feature.objects) {
+        const geometries = originalObjectGeometries?.get(object.id)
+        if (geometries) {
+          object.geometries = cloneObjectGeometries(geometries)
+        }
+      }
+
+      return current
     })
     originalVerticesRef.current.delete(selectedFeatureId)
     originalObjectGeometriesRef.current.delete(selectedFeatureId)

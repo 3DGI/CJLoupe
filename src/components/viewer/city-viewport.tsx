@@ -624,6 +624,8 @@ function CityViewport({
     selectedVertexIndex,
   })
   const previousIsolateSelectedFeatureRef = useRef(isolateSelectedFeature)
+  const previousGeometryDisplayModeRef = useRef(geometryDisplayMode)
+  const previousActiveGeometryIndexRef = useRef(activeGeometryIndex)
   const onSelectFeatureRef = useRef(onSelectFeature)
   const onSelectFaceRef = useRef(onSelectFace)
   const onSelectVertexRef = useRef(onSelectVertex)
@@ -1125,7 +1127,7 @@ function CityViewport({
         handle.position.y + pivot[1],
         handle.position.z + pivot[2],
       ]
-      rebuildFeatureGeometry(activeRuntime, currentData, featureId, selectionRef.current)
+      rebuildFeatureGeometry(activeRuntime, currentData, featureId, selectionRef.current, vertexIndex)
       rebuildEditWireframe(
         activeRuntime,
         currentData,
@@ -1205,16 +1207,51 @@ function CityViewport({
       return
     }
 
-    rebuildScene(runtime, currentData, selectionRef.current)
-    rebuildAnnotations(runtime)
-    syncSelection(
-      runtime,
-      currentData,
-      selectionRef.current,
-      hideOccludedEditEdgesRef.current,
-      isolateSelectedFeatureRef.current,
-      showVertexGizmoRef.current,
-    )
+    const displayModeChanged =
+      previousGeometryDisplayModeRef.current.kind !== geometryDisplayMode.kind ||
+      (geometryDisplayMode.kind === 'lod' &&
+        previousGeometryDisplayModeRef.current.kind === 'lod' &&
+        previousGeometryDisplayModeRef.current.lod !== geometryDisplayMode.lod)
+    const activeGeometryChanged =
+      previousActiveGeometryIndexRef.current !== activeGeometryIndex
+    previousGeometryDisplayModeRef.current = geometryDisplayMode
+    previousActiveGeometryIndexRef.current = activeGeometryIndex
+
+    if (displayModeChanged || activeGeometryChanged) {
+      rebuildScene(runtime, currentData, selectionRef.current)
+      rebuildAnnotations(runtime)
+      syncSelection(
+        runtime,
+        currentData,
+        selectionRef.current,
+        hideOccludedEditEdgesRef.current,
+        isolateSelectedFeatureRef.current,
+        showVertexGizmoRef.current,
+      )
+    } else {
+      const selection = selectionRef.current
+      if (selection.selectedFeatureId) {
+        const feature = currentData.features.find((candidate) => candidate.id === selection.selectedFeatureId)
+        if (feature) {
+          runtime.featureDrafts.set(
+            feature.id,
+            feature.vertices.map((vertex) => [...vertex] as Vec3),
+          )
+          rebuildFeatureGeometry(runtime, currentData, feature.id, selection)
+        }
+      }
+      syncSelectionDelta(
+        runtime,
+        currentData,
+        selection,
+        selection,
+        hideOccludedEditEdgesRef.current,
+        isolateSelectedFeatureRef.current,
+        isolateSelectedFeatureRef.current,
+        showVertexGizmoRef.current,
+      )
+    }
+
     previousSelectionRef.current = selectionRef.current
     previousIsolateSelectedFeatureRef.current = isolateSelectedFeatureRef.current
     renderViewport(runtime)
@@ -1937,6 +1974,7 @@ function rebuildFeatureGeometry(
   data: ViewerDataset,
   featureId: string,
   selection: ViewSelection,
+  changedVertexIndex?: number,
 ) {
   const feature = data.features.find((candidate) => candidate.id === featureId)
   const vertices = runtime.featureDrafts.get(featureId)
@@ -1947,6 +1985,10 @@ function rebuildFeatureGeometry(
   for (const object of feature.objects) {
     const objectGeometry = resolveDisplayedObjectGeometry(feature, object, selection)
     if (!objectGeometry) {
+      continue
+    }
+
+    if (changedVertexIndex != null && !objectGeometry.vertexIndices.includes(changedVertexIndex)) {
       continue
     }
 
