@@ -151,10 +151,8 @@ type AttributeColorCategory = {
   index: number
 }
 
-const VIEW_PICKING_MODES: ViewerPickingMode[] = ['none', 'object']
-const SEMANTICS_PICKING_MODES: ViewerPickingMode[] = ['none', 'object', 'face']
+const VIEW_PICKING_MODES: ViewerPickingMode[] = ['none', 'object', 'face']
 const EDIT_PICKING_MODES: ViewerPickingMode[] = ['none', 'face', 'vertex']
-const PICKING_MODE_MENU: ViewerPickingMode[] = ['none', 'object', 'face', 'vertex']
 
 const FEATURE_LIST_ROW_HEIGHT = 58
 const FEATURE_LIST_ROW_GAP = 6
@@ -680,14 +678,8 @@ function App() {
   ])
 
   useEffect(() => {
-    if (!showSemanticSurfaces || editMode || !dataset) {
+    if (editMode || !dataset) {
       setSelectedSemanticSurface(null)
-      if (!editMode) {
-        setSelectedFaceIndex(null)
-        setSelectedFaceRingIndex(0)
-        setSelectedVertexIndex(null)
-        setSelectedFaceVertexEntryIndex(null)
-      }
       return
     }
 
@@ -713,7 +705,7 @@ function App() {
         surface,
       }
     })
-  }, [activeObjectId, dataset, editMode, selectedFeatureId, showSemanticSurfaces])
+  }, [activeObjectId, dataset, editMode, selectedFeatureId])
 
   useEffect(() => {
     if (!isFileDialogOpen) {
@@ -1325,24 +1317,24 @@ function App() {
   }, [availableLods, geometryDisplayMode, handleSelectGeometryDisplayMode])
 
   const cyclePickingMode = useCallback(() => {
-    setPickingMode((current) => nextPickingMode(current, editMode, showSemanticSurfaces))
-  }, [editMode, showSemanticSurfaces])
+    setPickingMode((current) => nextPickingMode(current, editMode))
+  }, [editMode])
 
   const handleSelectPickingMode = useCallback((mode: ViewerPickingMode) => {
-    if (!getAvailablePickingModes(editMode, showSemanticSurfaces).includes(mode)) {
+    if (!getAvailablePickingModes(editMode).includes(mode)) {
       return
     }
 
     setPickingMode(mode)
-  }, [editMode, showSemanticSurfaces])
+  }, [editMode])
 
   const handlePickingModeShortcut = useCallback((mode: ViewerPickingMode) => {
-    if (!getAvailablePickingModes(editMode, showSemanticSurfaces).includes(mode)) {
+    if (!getAvailablePickingModes(editMode).includes(mode)) {
       return
     }
 
     setPickingMode((current) => (current === mode ? 'none' : mode))
-  }, [editMode, showSemanticSurfaces])
+  }, [editMode])
 
   const toggleEditMode = useCallback(() => {
     if (isMobileLayout) {
@@ -1835,7 +1827,7 @@ function App() {
   const infoPanelPositionClass = isMobileLayout ? 'left-3 right-3 top-4' : 'bottom-12 left-4 max-w-sm'
   const showInfoPanelPinnedSection = isPinnedAttributesOpen && !isMobileLayout
   const showInfoPanelAttributeSection = isPinnedAttributesOpen && Boolean(attributeColorKey) && !isMobileLayout
-  const showSemanticPanel = Boolean(!editMode && showSemanticSurfaces && activeSemanticSurface)
+  const showSemanticPanel = Boolean(!editMode && activeSemanticSurface)
   const showInfoPanel = isPinnedAttributesOpen && !isMobileLayout
   const showInfoPanelStack = showInfoPanel || showSemanticPanel
   const mobileViewportHeightClass = isPaneCollapsed
@@ -3027,7 +3019,6 @@ function DesktopViewportToolbar({
           <ToolbarPickingButton
             mode={pickingMode}
             editMode={editMode}
-            showSemanticSurfaces={showSemanticSurfaces}
             onClick={onCyclePickingMode}
             onSelectMode={onSelectPickingMode}
             showTooltip={tooltipsVisible}
@@ -4206,7 +4197,6 @@ function ToolbarToggleButton({
 function ToolbarPickingButton({
   mode,
   editMode,
-  showSemanticSurfaces,
   onClick,
   onSelectMode,
   showTooltip = false,
@@ -4215,7 +4205,6 @@ function ToolbarPickingButton({
 }: {
   mode: ViewerPickingMode
   editMode: boolean
-  showSemanticSurfaces: boolean
   onClick: () => void
   onSelectMode: (mode: ViewerPickingMode) => void
   showTooltip?: boolean
@@ -4224,7 +4213,7 @@ function ToolbarPickingButton({
 }) {
   const active = mode !== 'none'
   const iconSrc = getPickingModeIconUrl(mode)
-  const availableModes = getAvailablePickingModes(editMode, showSemanticSurfaces)
+  const availableModes = getAvailablePickingModes(editMode)
   const activeClassName = active
     ? 'border-primary/35 bg-primary/14 text-primary hover:bg-primary/18 hover:text-primary'
     : 'border-border/70 bg-background/35 text-muted-foreground hover:bg-accent/8 hover:text-foreground'
@@ -4264,7 +4253,7 @@ function ToolbarPickingButton({
         </Button>
         {isMenuOpen && (
           <div className="absolute bottom-full right-0 z-30 mb-1 min-w-40 rounded-sm border border-border bg-popover p-1 shadow-lg">
-            {PICKING_MODE_MENU.map((entry) => {
+            {availableModes.map((entry) => {
               const isSelected = entry === mode
               const isAvailable = availableModes.includes(entry)
 
@@ -4737,7 +4726,7 @@ function SemanticSurfacePanel({
             Semantic surface
           </p>
         </div>
-        {isOpen ? <ChevronUp className="size-4 shrink-0" /> : <ChevronDown className="size-4 shrink-0" />}
+        {isOpen ? <ChevronDown className="size-4 shrink-0" /> : <ChevronUp className="size-4 shrink-0" />}
       </button>
       {isOpen && (
         <div className="border-t border-border/45 p-2">
@@ -5363,14 +5352,13 @@ function NominalCategoryColorPicker({
   )
 }
 
-function getAvailablePickingModes(editMode: boolean, showSemanticSurfaces: boolean) {
+function getAvailablePickingModes(editMode: boolean) {
   if (editMode) return EDIT_PICKING_MODES
-  if (showSemanticSurfaces) return SEMANTICS_PICKING_MODES
   return VIEW_PICKING_MODES
 }
 
-function nextPickingMode(mode: ViewerPickingMode, editMode: boolean, showSemanticSurfaces: boolean): ViewerPickingMode {
-  const modes = getAvailablePickingModes(editMode, showSemanticSurfaces)
+function nextPickingMode(mode: ViewerPickingMode, editMode: boolean): ViewerPickingMode {
+  const modes = getAvailablePickingModes(editMode)
   const currentIndex = modes.indexOf(mode)
   return modes[(currentIndex + 1) % modes.length] ?? modes[0]
 }

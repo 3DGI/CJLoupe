@@ -979,6 +979,7 @@ function CityViewport({
           const resolvedHit = meshHit ? resolveObjectHit(meshHit) : null
           if (!resolvedHit) {
             onSelectSemanticSurfaceRef.current(null)
+            onSelectFaceRef.current(null)
             return
           }
 
