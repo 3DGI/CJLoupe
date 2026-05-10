@@ -1824,7 +1824,7 @@ function App() {
   const isFeaturePanelVisible = !isMobileLayout || mobilePanelView === 'features'
   const isDetailPanelVisible = !isMobileLayout || mobilePanelView === 'details'
   const detailOverlayPositionClass = isMobileLayout ? 'bottom-20 left-3 right-3' : 'bottom-12 left-4 max-w-md'
-  const infoPanelPositionClass = isMobileLayout ? 'left-3 right-3 top-4' : 'bottom-12 left-4 max-w-sm'
+  const infoPanelPositionClass = isMobileLayout ? 'left-3 right-3 top-4' : 'bottom-12 left-4 right-4 max-w-sm'
   const showInfoPanelPinnedSection = isPinnedAttributesOpen && !isMobileLayout
   const showInfoPanelAttributeSection = isPinnedAttributesOpen && Boolean(attributeColorKey) && !isMobileLayout
   const showSemanticPanel = Boolean(!editMode && activeSemanticSurface)
@@ -2358,11 +2358,12 @@ function App() {
         )}
 
         {showInfoPanelStack && (
-          <div className={cn('pointer-events-none absolute z-20 flex max-h-[calc(100dvh-5rem)] w-full flex-col gap-2', infoPanelPositionClass)}>
+          <div className={cn('pointer-events-none absolute z-20 flex max-h-[calc(100dvh-5rem)] flex-col gap-2', infoPanelPositionClass)}>
             {showSemanticPanel && activeSemanticSurface && (
               <SemanticSurfacePanel
                 isOpen={infoPanelOpenSections.semantic}
                 semanticSurface={activeSemanticSurface}
+                isMobileLayout={isMobileLayout}
                 onToggle={() => handleToggleInfoPanelSection('semantic')}
               />
             )}
@@ -4702,6 +4703,7 @@ function InfoPanelSectionBlock({
 function SemanticSurfacePanel({
   semanticSurface,
   isOpen,
+  isMobileLayout,
   onToggle,
 }: {
   semanticSurface: {
@@ -4711,22 +4713,40 @@ function SemanticSurfacePanel({
     surface: ViewerSemanticSurface
   }
   isOpen: boolean
+  isMobileLayout: boolean
   onToggle: () => void
 }) {
+  const surfaceColor = semanticSurfaceColor(semanticSurface.surface.type)
+  const ExpandIcon = isMobileLayout ? ChevronDown : ChevronUp
+  const CollapseIcon = isMobileLayout ? ChevronUp : ChevronDown
+
   return (
     <div className="floating-panel pointer-events-auto w-full overflow-hidden rounded-sm border">
       <button
         type="button"
-        className="flex w-full items-center gap-2 px-3 py-2 text-left"
+        className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left"
         onClick={onToggle}
         aria-expanded={isOpen}
       >
-        <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-            Semantic surface
-          </p>
-        </div>
-        {isOpen ? <ChevronDown className="size-4 shrink-0" /> : <ChevronUp className="size-4 shrink-0" />}
+        <p className="shrink-0 text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+          Semantic surface
+        </p>
+        <Badge
+          variant="outline"
+          className="min-w-0 truncate text-foreground"
+          style={{
+            borderColor: `${surfaceColor}66`,
+            backgroundColor: `${surfaceColor}22`,
+            color: surfaceColor,
+          }}
+        >
+          {semanticSurface.surface.type}
+        </Badge>
+        <Badge variant="outline" className="shrink-0 border-border bg-background/60 text-muted-foreground">
+          face {semanticSurface.faceIndex}
+        </Badge>
+        <div className="flex-1" />
+        {isOpen ? <CollapseIcon className="size-4 shrink-0" /> : <ExpandIcon className="size-4 shrink-0" />}
       </button>
       {isOpen && (
         <div className="border-t border-border/45 p-2">
@@ -4841,46 +4861,26 @@ function SemanticSurfaceInfoSection({
     surface: ViewerSemanticSurface
   }
 }) {
-  const surfaceColor = semanticSurfaceColor(semanticSurface.surface.type)
   const attributeEntries = Object.entries(semanticSurface.surface.attributes)
 
-  return (
-    <div className="space-y-2">
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-        <Badge
-          variant="outline"
-          className="min-w-0 truncate text-foreground"
-          style={{
-            borderColor: `${surfaceColor}66`,
-            backgroundColor: `${surfaceColor}22`,
-            color: surfaceColor,
-          }}
-        >
-          {semanticSurface.surface.type}
-        </Badge>
-        <Badge variant="outline" className="shrink-0 border-border bg-background/60 text-muted-foreground">
-          face {semanticSurface.faceIndex}
-        </Badge>
-      </div>
+  if (attributeEntries.length === 0) {
+    return <p className="text-sm text-muted-foreground">No semantic surface attributes.</p>
+  }
 
-      {attributeEntries.length > 0 ? (
-        <dl className="m-0 space-y-1.5">
-          {attributeEntries.map(([key, value]) => (
-            <div
-              key={key}
-              className="rounded-sm border border-foreground/8 bg-foreground/3 px-2.5 py-1.5"
-            >
-              <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
-                {key}
-              </dt>
-              <dd className="mt-1 text-sm text-foreground/80">{formatValue(value)}</dd>
-            </div>
-          ))}
-        </dl>
-      ) : (
-        <p className="text-sm text-muted-foreground">No semantic surface attributes.</p>
-      )}
-    </div>
+  return (
+    <dl className="m-0 space-y-1.5">
+      {attributeEntries.map(([key, value]) => (
+        <div
+          key={key}
+          className="rounded-sm border border-foreground/8 bg-foreground/3 px-2.5 py-1.5"
+        >
+          <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
+            {key}
+          </dt>
+          <dd className="mt-1 text-sm text-foreground/80">{formatValue(value)}</dd>
+        </div>
+      ))}
+    </dl>
   )
 }
 
