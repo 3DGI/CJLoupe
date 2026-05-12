@@ -225,6 +225,7 @@ type Runtime = {
   showSemanticSurfaces: boolean
   attributeColor: ViewerAttributeColorState | null
   attributeColorSharedUniforms: AttributeColorSharedUniforms
+  selectionTintUniforms: SelectionTintUniforms
   semanticSurfaceSharedUniforms: SemanticSurfaceSharedUniforms
   semanticSurfaceTypeIds: Map<string, number>
   shaderObjectIdsByObjectKey: Map<string, number>
@@ -275,6 +276,14 @@ type AttributeColorUniforms = {
   directColor: { value: THREE.Color }
   selectionTint: { value: THREE.Color }
   selectionTintStrength: { value: number }
+}
+
+type SelectionTintUniforms = {
+  selectedObjectId: { value: number }
+  selectedFaceIndex: { value: number }
+  color: { value: THREE.Color }
+  strength: { value: number }
+  semanticStrength: { value: number }
 }
 
 type AttributeColorSharedUniforms = {
@@ -761,6 +770,7 @@ function CityViewport({
       showSemanticSurfaces: showSemanticSurfacesRef.current,
       attributeColor: attributeColorRef.current,
       attributeColorSharedUniforms: createAttributeColorSharedUniforms(),
+      selectionTintUniforms: createSelectionTintUniforms(),
       semanticSurfaceSharedUniforms: createSemanticSurfaceSharedUniforms(),
       semanticSurfaceTypeIds: new Map(),
       shaderObjectIdsByObjectKey: new Map(),
@@ -1659,6 +1669,38 @@ function applyBatchGeometryAttributes(
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
   geometry.setAttribute('shaderObjectId', new THREE.BufferAttribute(shaderObjectIds, 1))
   geometry.setAttribute('semanticSurfaceTypeId', new THREE.BufferAttribute(semanticSurfaceTypeIds, 1))
+  setSelectionFaceIndexAttribute(geometry, blueprint)
+}
+
+function applyStandaloneGeometryAttributes(
+  geometry: THREE.BufferGeometry,
+  blueprint: ObjectGeometryBlueprint,
+  runtime: Runtime,
+  objectKey: string,
+) {
+  const vertexCount = geometry.getAttribute('position')?.count ?? 0
+  const shaderObjectId = getShaderObjectId(runtime, objectKey)
+  const shaderObjectIds = new Float32Array(vertexCount)
+  shaderObjectIds.fill(shaderObjectId)
+  geometry.setAttribute('shaderObjectId', new THREE.BufferAttribute(shaderObjectIds, 1))
+  setSelectionFaceIndexAttribute(geometry, blueprint)
+}
+
+function setSelectionFaceIndexAttribute(
+  geometry: THREE.BufferGeometry,
+  blueprint: ObjectGeometryBlueprint,
+) {
+  const vertexCount = geometry.getAttribute('position')?.count ?? 0
+  const selectionFaceIndices = new Float32Array(vertexCount)
+  selectionFaceIndices.fill(-1)
+
+  blueprint.polygonTriangleIndices.forEach((polygonIndices, faceIndex) => {
+    for (const vertexIndex of polygonIndices) {
+      selectionFaceIndices[vertexIndex] = faceIndex
+    }
+  })
+
+  geometry.setAttribute('selectionFaceIndex', new THREE.BufferAttribute(selectionFaceIndices, 1))
 }
 
 function fillSemanticSurfaceAttributes(
@@ -1791,6 +1833,7 @@ function buildSpatialBatches(
         getBatchColorMode(runtime),
         runtime.attributeColorSharedUniforms,
         runtime.semanticSurfaceSharedUniforms,
+        runtime.selectionTintUniforms,
       ),
     )
     batch.perObjectFrustumCulled = true
@@ -1889,6 +1932,7 @@ function createBatchMaterial(
   mode: BatchColorMode,
   sharedUniforms: AttributeColorSharedUniforms,
   semanticUniforms: SemanticSurfaceSharedUniforms,
+  selectionUniforms: SelectionTintUniforms,
 ) {
   const material = new THREE.MeshStandardMaterial({
     color: '#ffffff',
@@ -1902,9 +1946,11 @@ function createBatchMaterial(
   })
   material.userData.batchColorMode = mode
   if (mode === 'semantic') {
-    applyBatchedSemanticColoringToMaterial(material, semanticUniforms)
+    applyBatchedSemanticColoringToMaterial(material, semanticUniforms, selectionUniforms)
   } else if (mode === 'continuous-attribute') {
-    applyBatchedContinuousAttributeColorToMaterial(material, sharedUniforms)
+    applyBatchedContinuousAttributeColorToMaterial(material, sharedUniforms, selectionUniforms)
+  } else {
+    applyBatchedSelectionTintToMaterial(material, selectionUniforms)
   }
   return material
 }
@@ -1937,6 +1983,7 @@ function syncBatchMaterials(runtime: Runtime) {
       mode,
       runtime.attributeColorSharedUniforms,
       runtime.semanticSurfaceSharedUniforms,
+      runtime.selectionTintUniforms,
     )
   }
 }
@@ -2159,19 +2206,30 @@ function buildObjectMeshPresentation(
   )
   const { faceGroups, groupColors } = resolveObjectFaceGroups(runtime, feature, object, objectGeometry)
   const geometry = buildGroupedObjectGeometry(blueprint, faceGroups)
+  const objectKey = viewerObjectKey(feature.id, object.id)
+  applyStandaloneGeometryAttributes(geometry, blueprint, runtime, objectKey)
   const baseMaterial = createMaterial(object.type, runtime.theme, runtime.showSemanticSurfaces)
+  applySelectionTintToMaterial(baseMaterial, runtime.selectionTintUniforms, runtime.showSemanticSurfaces)
   applyAttributeColorToMaterial(
     baseMaterial,
     runtime.attributeColor,
-    runtime.attributeColor?.valuesByObjectKey[viewerObjectKey(feature.id, object.id)] ?? null,
-    runtime.attributeColor?.directColorsByObjectKey?.[viewerObjectKey(feature.id, object.id)] ?? null,
+    runtime.attributeColor?.valuesByObjectKey[objectKey] ?? null,
+    runtime.attributeColor?.directColorsByObjectKey?.[objectKey] ?? null,
     runtime.attributeColorSharedUniforms,
+    runtime.selectionTintUniforms,
   )
   const materials = buildMaterialArray(
     baseMaterial,
     groupColors,
     runtime.showSemanticSurfaces ? createSemanticMaterial : createErrorMaterial,
   )
+  for (const material of materials) {
+    applySelectionTintToMaterial(
+      material,
+      runtime.selectionTintUniforms,
+      Boolean(material.userData.isSemantic || material.userData.isSemanticBase),
+    )
+  }
 
   return {
     blueprint,
@@ -2683,6 +2741,7 @@ function syncSelection(
   showVertexGizmo: boolean,
 ) {
   syncSelectionOutlineProxy(runtime, data, selection)
+  syncSelectionTintUniforms(runtime, selection)
   applySelectionAppearance(runtime, selection, isolateSelectedFeature, runtime.meshesByObjectKey.values())
   applyBatchSelectionAppearance(runtime, selection, isolateSelectedFeature, runtime.batchedObjectsByObjectKey.values())
   rebuildHandles(runtime, data, selection, hideOccludedEditEdges, showVertexGizmo)
@@ -2699,6 +2758,7 @@ function syncSelectionDelta(
   showVertexGizmo: boolean,
 ) {
   syncSelectionOutlineProxy(runtime, data, selection)
+  syncSelectionTintUniforms(runtime, selection)
   const previousIsolateActive = previousIsolateSelectedFeature && previousSelection.selectedFeatureId != null
   const isolateActive = isolateSelectedFeature && selection.selectedFeatureId != null
 
@@ -3003,6 +3063,8 @@ function applyMeshSelectionAppearance(
         baseColorForType(mesh.userData.objectType as string, 'dark'))
   const isSelectedFeature = featureId === selection.selectedFeatureId
   const isActiveObject = isSelectedFeature && objectId === selection.activeObjectId
+  const tintWholeObject =
+    isActiveObject && selection.selectedFaceIndex == null && !selection.editMode
   const hideParentMesh =
     selection.geometryDisplayMode.kind === 'best' && hasRenderableChildren && !isActiveObject
 
@@ -3010,6 +3072,9 @@ function applyMeshSelectionAppearance(
   for (const material of materials) {
     const mat = material as THREE.MeshStandardMaterial
     if (mat.userData.isError) {
+      if (typeof mat.userData.errorColor === 'string') {
+        mat.color.set(mat.userData.errorColor)
+      }
       mat.emissive.set(palette.errorEmissive)
       mat.emissiveIntensity = palette.errorIntensity
     } else if (mat.userData.isSemantic || mat.userData.isSemanticBase) {
@@ -3032,10 +3097,10 @@ function applyMeshSelectionAppearance(
     const attributeUniforms = mat.userData.attributeColorUniforms as AttributeColorUniforms | undefined
     if (attributeUniforms) {
       attributeUniforms.selectionTint.value.set(SELECTION_TINT_COLOR)
-      attributeUniforms.selectionTintStrength.value = isActiveObject ? SELECTION_TINT_STRENGTH : 0
+      attributeUniforms.selectionTintStrength.value = tintWholeObject ? SELECTION_TINT_STRENGTH : 0
     }
 
-    if (isActiveObject) {
+    if (tintWholeObject) {
       const tintStrength =
         mat.userData.isSemantic || mat.userData.isSemanticBase
           ? SEMANTIC_SELECTION_TINT_STRENGTH
@@ -3064,6 +3129,8 @@ function applyBatchSelectionAppearance(
   for (const record of records) {
     const isSelectedFeature = record.featureId === selection.selectedFeatureId
     const isActiveObject = isSelectedFeature && record.objectId === selection.activeObjectId
+    const tintWholeObject =
+      isActiveObject && selection.selectedFaceIndex == null && !selection.editMode
     const hideParentMesh =
       selection.geometryDisplayMode.kind === 'best' &&
       record.hasRenderableChildren &&
@@ -3074,7 +3141,7 @@ function applyBatchSelectionAppearance(
       record.instanceId,
       color.set(resolveBatchedObjectColor(runtime, record)),
     )
-    if (isActiveObject) {
+    if (tintWholeObject) {
       record.batch.setColorAt(
         record.instanceId,
         color.lerp(new THREE.Color(SELECTION_TINT_COLOR), runtime.showSemanticSurfaces ? 1 : 0.42),
@@ -4189,6 +4256,7 @@ function applyAttributeColorToScene(runtime: Runtime) {
           value,
           directColor,
           runtime.attributeColorSharedUniforms,
+          runtime.selectionTintUniforms,
         )
       }
     }
@@ -4201,6 +4269,7 @@ function applyAttributeColorToMaterial(
   value: number | null,
   directColor: string | null,
   sharedUniforms: AttributeColorSharedUniforms,
+  selectionUniforms: SelectionTintUniforms,
 ) {
   if (material.userData.isError || material.userData.isSemantic || material.userData.isSemanticBase) {
     return
@@ -4211,32 +4280,102 @@ function applyAttributeColorToMaterial(
     return
   }
 
-  const uniforms = existingUniforms ?? ensureAttributeColorUniforms(material, sharedUniforms)
+  const uniforms = existingUniforms ?? ensureAttributeColorUniforms(material, sharedUniforms, selectionUniforms)
   uniforms.value.value = value ?? 0
   uniforms.hasValue.value = value == null ? 0 : 1
   uniforms.directColor.value.set(directColor ?? attributeColor?.missingColor ?? '#94a3b8')
 }
 
+function applySelectionTintToMaterial(
+  material: THREE.MeshStandardMaterial,
+  uniforms: SelectionTintUniforms,
+  semantic = false,
+) {
+  if (material.userData.isError || material.userData.hasSelectionTintShader) {
+    return
+  }
+
+  material.userData.hasSelectionTintShader = true
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uSelectionTintObjectId = uniforms.selectedObjectId
+    shader.uniforms.uSelectionTintFaceIndex = uniforms.selectedFaceIndex
+    shader.uniforms.uSelectionTintColor = uniforms.color
+    shader.uniforms.uSelectionTintStrength = semantic ? uniforms.semanticStrength : uniforms.strength
+    shader.vertexShader = `
+      attribute float shaderObjectId;
+      attribute float selectionFaceIndex;
+      varying float vSelectionShaderObjectId;
+      varying float vSelectionFaceIndex;
+    ${shader.vertexShader}`.replace(
+      '#include <color_vertex>',
+      `
+      #include <color_vertex>
+      vSelectionShaderObjectId = shaderObjectId;
+      vSelectionFaceIndex = selectionFaceIndex;
+      `,
+    )
+    shader.fragmentShader = `
+      uniform float uSelectionTintObjectId;
+      uniform float uSelectionTintFaceIndex;
+      uniform vec3 uSelectionTintColor;
+      uniform float uSelectionTintStrength;
+      varying float vSelectionShaderObjectId;
+      varying float vSelectionFaceIndex;
+    ${shader.fragmentShader}`.replace(
+      '#include <color_fragment>',
+      `
+      #include <color_fragment>
+      if (
+        uSelectionTintFaceIndex >= 0.0 &&
+        abs(floor(vSelectionShaderObjectId + 0.5) - uSelectionTintObjectId) < 0.5 &&
+        abs(floor(vSelectionFaceIndex + 0.5) - uSelectionTintFaceIndex) < 0.5
+      ) {
+        diffuseColor.rgb = mix(diffuseColor.rgb, uSelectionTintColor, uSelectionTintStrength);
+      }
+      `,
+    )
+  }
+  material.customProgramCacheKey = () => `selection-face-tint-${semantic ? 'semantic' : 'base'}-v1`
+  material.needsUpdate = true
+}
+
 function applyBatchedSemanticColoringToMaterial(
   material: THREE.MeshStandardMaterial,
   semanticUniforms: SemanticSurfaceSharedUniforms,
+  selectionUniforms: SelectionTintUniforms,
 ) {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uSemanticSurfaceEnabled = semanticUniforms.enabled
     shader.uniforms.uSemanticSurfaceColors = semanticUniforms.colors
+    shader.uniforms.uSelectionTintObjectId = selectionUniforms.selectedObjectId
+    shader.uniforms.uSelectionTintFaceIndex = selectionUniforms.selectedFaceIndex
+    shader.uniforms.uSelectionTintColor = selectionUniforms.color
+    shader.uniforms.uSelectionTintStrength = selectionUniforms.semanticStrength
     shader.vertexShader = `
+      attribute float shaderObjectId;
+      attribute float selectionFaceIndex;
       attribute float semanticSurfaceTypeId;
+      varying float vSelectionShaderObjectId;
+      varying float vSelectionFaceIndex;
       varying float vSemanticSurfaceTypeId;
     ${shader.vertexShader}`.replace(
       '#include <color_vertex>',
       `
       #include <color_vertex>
+      vSelectionShaderObjectId = shaderObjectId;
+      vSelectionFaceIndex = selectionFaceIndex;
       vSemanticSurfaceTypeId = semanticSurfaceTypeId;
       `,
     )
     shader.fragmentShader = `
       uniform float uSemanticSurfaceEnabled;
       uniform vec3 uSemanticSurfaceColors[${SEMANTIC_SURFACE_COLOR_SLOT_COUNT}];
+      uniform float uSelectionTintObjectId;
+      uniform float uSelectionTintFaceIndex;
+      uniform vec3 uSelectionTintColor;
+      uniform float uSelectionTintStrength;
+      varying float vSelectionShaderObjectId;
+      varying float vSelectionFaceIndex;
       varying float vSemanticSurfaceTypeId;
     ${shader.fragmentShader}`.replace(
       '#include <color_fragment>',
@@ -4255,16 +4394,24 @@ function applyBatchedSemanticColoringToMaterial(
           diffuseColor.rgb = mix(diffuseColor.rgb, semanticInstanceTint, ${SEMANTIC_SELECTION_TINT_STRENGTH.toFixed(2)});
         }
       }
+      if (
+        uSelectionTintFaceIndex >= 0.0 &&
+        abs(floor(vSelectionShaderObjectId + 0.5) - uSelectionTintObjectId) < 0.5 &&
+        abs(floor(vSelectionFaceIndex + 0.5) - uSelectionTintFaceIndex) < 0.5
+      ) {
+        diffuseColor.rgb = mix(diffuseColor.rgb, uSelectionTintColor, uSelectionTintStrength);
+      }
       `,
     )
   }
-  material.customProgramCacheKey = () => 'batched-semantic-color-selection-tint-v2'
+  material.customProgramCacheKey = () => 'batched-semantic-color-selection-tint-v3'
   material.needsUpdate = true
 }
 
 function applyBatchedContinuousAttributeColorToMaterial(
   material: THREE.MeshStandardMaterial,
   sharedUniforms: AttributeColorSharedUniforms,
+  selectionUniforms: SelectionTintUniforms,
 ) {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uAttributeColorEnabled = sharedUniforms.enabled
@@ -4274,14 +4421,21 @@ function applyBatchedContinuousAttributeColorToMaterial(
     shader.uniforms.uAttributeColorMissing = sharedUniforms.missingColor
     shader.uniforms.uAttributeColorValueMap = sharedUniforms.valueMap
     shader.uniforms.uAttributeColorValueMapSize = sharedUniforms.valueMapSize
+    shader.uniforms.uSelectionTintObjectId = selectionUniforms.selectedObjectId
+    shader.uniforms.uSelectionTintFaceIndex = selectionUniforms.selectedFaceIndex
+    shader.uniforms.uSelectionTintColor = selectionUniforms.color
+    shader.uniforms.uSelectionTintStrength = selectionUniforms.strength
     shader.vertexShader = `
       attribute float shaderObjectId;
+      attribute float selectionFaceIndex;
       varying float vShaderObjectId;
+      varying float vSelectionFaceIndex;
     ${shader.vertexShader}`.replace(
       '#include <color_vertex>',
       `
       #include <color_vertex>
       vShaderObjectId = shaderObjectId;
+      vSelectionFaceIndex = selectionFaceIndex;
       `,
     )
     shader.fragmentShader = `
@@ -4292,7 +4446,12 @@ function applyBatchedContinuousAttributeColorToMaterial(
       uniform vec3 uAttributeColorMissing;
       uniform sampler2D uAttributeColorValueMap;
       uniform vec2 uAttributeColorValueMapSize;
+      uniform float uSelectionTintObjectId;
+      uniform float uSelectionTintFaceIndex;
+      uniform vec3 uSelectionTintColor;
+      uniform float uSelectionTintStrength;
       varying float vShaderObjectId;
+      varying float vSelectionFaceIndex;
     ${shader.fragmentShader}`.replace(
       '#include <color_fragment>',
       `
@@ -4327,10 +4486,64 @@ function applyBatchedContinuousAttributeColorToMaterial(
           diffuseColor.rgb = mix(diffuseColor.rgb, attributeInstanceTint, 0.42);
         }
       }
+      if (
+        uSelectionTintFaceIndex >= 0.0 &&
+        abs(floor(vShaderObjectId + 0.5) - uSelectionTintObjectId) < 0.5 &&
+        abs(floor(vSelectionFaceIndex + 0.5) - uSelectionTintFaceIndex) < 0.5
+      ) {
+        diffuseColor.rgb = mix(diffuseColor.rgb, uSelectionTintColor, uSelectionTintStrength);
+      }
       `,
     )
   }
-  material.customProgramCacheKey = () => 'batched-continuous-attribute-texture-v1'
+  material.customProgramCacheKey = () => 'batched-continuous-attribute-texture-selection-v2'
+  material.needsUpdate = true
+}
+
+function applyBatchedSelectionTintToMaterial(
+  material: THREE.MeshStandardMaterial,
+  selectionUniforms: SelectionTintUniforms,
+) {
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uSelectionTintObjectId = selectionUniforms.selectedObjectId
+    shader.uniforms.uSelectionTintFaceIndex = selectionUniforms.selectedFaceIndex
+    shader.uniforms.uSelectionTintColor = selectionUniforms.color
+    shader.uniforms.uSelectionTintStrength = selectionUniforms.strength
+    shader.vertexShader = `
+      attribute float shaderObjectId;
+      attribute float selectionFaceIndex;
+      varying float vSelectionShaderObjectId;
+      varying float vSelectionFaceIndex;
+    ${shader.vertexShader}`.replace(
+      '#include <color_vertex>',
+      `
+      #include <color_vertex>
+      vSelectionShaderObjectId = shaderObjectId;
+      vSelectionFaceIndex = selectionFaceIndex;
+      `,
+    )
+    shader.fragmentShader = `
+      uniform float uSelectionTintObjectId;
+      uniform float uSelectionTintFaceIndex;
+      uniform vec3 uSelectionTintColor;
+      uniform float uSelectionTintStrength;
+      varying float vSelectionShaderObjectId;
+      varying float vSelectionFaceIndex;
+    ${shader.fragmentShader}`.replace(
+      '#include <color_fragment>',
+      `
+      #include <color_fragment>
+      if (
+        uSelectionTintFaceIndex >= 0.0 &&
+        abs(floor(vSelectionShaderObjectId + 0.5) - uSelectionTintObjectId) < 0.5 &&
+        abs(floor(vSelectionFaceIndex + 0.5) - uSelectionTintFaceIndex) < 0.5
+      ) {
+        diffuseColor.rgb = mix(diffuseColor.rgb, uSelectionTintColor, uSelectionTintStrength);
+      }
+      `,
+    )
+  }
+  material.customProgramCacheKey = () => 'batched-selection-face-tint-v1'
   material.needsUpdate = true
 }
 
@@ -4355,6 +4568,31 @@ function createAttributeColorSharedUniforms(): AttributeColorSharedUniforms {
     valueMap: { value: valueMap },
     valueMapSize: { value: new THREE.Vector2(1, 1) },
   }
+}
+
+function createSelectionTintUniforms(): SelectionTintUniforms {
+  return {
+    selectedObjectId: { value: -1 },
+    selectedFaceIndex: { value: -1 },
+    color: { value: new THREE.Color(SELECTION_TINT_COLOR) },
+    strength: { value: SELECTION_TINT_STRENGTH },
+    semanticStrength: { value: SEMANTIC_SELECTION_TINT_STRENGTH },
+  }
+}
+
+function syncSelectionTintUniforms(runtime: Runtime, selection: ViewSelection) {
+  const objectKey =
+    selection.selectedFeatureId && selection.activeObjectId
+      ? viewerObjectKey(selection.selectedFeatureId, selection.activeObjectId)
+      : null
+  const selectedObjectId = objectKey ? runtime.shaderObjectIdsByObjectKey.get(objectKey) ?? -1 : -1
+  const faceIndex = selection.editMode ? -1 : selection.selectedFaceIndex ?? -1
+
+  runtime.selectionTintUniforms.selectedObjectId.value = selectedObjectId
+  runtime.selectionTintUniforms.selectedFaceIndex.value = faceIndex
+  runtime.selectionTintUniforms.color.value.set(SELECTION_TINT_COLOR)
+  runtime.selectionTintUniforms.strength.value = SELECTION_TINT_STRENGTH
+  runtime.selectionTintUniforms.semanticStrength.value = SEMANTIC_SELECTION_TINT_STRENGTH
 }
 
 function createSemanticSurfaceSharedUniforms(): SemanticSurfaceSharedUniforms {
@@ -4434,6 +4672,7 @@ function syncAttributeColorSharedUniforms(
 function ensureAttributeColorUniforms(
   material: THREE.MeshStandardMaterial,
   sharedUniforms: AttributeColorSharedUniforms,
+  selectionUniforms: SelectionTintUniforms,
 ): AttributeColorUniforms {
   const existing = material.userData.attributeColorUniforms as AttributeColorUniforms | undefined
   if (existing) {
@@ -4461,6 +4700,9 @@ function ensureAttributeColorUniforms(
     shader.uniforms.uAttributeColorMissing = sharedUniforms.missingColor
     shader.uniforms.uSelectionTint = uniforms.selectionTint
     shader.uniforms.uSelectionTintStrength = uniforms.selectionTintStrength
+    shader.uniforms.uSelectionTintObjectId = selectionUniforms.selectedObjectId
+    shader.uniforms.uSelectionTintFaceIndex = selectionUniforms.selectedFaceIndex
+    shader.uniforms.uSelectionFaceTintStrength = selectionUniforms.strength
     shader.fragmentShader = `
       uniform float uAttributeColorEnabled;
       uniform float uAttributeColorValue;
@@ -4473,6 +4715,11 @@ function ensureAttributeColorUniforms(
       uniform vec3 uAttributeColorMissing;
       uniform vec3 uSelectionTint;
       uniform float uSelectionTintStrength;
+      uniform float uSelectionTintObjectId;
+      uniform float uSelectionTintFaceIndex;
+      uniform float uSelectionFaceTintStrength;
+      varying float vSelectionShaderObjectId;
+      varying float vSelectionFaceIndex;
     ${shader.fragmentShader}`.replace(
       '#include <color_fragment>',
       `
@@ -4499,10 +4746,30 @@ function ensureAttributeColorUniforms(
       if (uSelectionTintStrength > 0.0) {
         diffuseColor.rgb = mix(diffuseColor.rgb, uSelectionTint, uSelectionTintStrength);
       }
+      if (
+        uSelectionTintFaceIndex >= 0.0 &&
+        abs(floor(vSelectionShaderObjectId + 0.5) - uSelectionTintObjectId) < 0.5 &&
+        abs(floor(vSelectionFaceIndex + 0.5) - uSelectionTintFaceIndex) < 0.5
+      ) {
+        diffuseColor.rgb = mix(diffuseColor.rgb, uSelectionTint, uSelectionFaceTintStrength);
+      }
+      `,
+    )
+    shader.vertexShader = `
+      attribute float shaderObjectId;
+      attribute float selectionFaceIndex;
+      varying float vSelectionShaderObjectId;
+      varying float vSelectionFaceIndex;
+    ${shader.vertexShader}`.replace(
+      '#include <color_vertex>',
+      `
+      #include <color_vertex>
+      vSelectionShaderObjectId = shaderObjectId;
+      vSelectionFaceIndex = selectionFaceIndex;
       `,
     )
   }
-  material.customProgramCacheKey = () => 'attribute-color-v5-selection-tint'
+  material.customProgramCacheKey = () => 'attribute-color-v6-selection-face-tint'
   material.needsUpdate = true
   return uniforms
 }
@@ -4542,6 +4809,7 @@ function createErrorMaterial(color: string) {
     side: THREE.DoubleSide,
   })
   mat.userData.isError = true
+  mat.userData.errorColor = color
   return mat
 }
 
