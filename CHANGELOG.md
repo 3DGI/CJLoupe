@@ -7,6 +7,7 @@
 - Add jump flood outline rendering for selected object/face
 - Allow face picking outside of semantics mode
 - Use table layout for semantic attribute list
+- Disable auto vertex centering in inspect mode
 
 ## 0.6.0 - 2026-05-08
 

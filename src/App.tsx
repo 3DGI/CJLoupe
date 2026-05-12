@@ -1448,24 +1448,7 @@ function App() {
       }
     }
     setSelectedFaceVertexEntryIndex(nextEntryIndex)
-
-    if (!editMode || vertexIndex == null || !selectedFeature) {
-      return
-    }
-
-    const vertex = selectedFeature.vertices[vertexIndex]
-    if (!vertex) {
-      return
-    }
-
-    setFocusTarget({
-      kind: 'vertex',
-      featureId: selectedFeature.id,
-      objectId: activeObjectId,
-      vertexIndex,
-    })
-    setFocusRevision((current) => current + 1)
-  }, [activeObjectId, editMode, selectedFace, selectedFeature])
+  }, [selectedFace])
 
   const handleSelectVertex = useCallback((vertexIndex: number | null) => {
     selectFaceVertex(vertexIndex)
