@@ -3839,9 +3839,7 @@ const FeatureListRow = memo(function FeatureListRow({
                     <span className="text-destructive">
                       {errorCount} err ({errorCodeSummary})
                     </span>
-                  ) : (
-                    <span>0 err</span>
-                  )}
+                  ) : null}
                 </div>
               </div>
             </button>
