@@ -167,6 +167,7 @@ type CityViewportProps = {
   mobileInteraction: boolean
   mobileSelectionMode: 'object' | 'surface'
   onSelectFeature: (featureId: string, objectId?: string | null) => void
+  onClearSelection: () => void
   onSelectFace: (faceIndex: number | null) => void
   onSelectVertex: (vertexIndex: number | null) => void
   onSelectSemanticSurface: (surface: {
@@ -538,6 +539,7 @@ function CityViewport({
   mobileInteraction,
   mobileSelectionMode,
   onSelectFeature,
+  onClearSelection,
   onSelectFace,
   onSelectVertex,
   onSelectSemanticSurface,
@@ -576,6 +578,7 @@ function CityViewport({
   const previousGeometryDisplayModeRef = useRef(geometryDisplayMode)
   const previousActiveGeometryIndexRef = useRef(activeGeometryIndex)
   const onSelectFeatureRef = useRef(onSelectFeature)
+  const onClearSelectionRef = useRef(onClearSelection)
   const onSelectFaceRef = useRef(onSelectFace)
   const onSelectVertexRef = useRef(onSelectVertex)
   const onSelectSemanticSurfaceRef = useRef(onSelectSemanticSurface)
@@ -616,6 +619,7 @@ function CityViewport({
   }, [selectedFeatureId, activeObjectId, geometryDisplayMode, activeGeometryIndex, editMode, selectedFaceIndex, selectedFaceRingIndex, selectedVertexIndex])
 
   useEffect(() => { onSelectFeatureRef.current = onSelectFeature }, [onSelectFeature])
+  useEffect(() => { onClearSelectionRef.current = onClearSelection }, [onClearSelection])
   useEffect(() => { onSelectFaceRef.current = onSelectFace }, [onSelectFace])
   useEffect(() => { onSelectVertexRef.current = onSelectVertex }, [onSelectVertex])
   useEffect(() => { onSelectSemanticSurfaceRef.current = onSelectSemanticSurface }, [onSelectSemanticSurface])
@@ -953,6 +957,7 @@ function CityViewport({
           const meshHit = meshHits[0]
           const resolvedHit = meshHit ? resolveObjectHit(meshHit) : null
           if (!resolvedHit) {
+            onClearSelectionRef.current()
             onSelectSemanticSurfaceRef.current(null)
             onSelectFaceRef.current(null)
             return
@@ -1030,6 +1035,7 @@ function CityViewport({
         return
       }
 
+      onClearSelectionRef.current()
       if (usesMobileTapSelection) {
         onSelectSemanticSurfaceRef.current(null)
       }

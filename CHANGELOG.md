@@ -3,6 +3,7 @@
 ## Unreleased
 - Fix issue with colormap clamping past max value
 - Make pinned attributes remember selected colormap
+- Allow to clear selection. Start without selected object
 - Add button to reverse colormap
 - Improve performance for large datasets by batching into fewer threejs objects
 - Performance improvements for editing objects in large datasets

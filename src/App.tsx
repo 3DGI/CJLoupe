@@ -28,6 +28,7 @@ import {
   Columns3Cog,
   Shuffle,
   SquareMousePointer,
+  CircleX,
   Sun,
   SunMoon,
   TableProperties,
@@ -956,9 +957,8 @@ function App() {
     resetViewerState()
     setDataset(nextDataset)
 
-    const firstFeature = nextDataset.features[0] ?? null
-    setSelectedFeatureId(firstFeature?.id ?? null)
-    setActiveObjectId(firstFeature?.objects[0]?.id ?? null)
+    setSelectedFeatureId(null)
+    setActiveObjectId(null)
     setActiveGeometryIndex(null)
     setSelectedFaceIndex(null)
     setSelectedFaceRingIndex(0)
@@ -1441,6 +1441,19 @@ function App() {
       setSelectedFaceVertexEntryIndex(null)
     })
   }, [editMode, featureMap, isolateSelectedFeature, isMobileLayout, selectedFeatureId])
+
+  const handleClearSelection = useCallback(() => {
+    startTransition(() => {
+      setSelectedFeatureId(null)
+      setActiveObjectId(null)
+      setActiveGeometryIndex(null)
+      setSelectedFaceIndex(null)
+      setSelectedFaceRingIndex(0)
+      setSelectedVertexIndex(null)
+      setSelectedFaceVertexEntryIndex(null)
+      setSelectedSemanticSurface(null)
+    })
+  }, [])
 
   const handleSearchQueryChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(event.target.value)
@@ -2282,7 +2295,7 @@ function App() {
                           </>
                         ) : (
                           <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-4 py-6 text-sm text-muted-foreground">
-                            Click a building in the scene or choose a feature from the left column.
+                            Click a building in the scene or choose a feature from the feature list.
                           </div>
                         )}
                       </div>
@@ -2328,6 +2341,7 @@ function App() {
             mobileInteraction={isMobileLayout}
             mobileSelectionMode={mobileInspectMode}
             onSelectFeature={handleViewportSelectFeature}
+            onClearSelection={handleClearSelection}
             onSelectFace={handleSelectFace}
             onSelectVertex={handleSelectVertex}
             onSelectSemanticSurface={handleSelectSemanticSurface}
@@ -2421,7 +2435,7 @@ function App() {
           </div>
         ) : (
           <div className="pointer-events-none absolute bottom-12 right-4 z-10 flex flex-col items-end gap-4">
-            {Boolean(selectedFeature) && !editMode && (
+            {!editMode && (
               <ViewportGeometryModeBar
                 geometryDisplayMode={geometryDisplayMode}
                 availableLods={availableLods}
@@ -2449,6 +2463,7 @@ function App() {
               onSelectPickingMode={handleSelectPickingMode}
               onCenterCurrentSelection={centerCurrentSelection}
               onRestoreGeometry={restoreSelectedFeatureGeometry}
+              onClearSelection={handleClearSelection}
               restoreGeometryDisabled={
                 !selectedFeatureId ||
                 (
@@ -2842,10 +2857,6 @@ function MobileViewportToolbar({
   onToggleMobileInspectMode: () => void
   onCenterCurrentSelection: () => void
 }) {
-  if (!hasSelectedFeature) {
-    return null
-  }
-
   return (
     <div className="floating-panel pointer-events-auto flex flex-col items-center gap-1 rounded-sm border p-1">
       <ToolbarToggleButton
@@ -2874,6 +2885,7 @@ function MobileViewportToolbar({
         variant="ghost"
         size="icon"
         className="size-7"
+        disabled={!hasSelectedFeature}
         onClick={onCenterCurrentSelection}
         aria-label="Center current selection"
         title="Center current selection"
@@ -2928,6 +2940,7 @@ function DesktopViewportToolbar({
   onCenterCurrentSelection,
   onRestoreGeometry,
   restoreGeometryDisabled,
+  onClearSelection,
 }: {
   editMode: boolean
   xrayActive: boolean
@@ -2949,14 +2962,16 @@ function DesktopViewportToolbar({
   onCenterCurrentSelection: () => void
   onRestoreGeometry: () => void
   restoreGeometryDisabled: boolean
+  onClearSelection: () => void
 }) {
   const [isPickingMenuOpen, setIsPickingMenuOpen] = useState(false)
   const tooltipsVisible = showTooltips && !isPickingMenuOpen
 
   return (
     <div className="floating-panel pointer-events-auto flex flex-col items-center gap-1 rounded-sm border p-1">
-      <div className="floating-chip flex flex-col items-center gap-1 rounded-sm border p-1">
-        <ViewportControlTooltip
+      {hasSelectedFeature && (
+        <div className="floating-chip flex flex-col items-center gap-1 rounded-sm border p-1">
+          <ViewportControlTooltip
           show={tooltipsVisible}
           label={editMode ? 'Exit inspect' : 'Inspect'}
           hotkey="Tab"
@@ -3000,18 +3015,28 @@ function DesktopViewportToolbar({
           Xray
         </ToolbarToggleButton>
       </div>
+      )}
+      <ToolbarToggleButton
+        active={showSemanticSurfaces}
+        onClick={onToggleSemanticSurfaces}
+        ariaLabel="Toggle semantic surface colors"
+        iconSrc={materialIconUrl}
+        showTooltip={tooltipsVisible}
+        tooltipHotkey="S"
+      >
+        Semantics
+      </ToolbarToggleButton>
+      <ToolbarPickingButton
+        mode={pickingMode}
+        editMode={editMode}
+        onClick={onCyclePickingMode}
+        onSelectMode={onSelectPickingMode}
+        showTooltip={tooltipsVisible}
+        isMenuOpen={isPickingMenuOpen}
+        onMenuOpenChange={setIsPickingMenuOpen}
+      />
       {hasSelectedFeature && (
         <>
-          <ToolbarToggleButton
-            active={showSemanticSurfaces}
-            onClick={onToggleSemanticSurfaces}
-            ariaLabel="Toggle semantic surface colors"
-            iconSrc={materialIconUrl}
-            showTooltip={tooltipsVisible}
-            tooltipHotkey="S"
-          >
-            Semantics
-          </ToolbarToggleButton>
           <ToolbarToggleButton
             active={isolateSelectedFeature}
             onClick={onToggleIsolateSelectedFeature}
@@ -3022,15 +3047,18 @@ function DesktopViewportToolbar({
           >
             Isolate
           </ToolbarToggleButton>
-          <ToolbarPickingButton
-            mode={pickingMode}
-            editMode={editMode}
-            onClick={onCyclePickingMode}
-            onSelectMode={onSelectPickingMode}
-            showTooltip={tooltipsVisible}
-            isMenuOpen={isPickingMenuOpen}
-            onMenuOpenChange={setIsPickingMenuOpen}
-          />
+          <ViewportControlTooltip show={tooltipsVisible} label="Clear selection">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              onClick={onClearSelection}
+              aria-label="Clear selection"
+              title="Clear selection"
+            >
+              <CircleX className="size-3.5" />
+            </Button>
+          </ViewportControlTooltip>
           <ViewportControlTooltip show={tooltipsVisible} label="Center" hotkey="C">
             <Button
               variant="ghost"
