@@ -1,6 +1,7 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 - 2026-05-12
+
 - Fix issue with colormap clamping past max value
 - Make pinned attributes remember selected colormap
 - Allow to clear selection. Start without selected object
