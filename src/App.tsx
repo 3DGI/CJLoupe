@@ -213,6 +213,7 @@ function App() {
   const originalVerticesRef = useRef<Map<string, Vec3[]>>(new Map())
   const originalObjectGeometriesRef = useRef<Map<string, Map<string, ViewerObjectGeometry[]>>>(new Map())
   const attributeColorDomainsByKeyRef = useRef<Map<string, AttributeColorDomain>>(new Map())
+  const attributeColorMapIdsByKeyRef = useRef<Map<string, AttributeColorMapId>>(new Map())
   const preInspectPickingModeRef = useRef<ViewerPickingMode>('object')
   const inspectPickingModeRef = useRef<ViewerPickingMode>('face')
 
@@ -924,6 +925,7 @@ function App() {
     setAttributeNominalColorSeed(0)
     setCustomNominalColorMaps({})
     attributeColorDomainsByKeyRef.current = new Map()
+    attributeColorMapIdsByKeyRef.current = new Map()
     setViewportResetRevision((current) => current + 1)
   }, [])
 
@@ -1101,6 +1103,9 @@ function App() {
     setAttributeColorKey(key)
     setShowSemanticSurfaces(false)
     setAttributeColorDomain(attributeColorDomainsByKeyRef.current.get(key) ?? null)
+    setAttributeColorMapId(
+      attributeColorMapIdsByKeyRef.current.get(key) ?? DEFAULT_ATTRIBUTE_COLOR_MAP_ID,
+    )
   }, [])
 
   const handleClearAttributeColor = useCallback(() => {
@@ -1136,7 +1141,10 @@ function App() {
 
   const handleAttributeColorMapChange = useCallback((colorMapId: AttributeColorMapId) => {
     setAttributeColorMapId(colorMapId)
-  }, [])
+    if (attributeColorKey) {
+      attributeColorMapIdsByKeyRef.current.set(attributeColorKey, colorMapId)
+    }
+  }, [attributeColorKey])
 
   const handleToggleInfoPanelSection = useCallback((section: InfoPanelSection) => {
     setInfoPanelOpenSections((current) => ({
