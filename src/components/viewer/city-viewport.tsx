@@ -50,6 +50,8 @@ const EDIT_VERTEX_PICK_RADIUS_PIXELS = 14
 const SELECTION_OUTLINE_THICKNESS_PIXELS = 4
 const SELECTION_OUTLINE_INTERACTIVE_TARGET_SCALE = 0.25
 const SELECTION_TINT_COLOR = '#7ee7e7'
+const SELECTION_TINT_STRENGTH = 0.34
+const SEMANTIC_SELECTION_TINT_STRENGTH = 0.58
 const EMPTY_FACE_INDEX_SET = new Set<number>()
 
 const SELECTION_EFFECT_COLORS: Record<Theme, { outline: string }> = {
@@ -3030,13 +3032,20 @@ function applyMeshSelectionAppearance(
     const attributeUniforms = mat.userData.attributeColorUniforms as AttributeColorUniforms | undefined
     if (attributeUniforms) {
       attributeUniforms.selectionTint.value.set(SELECTION_TINT_COLOR)
-      attributeUniforms.selectionTintStrength.value = isActiveObject ? 0.34 : 0
+      attributeUniforms.selectionTintStrength.value = isActiveObject ? SELECTION_TINT_STRENGTH : 0
     }
 
     if (isActiveObject) {
-      mat.color.lerp(new THREE.Color(SELECTION_TINT_COLOR), 0.34)
+      const tintStrength =
+        mat.userData.isSemantic || mat.userData.isSemanticBase
+          ? SEMANTIC_SELECTION_TINT_STRENGTH
+          : SELECTION_TINT_STRENGTH
+      mat.color.lerp(new THREE.Color(SELECTION_TINT_COLOR), tintStrength)
       mat.emissive.set(SELECTION_TINT_COLOR)
-      mat.emissiveIntensity = Math.max(mat.emissiveIntensity, 0.16)
+      mat.emissiveIntensity = Math.max(
+        mat.emissiveIntensity,
+        mat.userData.isSemantic || mat.userData.isSemanticBase ? 0.22 : 0.16,
+      )
     }
   }
 
@@ -3068,7 +3077,7 @@ function applyBatchSelectionAppearance(
     if (isActiveObject) {
       record.batch.setColorAt(
         record.instanceId,
-        color.lerp(new THREE.Color(SELECTION_TINT_COLOR), 0.42),
+        color.lerp(new THREE.Color(SELECTION_TINT_COLOR), runtime.showSemanticSurfaces ? 1 : 0.42),
       )
     }
   }
@@ -4235,17 +4244,21 @@ function applyBatchedSemanticColoringToMaterial(
       #include <color_fragment>
       if (uSemanticSurfaceEnabled > 0.5) {
         vec3 semanticInstanceTint = diffuseColor.rgb;
+        float semanticSelectionTint = distance(semanticInstanceTint, vec3(1.0));
         int semanticSurfaceTypeIndex = int(clamp(
           floor(vSemanticSurfaceTypeId + 0.5),
           0.0,
           float(${SEMANTIC_SURFACE_COLOR_SLOT_COUNT - 1})
         ));
-        diffuseColor.rgb = uSemanticSurfaceColors[semanticSurfaceTypeIndex] * semanticInstanceTint;
+        diffuseColor.rgb = uSemanticSurfaceColors[semanticSurfaceTypeIndex];
+        if (semanticSelectionTint > 0.001) {
+          diffuseColor.rgb = mix(diffuseColor.rgb, semanticInstanceTint, ${SEMANTIC_SELECTION_TINT_STRENGTH.toFixed(2)});
+        }
       }
       `,
     )
   }
-  material.customProgramCacheKey = () => 'batched-semantic-color-v1'
+  material.customProgramCacheKey = () => 'batched-semantic-color-selection-tint-v2'
   material.needsUpdate = true
 }
 
