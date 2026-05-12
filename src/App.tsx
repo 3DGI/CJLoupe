@@ -1784,7 +1784,7 @@ function App() {
   const isFeaturePanelVisible = !isMobileLayout || mobilePanelView === 'features'
   const isDetailPanelVisible = !isMobileLayout || mobilePanelView === 'details'
   const detailOverlayPositionClass = isMobileLayout ? 'bottom-20 left-3 right-3' : 'bottom-12 left-4 max-w-md'
-  const infoPanelPositionClass = isMobileLayout ? 'bottom-20 left-3 right-3 top-4' : 'bottom-12 left-4 right-4 top-4 max-w-sm'
+  const infoPanelPositionClass = isMobileLayout ? 'bottom-20 left-3 right-3 top-4' : 'bottom-12 left-4 right-4 top-4 max-w-[30rem]'
   const showInfoPanelPinnedSection = isPinnedAttributesOpen && !isMobileLayout
   const showInfoPanelAttributeSection = isPinnedAttributesOpen && Boolean(attributeColorKey) && !isMobileLayout
   const showSemanticPanel = Boolean(!editMode && activeSemanticSurface)
@@ -4789,13 +4789,14 @@ function PinnedAttributesInfoSection({
 }) {
   return (
     <div className="grid min-w-0">
-      <div className="grid grid-cols-[minmax(0,1.25fr)_minmax(0,0.85fr)_auto] items-center gap-1 border-b border-border/55 px-1.5 py-1">
+      <div className="grid grid-cols-[minmax(0,1.25fr)_minmax(0,1.45fr)_auto] items-center gap-1 border-b border-border/55 px-1.5 py-1">
         <div className="font-mono text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
           Attribute
         </div>
         <div className="font-mono text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
           Value
         </div>
+        <div aria-hidden className="h-5 w-[2.625rem]" />
       </div>
       {pinnedAttributes.length > 0 ? (
         pinnedAttributes.map((entry) => {
@@ -4805,7 +4806,7 @@ function PinnedAttributesInfoSection({
             <div
               key={entry.key}
               className={cn(
-                'grid min-w-0 grid-cols-[minmax(0,1.25fr)_minmax(0,0.85fr)_auto] items-center gap-1 border-b border-border/35 px-1.5 py-1 last:border-b-0',
+                'grid min-w-0 grid-cols-[minmax(0,1.25fr)_minmax(0,1.45fr)_auto] items-center gap-1 border-b border-border/35 px-1.5 py-1 last:border-b-0',
                 isActiveColorAttribute && 'bg-primary/8',
               )}
             >
@@ -4885,7 +4886,7 @@ function SemanticSurfaceInfoSection({
 
   return (
     <div className="grid min-w-0">
-      <div className="grid grid-cols-[minmax(0,1.25fr)_minmax(0,0.85fr)] items-center gap-1 border-b border-border/55 px-1.5 py-1">
+      <div className="grid grid-cols-[minmax(0,1.25fr)_minmax(0,1.45fr)] items-center gap-1 border-b border-border/55 px-1.5 py-1">
         <div className="font-mono text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
           Attribute
         </div>
@@ -4896,7 +4897,7 @@ function SemanticSurfaceInfoSection({
       {attributeEntries.map(([key, value]) => (
         <div
           key={key}
-          className="grid min-w-0 grid-cols-[minmax(0,1.25fr)_minmax(0,0.85fr)] items-center gap-1 border-b border-border/35 px-1.5 py-1 last:border-b-0"
+          className="grid min-w-0 grid-cols-[minmax(0,1.25fr)_minmax(0,1.45fr)] items-center gap-1 border-b border-border/35 px-1.5 py-1 last:border-b-0"
         >
           <span className="min-w-0 truncate font-mono text-[10px] uppercase leading-5 tracking-[0.12em] text-muted-foreground/78">
             {key}
