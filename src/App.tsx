@@ -21,10 +21,11 @@ import {
   Pin,
   PinOff,
   Pyramid,
+  ArrowLeftRight,
   RotateCcw,
   RotateCw,
   Search,
-  Settings2,
+  Columns3Cog,
   Shuffle,
   SquareMousePointer,
   Sun,
@@ -111,23 +112,23 @@ type MobilePanelView = 'features' | 'details'
 type InfoPanelSection = 'pinned' | 'attribute' | 'semantic'
 type HelpItem = { keys: string; description: string }
 type ContinuousAttributeColorMapId = keyof typeof ATTRIBUTE_COLOR_MAPS
-type QualitativeAttributeColorMapId = keyof typeof NOMINAL_QUALITATIVE_COLOR_MAPS
+type QualitativeAttributeColorMapId = keyof typeof QUALITATIVE_COLOR_MAPS
 type AttributeColorMapId = ContinuousAttributeColorMapId | QualitativeAttributeColorMapId | 'random'
 type AttributeColorDomain = { key: string; min: number; max: number }
-type NumericAttributeColorModel = {
-  kind: 'numeric'
+type ContinuousAttributeColorModel = {
+  kind: 'continuous'
   key: string
   valuesByObjectKey: Record<string, number>
   values: number[]
   dataMin: number
   dataMax: number
-  numericCount: number
+  continuousCount: number
   missingCount: number
   objectCount: number
   bins: AttributeColorBin[]
 }
-type NominalAttributeColorModel = {
-  kind: 'nominal'
+type CategoricalAttributeColorModel = {
+  kind: 'categorical'
   key: string
   valuesByObjectKey: Record<string, number>
   directColorsByObjectKey: Record<string, string>
@@ -136,7 +137,7 @@ type NominalAttributeColorModel = {
   missingCount: number
   objectCount: number
 }
-type AttributeColorModel = NumericAttributeColorModel | NominalAttributeColorModel
+type AttributeColorModel = ContinuousAttributeColorModel | CategoricalAttributeColorModel
 type AttributeColorBin = {
   start: number
   end: number
@@ -172,27 +173,28 @@ const ATTRIBUTE_COLOR_MAPS = {
   turbo: ['#30123b', '#4145ab', '#4675ed', '#39a2fc', '#1bcfd4', '#24eca6', '#61fc6c', '#a4fc3b', '#f9b233', '#7a0403'],
   coolwarm: ['#3b4cc0', '#5977e3', '#82a6fb', '#b1cbfc', '#dddcdc', '#f2cbb7', '#f7a889', '#e7745b', '#c53334', '#b40426'],
 } as const
-const NOMINAL_QUALITATIVE_COLOR_MAPS = {
+const QUALITATIVE_COLOR_MAPS = {
   tableau10: ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc948', '#b07aa1', '#ff9da7', '#9c755f', '#bab0ac'],
   set3: ['#8dd3c7', '#ffffb3', '#bebada', '#fb8072', '#80b1d3', '#fdb462', '#b3de69', '#fccde5', '#d9d9d9', '#bc80bd', '#ccebc5', '#ffed6f'],
   paired: ['#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99', '#e31a1c', '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a', '#ffff99', '#b15928'],
   dark2: ['#1b9e77', '#d95f02', '#7570b3', '#e7298a', '#66a61e', '#e6ab02', '#a6761d', '#666666'],
 } as const
 const DEFAULT_ATTRIBUTE_COLOR_MAP_ID: AttributeColorMapId = 'viridis'
+const DEFAULT_CATEGORICAL_COLOR_MAP_ID: AttributeColorMapId = 'tableau10'
 type ColorMapGroup = { label: string; options: readonly AttributeColorMapId[] }
 const CONTINUOUS_COLORMAP_GROUPS: readonly ColorMapGroup[] = [
   { label: 'Sequential', options: ['viridis', 'plasma', 'inferno', 'magma', 'cividis', 'turbo'] },
   { label: 'Diverging', options: ['coolwarm'] },
 ]
-const NOMINAL_COLORMAP_GROUPS: readonly ColorMapGroup[] = [
-  { label: 'Qualitative', options: ['random', ...Object.keys(NOMINAL_QUALITATIVE_COLOR_MAPS) as QualitativeAttributeColorMapId[]] },
+const CATEGORICAL_COLORMAP_GROUPS: readonly ColorMapGroup[] = [
+  { label: 'Qualitative', options: ['random', ...Object.keys(QUALITATIVE_COLOR_MAPS) as QualitativeAttributeColorMapId[]] },
   { label: 'Sequential', options: ['viridis', 'plasma', 'inferno', 'magma', 'cividis', 'turbo'] },
   { label: 'Diverging', options: ['coolwarm'] },
 ]
 const ATTRIBUTE_COLOR_DOMAIN_PREVIEW_EVENT = 'cjloupe:attribute-color-domain-preview'
-const NOMINAL_ATTRIBUTE_DISPLAY_LIMIT = 32
-const NOMINAL_ATTRIBUTE_HIGH_CARDINALITY_LIMIT = 200
-const NOMINAL_ATTRIBUTE_SINGLETON_RATIO = 0.85
+const CATEGORICAL_ATTRIBUTE_DISPLAY_LIMIT = 32
+const CATEGORICAL_ATTRIBUTE_HIGH_CARDINALITY_LIMIT = 200
+const CATEGORICAL_ATTRIBUTE_SINGLETON_RATIO = 0.85
 
 const CityViewport = lazy(() =>
   import('@/components/viewer/city-viewport').then((module) => ({ default: module.CityViewport })),
@@ -214,6 +216,7 @@ function App() {
   const originalObjectGeometriesRef = useRef<Map<string, Map<string, ViewerObjectGeometry[]>>>(new Map())
   const attributeColorDomainsByKeyRef = useRef<Map<string, AttributeColorDomain>>(new Map())
   const attributeColorMapIdsByKeyRef = useRef<Map<string, AttributeColorMapId>>(new Map())
+  const attributeColorMapReversedByKeyRef = useRef<Map<string, boolean>>(new Map())
   const preInspectPickingModeRef = useRef<ViewerPickingMode>('object')
   const inspectPickingModeRef = useRef<ViewerPickingMode>('face')
 
@@ -253,8 +256,9 @@ function App() {
   const [attributeColorInheritsParent, setAttributeColorInheritsParent] = useState(true)
   const [attributeColorDomain, setAttributeColorDomain] = useState<AttributeColorDomain | null>(null)
   const [attributeColorMapId, setAttributeColorMapId] = useState<AttributeColorMapId>(DEFAULT_ATTRIBUTE_COLOR_MAP_ID)
-  const [attributeNominalColorSeed, setAttributeNominalColorSeed] = useState(0)
-  const [customNominalColorMaps, setCustomNominalColorMaps] = useState<Record<string, Record<string, string>>>({})
+  const [attributeColorMapReversed, setAttributeColorMapReversed] = useState(false)
+  const [attributeCategoricalColorSeed, setAttributeCategoricalColorSeed] = useState(0)
+  const [customCategoricalColorMaps, setCustomCategoricalColorMaps] = useState<Record<string, Record<string, string>>>({})
   const [detailTab, setDetailTab] = useState('errors')
   const [detailPaneMode, setDetailPaneMode] = useState<DetailPaneMode>('split')
   const [isDragging, setIsDragging] = useState(false)
@@ -402,9 +406,12 @@ function App() {
     })
   }, [activeObject, activeObjectAttributes, attributeColorInheritsParent, pinnedAttributeKeys, selectedFeatureObjects])
   const pinnedAttributeCount = pinnedAttributeKeys.length
-  const attributeColorMapColors = getContinuousAttributeColorMapColors(attributeColorMapId)
-  const customNominalColorsForAttribute = attributeColorKey
-    ? customNominalColorMaps[attributeColorKey] ?? EMPTY_ATTRIBUTES
+  const attributeColorMapColors = useMemo(() => {
+    const base = getContinuousAttributeColorMapColors(attributeColorMapId)
+    return attributeColorMapReversed ? [...base].reverse() : base
+  }, [attributeColorMapId, attributeColorMapReversed])
+  const customCategoricalColorsForAttribute = attributeColorKey
+    ? customCategoricalColorMaps[attributeColorKey] ?? EMPTY_ATTRIBUTES
     : EMPTY_ATTRIBUTES
   const attributeColorModel = useMemo(
     () => buildAttributeColorModel(
@@ -413,21 +420,21 @@ function App() {
       attributeColorInheritsParent,
       attributeColorMapId,
       attributeColorMapColors,
-      attributeNominalColorSeed,
-      customNominalColorsForAttribute as Record<string, string>,
+      attributeCategoricalColorSeed,
+      customCategoricalColorsForAttribute as Record<string, string>,
     ),
     [
       attributeColorInheritsParent,
       attributeColorKey,
       attributeColorMapColors,
       attributeColorMapId,
-      attributeNominalColorSeed,
-      customNominalColorsForAttribute,
+      attributeCategoricalColorSeed,
+      customCategoricalColorsForAttribute,
       dataset,
     ],
   )
   const activeAttributeColorDomain = useMemo(() => {
-    if (!attributeColorModel || attributeColorModel.kind !== 'numeric') {
+    if (!attributeColorModel || attributeColorModel.kind !== 'continuous') {
       return null
     }
 
@@ -446,7 +453,7 @@ function App() {
       return null
     }
 
-    if (attributeColorModel.kind === 'nominal') {
+    if (attributeColorModel.kind === 'categorical') {
       if (attributeColorModel.valueCount === 0) {
         return null
       }
@@ -464,7 +471,7 @@ function App() {
       }
     }
 
-    if (!activeAttributeColorDomain || attributeColorModel.numericCount === 0) {
+    if (!activeAttributeColorDomain || attributeColorModel.continuousCount === 0) {
       return null
     }
 
@@ -585,7 +592,19 @@ function App() {
   }, [attributeColorKey, pinnedAttributeKeys])
 
   useEffect(() => {
-    if (!attributeColorModel || attributeColorModel.kind !== 'numeric') {
+    if (!attributeColorKey || !attributeColorModel) return
+    if (attributeColorMapIdsByKeyRef.current.has(attributeColorKey)) return
+    const wanted =
+      attributeColorModel.kind === 'categorical'
+        ? DEFAULT_CATEGORICAL_COLOR_MAP_ID
+        : DEFAULT_ATTRIBUTE_COLOR_MAP_ID
+    if (attributeColorMapId !== wanted) {
+      setAttributeColorMapId(wanted)
+    }
+  }, [attributeColorKey, attributeColorModel, attributeColorMapId])
+
+  useEffect(() => {
+    if (!attributeColorModel || attributeColorModel.kind !== 'continuous') {
       setAttributeColorDomain(null)
       return
     }
@@ -922,10 +941,12 @@ function App() {
     setAttributeColorDomain(null)
     setAttributeColorInheritsParent(true)
     setAttributeColorMapId(DEFAULT_ATTRIBUTE_COLOR_MAP_ID)
-    setAttributeNominalColorSeed(0)
-    setCustomNominalColorMaps({})
+    setAttributeColorMapReversed(false)
+    setAttributeCategoricalColorSeed(0)
+    setCustomCategoricalColorMaps({})
     attributeColorDomainsByKeyRef.current = new Map()
     attributeColorMapIdsByKeyRef.current = new Map()
+    attributeColorMapReversedByKeyRef.current = new Map()
     setViewportResetRevision((current) => current + 1)
   }, [])
 
@@ -1106,6 +1127,7 @@ function App() {
     setAttributeColorMapId(
       attributeColorMapIdsByKeyRef.current.get(key) ?? DEFAULT_ATTRIBUTE_COLOR_MAP_ID,
     )
+    setAttributeColorMapReversed(attributeColorMapReversedByKeyRef.current.get(key) ?? false)
   }, [])
 
   const handleClearAttributeColor = useCallback(() => {
@@ -1118,10 +1140,10 @@ function App() {
     setAttributeColorDomain(domain)
   }, [])
 
-  const handleRerandomizeNominalColors = useCallback(() => {
-    setAttributeNominalColorSeed((current) => current + 1)
+  const handleRerandomizeCategoricalColors = useCallback(() => {
+    setAttributeCategoricalColorSeed((current) => current + 1)
     if (attributeColorKey) {
-      setCustomNominalColorMaps((current) => {
+      setCustomCategoricalColorMaps((current) => {
         const rest = { ...current }
         delete rest[attributeColorKey]
         return rest
@@ -1129,8 +1151,8 @@ function App() {
     }
   }, [attributeColorKey])
 
-  const handleCustomNominalColorChange = useCallback((attributeKey: string, categoryKey: string, color: string) => {
-    setCustomNominalColorMaps((current) => ({
+  const handleCustomCategoricalColorChange = useCallback((attributeKey: string, categoryKey: string, color: string) => {
+    setCustomCategoricalColorMaps((current) => ({
       ...current,
       [attributeKey]: {
         ...(current[attributeKey] ?? {}),
@@ -1144,6 +1166,16 @@ function App() {
     if (attributeColorKey) {
       attributeColorMapIdsByKeyRef.current.set(attributeColorKey, colorMapId)
     }
+  }, [attributeColorKey])
+
+  const handleToggleAttributeColorMapReversed = useCallback(() => {
+    setAttributeColorMapReversed((current) => {
+      const next = !current
+      if (attributeColorKey) {
+        attributeColorMapReversedByKeyRef.current.set(attributeColorKey, next)
+      }
+      return next
+    })
   }, [attributeColorKey])
 
   const handleToggleInfoPanelSection = useCallback((section: InfoPanelSection) => {
@@ -2349,17 +2381,19 @@ function App() {
                 attributeColorModel={attributeColorModel}
                 attributeColorDomain={activeAttributeColorDomain}
                 attributeColorMapId={attributeColorMapId}
+                attributeColorMapReversed={attributeColorMapReversed}
                 attributeColorInheritsParent={attributeColorInheritsParent}
                 onToggleSection={handleToggleInfoPanelSection}
                 onPinAttribute={handlePinAttribute}
                 onUnpinAttribute={handleUnpinAttribute}
                 onColorAttribute={handleSelectAttributeColorKey}
                 onColorMapChange={handleAttributeColorMapChange}
+                onToggleColorMapReversed={handleToggleAttributeColorMapReversed}
                 onInheritsParentChange={setAttributeColorInheritsParent}
                 onDomainPreview={handlePreviewAttributeColorDomain}
                 onDomainChange={handleCommitAttributeColorDomain}
-                onRerandomizeNominalColors={handleRerandomizeNominalColors}
-                onCustomNominalColorChange={handleCustomNominalColorChange}
+                onRerandomizeCategoricalColors={handleRerandomizeCategoricalColors}
+                onCustomCategoricalColorChange={handleCustomCategoricalColorChange}
                 onClearAttributeColor={handleClearAttributeColor}
                 onClose={() => setIsPinnedAttributesOpen(false)}
               />
@@ -4464,17 +4498,19 @@ function InfoPanel({
   attributeColorModel,
   attributeColorDomain,
   attributeColorMapId,
+  attributeColorMapReversed,
   attributeColorInheritsParent,
   onToggleSection,
   onPinAttribute,
   onUnpinAttribute,
   onColorAttribute,
   onColorMapChange,
+  onToggleColorMapReversed,
   onInheritsParentChange,
   onDomainPreview,
   onDomainChange,
-  onRerandomizeNominalColors,
-  onCustomNominalColorChange,
+  onRerandomizeCategoricalColors,
+  onCustomCategoricalColorChange,
   onClearAttributeColor,
   onClose,
 }: {
@@ -4495,17 +4531,19 @@ function InfoPanel({
   attributeColorModel: AttributeColorModel | null
   attributeColorDomain: AttributeColorDomain | null
   attributeColorMapId: AttributeColorMapId
+  attributeColorMapReversed: boolean
   attributeColorInheritsParent: boolean
   onToggleSection: (section: InfoPanelSection) => void
   onPinAttribute: (key: string) => void
   onUnpinAttribute: (key: string) => void
   onColorAttribute: (key: string) => void
   onColorMapChange: (colorMapId: AttributeColorMapId) => void
+  onToggleColorMapReversed: () => void
   onInheritsParentChange: (value: boolean) => void
   onDomainPreview: (domain: AttributeColorDomain) => void
   onDomainChange: (domain: AttributeColorDomain) => void
-  onRerandomizeNominalColors: () => void
-  onCustomNominalColorChange: (attributeKey: string, categoryKey: string, color: string) => void
+  onRerandomizeCategoricalColors: () => void
+  onCustomCategoricalColorChange: (attributeKey: string, categoryKey: string, color: string) => void
   onClearAttributeColor: () => void
   onClose: () => void
 }) {
@@ -4526,7 +4564,7 @@ function InfoPanel({
                 aria-label="Configure pinned attributes"
                 title="Configure pinned attributes"
               >
-                <Settings2 className="size-3" />
+                <Columns3Cog className="size-3" />
               </Button>
             </PopoverTrigger>
             <PopoverContent align="start" side="bottom" className="w-72 p-0">
@@ -4593,11 +4631,13 @@ function InfoPanel({
                 model={attributeColorModel}
                 domain={attributeColorDomain}
                 colorMapId={attributeColorMapId}
+                colorMapReversed={attributeColorMapReversed}
                 onColorMapChange={onColorMapChange}
+                onToggleColorMapReversed={onToggleColorMapReversed}
                 onDomainPreview={onDomainPreview}
                 onDomainChange={onDomainChange}
-                onRerandomizeNominalColors={onRerandomizeNominalColors}
-                onCustomNominalColorChange={onCustomNominalColorChange}
+                onRerandomizeCategoricalColors={onRerandomizeCategoricalColors}
+                onCustomCategoricalColorChange={onCustomCategoricalColorChange}
               />
             </InfoPanelSectionBlock>
           )}
@@ -5007,35 +5047,41 @@ function AttributeColorSection({
   model,
   domain,
   colorMapId,
+  colorMapReversed,
   onColorMapChange,
+  onToggleColorMapReversed,
   onDomainPreview,
   onDomainChange,
-  onRerandomizeNominalColors,
-  onCustomNominalColorChange,
+  onRerandomizeCategoricalColors,
+  onCustomCategoricalColorChange,
 }: {
   model: AttributeColorModel | null
   domain: AttributeColorDomain | null
   colorMapId: AttributeColorMapId
+  colorMapReversed: boolean
   onColorMapChange: (colorMapId: AttributeColorMapId) => void
+  onToggleColorMapReversed: () => void
   onDomainPreview: (domain: AttributeColorDomain) => void
   onDomainChange: (domain: AttributeColorDomain) => void
-  onRerandomizeNominalColors: () => void
-  onCustomNominalColorChange: (attributeKey: string, categoryKey: string, color: string) => void
+  onRerandomizeCategoricalColors: () => void
+  onCustomCategoricalColorChange: (attributeKey: string, categoryKey: string, color: string) => void
 }) {
   const [draftDomain, setDraftDomain] = useState<AttributeColorDomain | null>(domain)
-  const canAdjust = Boolean(model?.kind === 'numeric' && domain && model.numericCount > 0)
-  const rangeMin = model?.kind === 'numeric' ? model.dataMin : 0
-  const rangeMax = model?.kind === 'numeric' ? model.dataMax : 1
+  const canAdjust = Boolean(model?.kind === 'continuous' && domain && model.continuousCount > 0)
+  const rangeMin = model?.kind === 'continuous' ? model.dataMin : 0
+  const rangeMax = model?.kind === 'continuous' ? model.dataMax : 1
   const rangeSpan = Math.max(rangeMax - rangeMin, 0.000001)
-  const maxBinCount = Math.max(...(model?.kind === 'numeric' ? model.bins.map((bin) => bin.count) : [1]), 1)
+  const maxBinCount = Math.max(...(model?.kind === 'continuous' ? model.bins.map((bin) => bin.count) : [1]), 1)
   const visibleDomain = draftDomain?.key === domain?.key ? draftDomain : domain
-  const colorMapColors = getContinuousAttributeColorMapColors(colorMapId)
-  const colorMapGroups = model?.kind === 'nominal'
-    ? NOMINAL_COLORMAP_GROUPS
+  const baseColorMapColors = getContinuousAttributeColorMapColors(colorMapId)
+  const colorMapColors = colorMapReversed ? [...baseColorMapColors].reverse() : baseColorMapColors
+  const colorMapGroups = model?.kind === 'categorical'
+    ? CATEGORICAL_COLORMAP_GROUPS
     : CONTINUOUS_COLORMAP_GROUPS
-  const colorMapValue = model?.kind === 'numeric' && colorMapId === 'random'
+  const colorMapValue = model?.kind === 'continuous' && colorMapId === 'random'
     ? DEFAULT_ATTRIBUTE_COLOR_MAP_ID
     : colorMapId
+  const canReverseColorMap = colorMapId !== 'random' && !(colorMapId in QUALITATIVE_COLOR_MAPS)
 
   useEffect(() => {
     setDraftDomain(domain)
@@ -5053,7 +5099,7 @@ function AttributeColorSection({
   }
 
   const updateDomainMin = (value: number) => {
-    if (model?.kind !== 'numeric' || !visibleDomain) return
+    if (model?.kind !== 'continuous' || !visibleDomain) return
     commitDomain({
       key: model.key,
       min: Math.min(value, visibleDomain.max),
@@ -5062,7 +5108,7 @@ function AttributeColorSection({
   }
 
   const updateDomainMax = (value: number) => {
-    if (model?.kind !== 'numeric' || !visibleDomain) return
+    if (model?.kind !== 'continuous' || !visibleDomain) return
     commitDomain({
       key: model.key,
       min: visibleDomain.min,
@@ -5082,33 +5128,47 @@ function AttributeColorSection({
               groups={colorMapGroups}
               onChange={onColorMapChange}
             />
-            {model?.kind === 'nominal' && colorMapId === 'random' && (
+            {model?.kind === 'categorical' && colorMapId === 'random' && (
               <Button
                 type="button"
                 variant="outline"
                 size="icon"
                 className="h-9 w-9 shrink-0"
-                onClick={onRerandomizeNominalColors}
-                aria-label="Rerandomize nominal colors"
+                onClick={onRerandomizeCategoricalColors}
+                aria-label="Rerandomize categorical colors"
                 title="Rerandomize colors"
               >
                 <Shuffle className="size-4" />
               </Button>
             )}
+            {canReverseColorMap && (
+              <Button
+                type="button"
+                variant={colorMapReversed ? 'default' : 'outline'}
+                size="icon"
+                className="h-9 w-9 shrink-0"
+                onClick={onToggleColorMapReversed}
+                aria-pressed={colorMapReversed}
+                aria-label="Reverse colormap"
+                title="Reverse colormap"
+              >
+                <ArrowLeftRight className="size-4" />
+              </Button>
+            )}
           </div>
         </div>
 
-        {model?.kind === 'nominal' ? (
-          <NominalAttributeColorSection
+        {model?.kind === 'categorical' ? (
+          <CategoricalAttributeColorSection
             model={model}
             isEditableRandomMap={colorMapId === 'random'}
-            onCustomColorChange={onCustomNominalColorChange}
+            onCustomColorChange={onCustomCategoricalColorChange}
           />
-        ) : model?.kind === 'numeric' && canAdjust && domain && visibleDomain ? (
+        ) : model?.kind === 'continuous' && canAdjust && domain && visibleDomain ? (
           <>
             <div className="space-y-1">
               <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
-                <span>{model.numericCount} colored</span>
+                <span>{model.continuousCount} colored</span>
                 <span>{model.missingCount} missing</span>
               </div>
               <div className="flex h-24 items-end gap-1 rounded-sm border border-border/60 bg-foreground/3 p-2">
@@ -5172,13 +5232,13 @@ function AttributeColorSection({
               <div className="grid grid-cols-2 gap-2">
                 <Input
                   type="number"
-                  value={formatNumericInputValue(visibleDomain.min)}
+                  value={formatContinuousInputValue(visibleDomain.min)}
                   onChange={(event) => updateDomainMin(Number(event.target.value))}
                   aria-label="Attribute color minimum"
                 />
                 <Input
                   type="number"
-                  value={formatNumericInputValue(visibleDomain.max)}
+                  value={formatContinuousInputValue(visibleDomain.max)}
                   onChange={(event) => updateDomainMax(Number(event.target.value))}
                   aria-label="Attribute color maximum"
                 />
@@ -5194,12 +5254,12 @@ function AttributeColorSection({
   )
 }
 
-function NominalAttributeColorSection({
+function CategoricalAttributeColorSection({
   model,
   isEditableRandomMap,
   onCustomColorChange,
 }: {
-  model: NominalAttributeColorModel
+  model: CategoricalAttributeColorModel
   isEditableRandomMap: boolean
   onCustomColorChange: (attributeKey: string, categoryKey: string, color: string) => void
 }) {
@@ -5212,10 +5272,10 @@ function NominalAttributeColorSection({
   const singletonCount = model.categories.filter((category) => category.count === 1).length
   const singletonRatio = model.categories.length > 0 ? singletonCount / model.categories.length : 0
   const isHighCardinality =
-    model.categories.length > NOMINAL_ATTRIBUTE_HIGH_CARDINALITY_LIMIT ||
+    model.categories.length > CATEGORICAL_ATTRIBUTE_HIGH_CARDINALITY_LIMIT ||
     (
-      model.categories.length > NOMINAL_ATTRIBUTE_DISPLAY_LIMIT &&
-      singletonRatio >= NOMINAL_ATTRIBUTE_SINGLETON_RATIO
+      model.categories.length > CATEGORICAL_ATTRIBUTE_DISPLAY_LIMIT &&
+      singletonRatio >= CATEGORICAL_ATTRIBUTE_SINGLETON_RATIO
     )
   const repeatedCategories = sortedCategories.filter((category) => category.count > 1)
 
@@ -5247,7 +5307,7 @@ function NominalAttributeColorSection({
             <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
               Top repeated values
             </p>
-            <NominalCategoryLegend
+            <CategoryLegend
               attributeKey={model.key}
               categories={repeatedCategories.slice(0, 8)}
               isEditable={isEditableRandomMap}
@@ -5256,19 +5316,19 @@ function NominalAttributeColorSection({
           </div>
         ) : (
           <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-3 py-2 text-xs text-muted-foreground">
-            High-cardinality nominal attribute: colors are assigned per value, but the chart is hidden because most values are unique.
+            High-cardinality categorical attribute: colors are assigned per value, but the chart is hidden because most values are unique.
           </div>
         )}
       </div>
     )
   }
 
-  const visibleCategories = sortedCategories.slice(0, NOMINAL_ATTRIBUTE_DISPLAY_LIMIT)
-  const hiddenCategories = sortedCategories.slice(NOMINAL_ATTRIBUTE_DISPLAY_LIMIT)
+  const visibleCategories = sortedCategories.slice(0, CATEGORICAL_ATTRIBUTE_DISPLAY_LIMIT)
+  const hiddenCategories = sortedCategories.slice(CATEGORICAL_ATTRIBUTE_DISPLAY_LIMIT)
   const hiddenCount = hiddenCategories.reduce((sum, category) => sum + category.count, 0)
   const displayCategories: AttributeColorCategory[] = hiddenCategories.length > 0
     ? [
-        ...visibleCategories.slice(0, Math.max(NOMINAL_ATTRIBUTE_DISPLAY_LIMIT - 1, 0)),
+        ...visibleCategories.slice(0, Math.max(CATEGORICAL_ATTRIBUTE_DISPLAY_LIMIT - 1, 0)),
         {
           key: '__other__',
           label: `Other (${hiddenCategories.length} values)`,
@@ -5299,7 +5359,7 @@ function NominalAttributeColorSection({
           />
         ))}
       </div>
-      <NominalCategoryLegend
+      <CategoryLegend
         attributeKey={model.key}
         categories={displayCategories}
         isEditable={isEditableRandomMap}
@@ -5309,7 +5369,7 @@ function NominalAttributeColorSection({
   )
 }
 
-function NominalCategoryLegend({
+function CategoryLegend({
   attributeKey,
   categories,
   isEditable,
@@ -5325,7 +5385,7 @@ function NominalCategoryLegend({
       {categories.map((category) => (
         <div key={category.key} className="grid grid-cols-[0.75rem_minmax(0,1fr)_auto] items-center gap-2 text-xs">
           {isEditable && category.index >= 0 ? (
-            <NominalCategoryColorPicker
+            <CategoryColorPicker
               color={category.color}
               label={category.label}
               onChange={(color) => onCustomColorChange(attributeKey, category.key, color)}
@@ -5347,7 +5407,7 @@ function NominalCategoryLegend({
   )
 }
 
-function NominalCategoryColorPicker({
+function CategoryColorPicker({
   color,
   label,
   onChange,
@@ -5777,9 +5837,9 @@ function MetadataValue({
     )
 
     if (allPrimitive) {
-      const isNumericArray = isNumberArray(value)
+      const isContinuousArray = isNumberArray(value)
       const rendered = value.map((entry) => formatMetadataPrimitive(entry)).join(', ')
-      return <span className={isNumericArray ? 'font-mono text-[12px]' : undefined}>{rendered}</span>
+      return <span className={isContinuousArray ? 'font-mono text-[12px]' : undefined}>{rendered}</span>
     }
 
     return (
@@ -5900,7 +5960,7 @@ function formatDimensionValue(value: number) {
   return value.toFixed(3).replace(/\.?0+$/, '')
 }
 
-function formatNumericInputValue(value: number) {
+function formatContinuousInputValue(value: number) {
   return Number.isInteger(value) ? String(value) : Number(value.toPrecision(8)).toString()
 }
 
@@ -5920,7 +5980,7 @@ function getColorMapPreviewBackground(colorMapId: AttributeColorMapId): string |
     return `linear-gradient(to right, ${continuous.join(', ')})`
   }
 
-  const qualitative = NOMINAL_QUALITATIVE_COLOR_MAPS[colorMapId as QualitativeAttributeColorMapId]
+  const qualitative = QUALITATIVE_COLOR_MAPS[colorMapId as QualitativeAttributeColorMapId]
   if (qualitative) {
     const stops: string[] = []
     qualitative.forEach((color, index) => {
@@ -6008,8 +6068,8 @@ function buildAttributeColorModel(
   inheritFromParents: boolean,
   colorMapId: AttributeColorMapId,
   colorMapColors: readonly string[],
-  nominalColorSeed: number,
-  customNominalColors: Record<string, string>,
+  categoricalColorSeed: number,
+  customCategoricalColors: Record<string, string>,
 ): AttributeColorModel | null {
   if (!dataset || !key) {
     return null
@@ -6017,12 +6077,12 @@ function buildAttributeColorModel(
 
   const valuesByObjectKey: Record<string, number> = {}
   const values: number[] = []
-  const nominalValuesByObjectKey: Record<string, string> = {}
-  const nominalLabelsByKey = new Map<string, string>()
-  const nominalCountsByKey = new Map<string, number>()
+  const categoricalValuesByObjectKey: Record<string, string> = {}
+  const categoricalLabelsByKey = new Map<string, string>()
+  const categoricalCountsByKey = new Map<string, number>()
   let objectCount = 0
   let missingCount = 0
-  let hasNominalValue = false
+  let hasCategoricalValue = false
   let hasNonMissingValue = false
 
   for (const feature of dataset.features) {
@@ -6033,59 +6093,59 @@ function buildAttributeColorModel(
     for (const object of feature.objects) {
       objectCount += 1
       const rawValue = resolveObjectAttribute(object, key, objectById)
-      const value = parseNumericAttributeValue(rawValue)
+      const value = parseContinuousAttributeValue(rawValue)
       const objectKey = viewerObjectKey(feature.id, object.id)
       if (value == null) {
-        const nominalValue = parseNominalAttributeValue(rawValue)
-        if (!nominalValue) {
+        const categoricalValue = parseCategoricalAttributeValue(rawValue)
+        if (!categoricalValue) {
           missingCount += 1
           continue
         }
 
-        hasNominalValue = true
+        hasCategoricalValue = true
         hasNonMissingValue = true
-        nominalValuesByObjectKey[objectKey] = nominalValue.key
-        nominalLabelsByKey.set(nominalValue.key, nominalValue.label)
-        nominalCountsByKey.set(nominalValue.key, (nominalCountsByKey.get(nominalValue.key) ?? 0) + 1)
+        categoricalValuesByObjectKey[objectKey] = categoricalValue.key
+        categoricalLabelsByKey.set(categoricalValue.key, categoricalValue.label)
+        categoricalCountsByKey.set(categoricalValue.key, (categoricalCountsByKey.get(categoricalValue.key) ?? 0) + 1)
         continue
       }
 
       hasNonMissingValue = true
       valuesByObjectKey[objectKey] = value
       values.push(value)
-      const nominalValue = parseNominalAttributeValue(rawValue)
-      if (nominalValue) {
-        nominalValuesByObjectKey[objectKey] = nominalValue.key
-        nominalLabelsByKey.set(nominalValue.key, nominalValue.label)
-        nominalCountsByKey.set(nominalValue.key, (nominalCountsByKey.get(nominalValue.key) ?? 0) + 1)
+      const categoricalValue = parseCategoricalAttributeValue(rawValue)
+      if (categoricalValue) {
+        categoricalValuesByObjectKey[objectKey] = categoricalValue.key
+        categoricalLabelsByKey.set(categoricalValue.key, categoricalValue.label)
+        categoricalCountsByKey.set(categoricalValue.key, (categoricalCountsByKey.get(categoricalValue.key) ?? 0) + 1)
       }
     }
   }
 
-  if (hasNominalValue) {
-    return buildNominalAttributeColorModel({
+  if (hasCategoricalValue) {
+    return buildCategoricalAttributeColorModel({
       key,
-      nominalValuesByObjectKey,
-      nominalLabelsByKey,
-      nominalCountsByKey,
+      categoricalValuesByObjectKey,
+      categoricalLabelsByKey,
+      categoricalCountsByKey,
       missingCount,
       objectCount,
       colorMapId,
       colorMapColors,
-      nominalColorSeed,
-      customNominalColors,
+      categoricalColorSeed,
+      customCategoricalColors,
     })
   }
 
   if (values.length === 0) {
     return {
-      kind: 'numeric',
+      kind: 'continuous',
       key,
       valuesByObjectKey,
       values,
       dataMin: 0,
       dataMax: 1,
-      numericCount: 0,
+      continuousCount: 0,
       missingCount: hasNonMissingValue ? missingCount : objectCount,
       objectCount,
       bins: [],
@@ -6097,63 +6157,63 @@ function buildAttributeColorModel(
   const bins = buildAttributeColorBins(values, dataMin, dataMax, colorMapColors)
 
   return {
-    kind: 'numeric',
+    kind: 'continuous',
     key,
     valuesByObjectKey,
     values,
     dataMin,
     dataMax,
-    numericCount: values.length,
+    continuousCount: values.length,
     missingCount,
     objectCount,
     bins,
   }
 }
 
-function buildNominalAttributeColorModel({
+function buildCategoricalAttributeColorModel({
   key,
-  nominalValuesByObjectKey,
-  nominalLabelsByKey,
-  nominalCountsByKey,
+  categoricalValuesByObjectKey,
+  categoricalLabelsByKey,
+  categoricalCountsByKey,
   missingCount,
   objectCount,
   colorMapId,
   colorMapColors,
-  nominalColorSeed,
-  customNominalColors,
+  categoricalColorSeed,
+  customCategoricalColors,
 }: {
   key: string
-  nominalValuesByObjectKey: Record<string, string>
-  nominalLabelsByKey: Map<string, string>
-  nominalCountsByKey: Map<string, number>
+  categoricalValuesByObjectKey: Record<string, string>
+  categoricalLabelsByKey: Map<string, string>
+  categoricalCountsByKey: Map<string, number>
   missingCount: number
   objectCount: number
   colorMapId: AttributeColorMapId
   colorMapColors: readonly string[]
-  nominalColorSeed: number
-  customNominalColors: Record<string, string>
-}): NominalAttributeColorModel {
-  const sortedCategoryKeys = [...nominalCountsByKey.keys()].sort((left, right) =>
-    (nominalLabelsByKey.get(left) ?? left).localeCompare(nominalLabelsByKey.get(right) ?? right, undefined, {
+  categoricalColorSeed: number
+  customCategoricalColors: Record<string, string>
+}): CategoricalAttributeColorModel {
+  const sortedCategoryKeys = [...categoricalCountsByKey.keys()].sort((left, right) =>
+    (categoricalLabelsByKey.get(left) ?? left).localeCompare(categoricalLabelsByKey.get(right) ?? right, undefined, {
       numeric: true,
       sensitivity: 'base',
     }),
   )
   const categories = sortedCategoryKeys.map((categoryKey, index) => {
-    const label = nominalLabelsByKey.get(categoryKey) ?? categoryKey
+    const label = categoricalLabelsByKey.get(categoryKey) ?? categoryKey
     return {
       key: categoryKey,
       label,
-      count: nominalCountsByKey.get(categoryKey) ?? 0,
-      color: getNominalAttributeColor(
+      count: categoricalCountsByKey.get(categoryKey) ?? 0,
+      color: getCategoricalAttributeColor(
         key,
         categoryKey,
         index,
         sortedCategoryKeys.length,
         colorMapId,
         colorMapColors,
-        nominalColorSeed,
-        customNominalColors[categoryKey],
+        categoricalColorSeed,
+        customCategoricalColors[categoryKey],
       ),
       index,
     }
@@ -6162,7 +6222,7 @@ function buildNominalAttributeColorModel({
   const valuesByObjectKey: Record<string, number> = {}
   const directColorsByObjectKey: Record<string, string> = {}
 
-  for (const [objectKey, categoryKey] of Object.entries(nominalValuesByObjectKey)) {
+  for (const [objectKey, categoryKey] of Object.entries(categoricalValuesByObjectKey)) {
     const category = categoryByKey.get(categoryKey)
     if (!category) {
       continue
@@ -6173,7 +6233,7 @@ function buildNominalAttributeColorModel({
   }
 
   return {
-    kind: 'nominal',
+    kind: 'categorical',
     key,
     valuesByObjectKey,
     directColorsByObjectKey,
@@ -6184,7 +6244,7 @@ function buildNominalAttributeColorModel({
   }
 }
 
-function getDefaultAttributeColorDomain(model: NumericAttributeColorModel): AttributeColorDomain {
+function getDefaultAttributeColorDomain(model: ContinuousAttributeColorModel): AttributeColorDomain {
   return {
     key: model.key,
     min: model.dataMin,
@@ -6261,11 +6321,11 @@ function isMissingAttributeValue(value: unknown) {
   return value == null || (typeof value === 'string' && value.trim().length === 0)
 }
 
-function parseNumericAttributeValue(value: unknown) {
+function parseContinuousAttributeValue(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
-function parseNominalAttributeValue(value: unknown): { key: string; label: string } | null {
+function parseCategoricalAttributeValue(value: unknown): { key: string; label: string } | null {
   if (isMissingAttributeValue(value)) {
     return null
   }
@@ -6289,21 +6349,21 @@ function parseNominalAttributeValue(value: unknown): { key: string; label: strin
   return { key: `value:${label}`, label }
 }
 
-function getNominalAttributeColor(
+function getCategoricalAttributeColor(
   attributeKey: string,
   categoryKey: string,
   categoryIndex: number,
   categoryCount: number,
   colorMapId: AttributeColorMapId,
   colorMapColors: readonly string[],
-  nominalColorSeed: number,
+  categoricalColorSeed: number,
   customColor: string | undefined,
 ) {
   if (colorMapId === 'random') {
-    return customColor ?? randomColorFromString(`${nominalColorSeed}:${attributeKey}:${categoryKey}`)
+    return customColor ?? randomColorFromString(`${categoricalColorSeed}:${attributeKey}:${categoryKey}`)
   }
 
-  const qualitativeColors = NOMINAL_QUALITATIVE_COLOR_MAPS[colorMapId as QualitativeAttributeColorMapId]
+  const qualitativeColors = QUALITATIVE_COLOR_MAPS[colorMapId as QualitativeAttributeColorMapId]
   if (qualitativeColors) {
     return qualitativeColors[categoryIndex % qualitativeColors.length] ?? ATTRIBUTE_COLOR_MISSING
   }

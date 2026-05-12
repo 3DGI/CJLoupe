@@ -2,6 +2,8 @@
 
 ## Unreleased
 - Fix issue with colormap clamping past max value
+- Make pinned attributes remember selected colormap
+- Add button to reverse colormap
 - Improve performance for large datasets by batching into fewer threejs objects
 - Performance improvements for editing objects in large datasets
 - Add jump flood outline rendering for selected object/face
