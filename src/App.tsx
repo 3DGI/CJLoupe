@@ -1346,7 +1346,6 @@ function App() {
       if (next) {
         preInspectPickingModeRef.current = pickingMode
         setIsolateSelectedFeature(true)
-        setShowSemanticSurfaces(false)
         setPickingMode(inspectPickingModeRef.current)
       } else {
         inspectPickingModeRef.current = pickingMode
