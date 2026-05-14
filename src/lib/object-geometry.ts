@@ -26,7 +26,7 @@ export function collectAvailableLods(dataset: ViewerDataset | null) {
     }
   }
 
-  return [...lods].sort(compareLods)
+  return Array.from(lods).toSorted(compareLods)
 }
 
 export function getObjectGeometryByIndex(

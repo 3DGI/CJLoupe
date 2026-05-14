@@ -360,7 +360,7 @@ function App() {
 
     const pinnedSet = new Set(pinnedAttributeKeys)
     const optionMap = new Map<string, { key: string; isInherited: boolean }>()
-    for (const key of Object.keys(activeObject.attributes).sort((left, right) => left.localeCompare(right))) {
+    for (const key of Object.keys(activeObject.attributes).toSorted((left, right) => left.localeCompare(right))) {
       if (!pinnedSet.has(key)) {
         optionMap.set(key, { key, isInherited: false })
       }
@@ -376,7 +376,7 @@ function App() {
       }
     }
 
-    return [...optionMap.values()].sort((left, right) =>
+    return Array.from(optionMap.values()).toSorted((left, right) =>
       Number(left.isInherited) - Number(right.isInherited) ||
       left.key.localeCompare(right.key, undefined, { numeric: true, sensitivity: 'base' }),
     )
@@ -2214,7 +2214,7 @@ function App() {
                                                   <div className="flex min-w-0 items-start justify-between gap-3">
                                                     <div className="flex min-w-0 items-start gap-2.5">
                                                       <span
-                                                        className="mt-1 h-3 w-3 shrink-0 rounded-sm"
+                                                        className="mt-1 size-3 shrink-0 rounded-sm"
                                                         style={{ backgroundColor: color }}
                                                       />
                                                       <div className="min-w-0 overflow-hidden">
@@ -2250,7 +2250,7 @@ function App() {
                                                   type="button"
                                                   variant="ghost"
                                                   size="icon"
-                                                  className="h-8 w-8 shrink-0 self-center"
+                                                  className="size-8 shrink-0 self-center"
                                                   aria-label={`Center ${error.description}`}
                                                   title={`Center ${error.description}`}
                                                   onClick={() => centerValidationError(error)}
@@ -2676,7 +2676,7 @@ function App() {
                   Loading
                 </p>
                 <p className="mt-2 text-sm leading-6 text-foreground/92">
-                  Loading...
+                  Loading…
                 </p>
               </div>
             </div>
@@ -3162,7 +3162,7 @@ function DesktopViewportStatusBar({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-4.5 w-4.5 shrink-0 rounded-[3px] p-0 text-primary hover:bg-primary/12 hover:text-primary"
+                className="size-4.5 shrink-0 rounded-[3px] p-0 text-primary hover:bg-primary/12 hover:text-primary"
                 aria-label={`Copy full object ID ${activeObjectId}`}
                 title={didCopyObjectId ? 'Copied full object ID' : `Copy full object ID: ${activeObjectId}`}
                 onClick={() => {
@@ -3271,9 +3271,12 @@ function formatObjectDisplayId(objectId: string) {
 }
 
 function collectTreeRootIds(objects: ViewerCityObject[], objectById: Map<string, ViewerCityObject>) {
-  const roots = objects
-    .filter((object) => object.parentIds.length === 0 || object.parentIds.every((parentId) => !objectById.has(parentId)))
-    .map((object) => object.id)
+  const roots: string[] = []
+  for (const object of objects) {
+    if (object.parentIds.length === 0 || object.parentIds.every((parentId) => !objectById.has(parentId))) {
+      roots.push(object.id)
+    }
+  }
 
   return roots.length > 0 ? roots : objects.map((object) => object.id)
 }
@@ -3352,21 +3355,27 @@ function getObjectGeometryChips(geometries: ViewerObjectGeometry[]) {
 }
 
 function getObjectGeometryTypeLabel(geometries: ViewerObjectGeometry[]) {
-  const types = [...new Set(geometries.map((geometry) => geometry.geometryType).filter(Boolean))]
+  const types = new Set<string>()
+  for (const geometry of geometries) {
+    if (geometry.geometryType) {
+      types.add(geometry.geometryType)
+    }
+  }
+  const typeList = Array.from(types)
 
-  if (types.length === 0) {
+  if (typeList.length === 0) {
     return null
   }
 
-  if (types.length === 1) {
-    return types[0]
+  if (typeList.length === 1) {
+    return typeList[0]
   }
 
-  if (types.length === 2) {
-    return `${types[0]} + ${types[1]}`
+  if (typeList.length === 2) {
+    return `${typeList[0]} + ${typeList[1]}`
   }
 
-  return `${types[0]} +${types.length - 1}`
+  return `${typeList[0]} +${typeList.length - 1}`
 }
 
 function ObjectTreeIndicators({
@@ -3634,7 +3643,7 @@ function ViewportGeometryModeBar({
   ]
 
   return (
-    <div className="floating-panel pointer-events-auto flex flex-col items-stretch gap-1.5 rounded-sm border px-2 py-2">
+    <div className="floating-panel pointer-events-auto flex flex-col items-stretch gap-1.5 rounded-sm border p-2">
       <ViewportControlTooltip show={showTooltips} label="LoD" hotkey="L">
         <div className="flex items-center justify-center">
           <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">LoD</span>
@@ -3698,7 +3707,7 @@ function CopyIdButton({
         type="button"
         variant="ghost"
         size="icon"
-        className="h-5 w-5 rounded-[3px] text-muted-foreground hover:text-foreground"
+        className="size-5 rounded-[3px] text-muted-foreground hover:text-foreground"
         aria-label={`Copy full ${label} ${value}`}
         title={didCopy ? `Copied full ${label}` : `Copy full ${label}: ${value}`}
         onClick={(event) => {
@@ -3848,7 +3857,7 @@ const FeatureListRow = memo(function FeatureListRow({
             type="button"
             variant="ghost"
             size="icon"
-            className="mt-0.5 h-7 w-7 shrink-0 self-start"
+            className="mt-0.5 size-7 shrink-0 self-start"
             aria-label={`Center ${feature.label}`}
             title={`Center ${feature.label}`}
             onClick={(event) => {
@@ -4908,7 +4917,7 @@ function PinnedAttributesInfoSection({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-5 w-5 shrink-0 rounded-[3px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  className="size-5 shrink-0 rounded-[3px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                   onClick={() => onUnpinAttribute(entry.key)}
                   aria-label={`Unpin ${entry.key}`}
                   title={`Unpin ${entry.key}`}
@@ -5159,7 +5168,7 @@ function AttributeColorSection({
                 type="button"
                 variant="outline"
                 size="icon"
-                className="h-9 w-9 shrink-0"
+                className="size-9 shrink-0"
                 onClick={onRerandomizeCategoricalColors}
                 aria-label="Rerandomize categorical colors"
                 title="Rerandomize colors"
@@ -5172,7 +5181,7 @@ function AttributeColorSection({
                 type="button"
                 variant={colorMapReversed ? 'default' : 'outline'}
                 size="icon"
-                className="h-9 w-9 shrink-0"
+                className="size-9 shrink-0"
                 onClick={onToggleColorMapReversed}
                 aria-pressed={colorMapReversed}
                 aria-label="Reverse colormap"
@@ -5289,7 +5298,7 @@ function CategoricalAttributeColorSection({
   isEditableRandomMap: boolean
   onCustomColorChange: (attributeKey: string, categoryKey: string, color: string) => void
 }) {
-  const sortedCategories = [...model.categories].sort((left, right) =>
+  const sortedCategories = model.categories.toSorted((left, right) =>
     right.count - left.count || left.label.localeCompare(right.label, undefined, {
       numeric: true,
       sensitivity: 'base',
@@ -5418,7 +5427,7 @@ function CategoryLegend({
             />
           ) : (
             <span
-              className="h-3 w-3 rounded-[2px]"
+              className="size-3 rounded-[2px]"
               style={{ backgroundColor: category.color }}
               aria-hidden="true"
             />
@@ -5451,7 +5460,7 @@ function CategoryColorPicker({
           type="button"
           variant="outline"
           size="icon"
-          className="h-4 w-4 shrink-0 rounded-[2px] border-border p-0"
+          className="size-4 shrink-0 rounded-[2px] border-border p-0"
           style={{ backgroundColor: normalizedColor }}
           aria-label={`Set color for ${label}`}
           title={`Set color for ${label}`}
@@ -5633,7 +5642,7 @@ function InfoDialog({
     : []
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center overflow-y-auto bg-background/42 px-4 py-4 backdrop-blur-md">
+    <div className="absolute inset-0 z-50 flex items-center justify-center overflow-y-auto bg-background/42 p-4 backdrop-blur-md">
       <div
         role="dialog"
         aria-modal="true"
@@ -5744,7 +5753,7 @@ function ChangelogDialog({
   const sections = parseChangelog(changelog)
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center overflow-y-auto bg-background/42 px-4 py-4 backdrop-blur-md">
+    <div className="absolute inset-0 z-50 flex items-center justify-center overflow-y-auto bg-background/42 p-4 backdrop-blur-md">
       <div
         role="dialog"
         aria-modal="true"
@@ -6085,7 +6094,7 @@ function collectGeometryVertexIndices(polygons: PolygonRings[]) {
     }
   }
 
-  return [...indices].sort((left, right) => left - right)
+  return Array.from(indices).toSorted((left, right) => left - right)
 }
 
 function buildAttributeColorModel(
@@ -6219,7 +6228,7 @@ function buildCategoricalAttributeColorModel({
   categoricalColorSeed: number
   customCategoricalColors: Record<string, string>
 }): CategoricalAttributeColorModel {
-  const sortedCategoryKeys = [...categoricalCountsByKey.keys()].sort((left, right) =>
+  const sortedCategoryKeys = Array.from(categoricalCountsByKey.keys()).toSorted((left, right) =>
     (categoricalLabelsByKey.get(left) ?? left).localeCompare(categoricalLabelsByKey.get(right) ?? right, undefined, {
       numeric: true,
       sensitivity: 'base',

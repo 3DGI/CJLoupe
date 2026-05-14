@@ -211,9 +211,13 @@ export function parseCityJsonSequence(text: string, sourceName: string): ViewerD
       continue
     }
 
+    const objectsById = new Map(objects)
     const roots = objects.filter(([, object]) => !object.parents || object.parents.length === 0)
+    const featureRootObject = feature.id ? objectsById.get(feature.id) : undefined
     const rootEntry =
-      objects.find(([id]) => id === feature.id) ?? roots[0] ?? objects[0]
+      (feature.id && featureRootObject
+        ? ([feature.id, featureRootObject] as const)
+        : null) ?? roots[0] ?? objects[0]
     const [rootObjectId, rootObject] = rootEntry
     const viewerFeature = createViewerFeature({
       featureId: feature.id ?? rootObjectId,
@@ -508,19 +512,26 @@ function createRenderableObjects(cityObjects: Record<string, CityJsonObject>) {
   })
 
   const parsedById = new Map(objects.map((entry) => [entry.id, entry]))
-  const renderableIds = new Set(
-    objects
-      .filter((entry) => entry.parsed.geometries.length > 0)
-      .map((entry) => entry.id),
-  )
-  const renderableObjects = objects
-    .filter((entry) => entry.parsed.geometries.length > 0)
-    .map((entry) => ({
+  const renderableIds = new Set<string>()
+  for (const entry of objects) {
+    if (entry.parsed.geometries.length > 0) {
+      renderableIds.add(entry.id)
+    }
+  }
+
+  const renderableObjects: ViewerCityObject[] = []
+  for (const entry of objects) {
+    if (entry.parsed.geometries.length === 0) {
+      continue
+    }
+
+    renderableObjects.push({
       ...entry.parsed,
       hasRenderableChildren: hasRenderableChild(entry.object, parsedById),
       parentIds: (entry.object.parents ?? []).filter((parentId) => renderableIds.has(parentId)),
       childIds: (entry.object.children ?? []).filter((childId) => renderableIds.has(childId)),
-    }))
+    })
+  }
 
   const renderableLeafObjects = renderableObjects.filter((entry) => !entry.hasRenderableChildren)
   const renderableParentObjects = renderableObjects.filter((entry) => entry.hasRenderableChildren)
@@ -532,9 +543,12 @@ function createRenderableObjects(cityObjects: Record<string, CityJsonObject>) {
 
 function collectFeatureRootIds(cityObjects: Record<string, CityJsonObject>) {
   const objectIds = new Set(Object.keys(cityObjects))
-  const rootIds = Object.entries(cityObjects)
-    .filter(([, object]) => !(object.parents ?? []).some((parentId) => objectIds.has(parentId)))
-    .map(([id]) => id)
+  const rootIds: string[] = []
+  for (const [id, object] of Object.entries(cityObjects)) {
+    if (!(object.parents ?? []).some((parentId) => objectIds.has(parentId))) {
+      rootIds.push(id)
+    }
+  }
 
   return rootIds.length > 0 ? rootIds : Object.keys(cityObjects)
 }
@@ -574,7 +588,7 @@ function localizeCityObjects(
 ) {
   const globalVertexIndices = collectCityObjectVertexIndices(cityObjects)
     .filter((index) => index >= 0 && index < vertices.length)
-  const localVertexIndices = [...new Set(globalVertexIndices)].sort((left, right) => left - right)
+  const localVertexIndices = Array.from(new Set(globalVertexIndices)).toSorted((left, right) => left - right)
   const localIndexByGlobalIndex = new Map(
     localVertexIndices.map((globalIndex, localIndex) => [globalIndex, localIndex]),
   )
@@ -808,7 +822,7 @@ function uniqueVertexIndices(polygons: PolygonRings[]) {
     }
   }
 
-  return [...indices].sort((left, right) => left - right)
+  return Array.from(indices).toSorted((left, right) => left - right)
 }
 
 function deriveFeatureLabel(featureId: string) {

@@ -1123,7 +1123,7 @@ function CityViewport({
     resizeObserver.observe(container)
     window.addEventListener('resize', handleResize)
     renderer.domElement.addEventListener('pointerdown', handlePointerDown)
-    renderer.domElement.addEventListener('wheel', handleWheel)
+    renderer.domElement.addEventListener('wheel', handleWheel, { passive: true })
     renderer.domElement.addEventListener('click', handleClick)
     renderer.domElement.addEventListener('dblclick', handleDoubleClick)
     renderer.domElement.addEventListener('touchmove', preventMultiTouchBrowserGesture, { passive: false })
@@ -1895,7 +1895,7 @@ function buildSpatialBatches(
 }
 
 function chunkBatchItems(items: BatchBuildItem[]) {
-  const sortedItems = [...items].sort((left, right) =>
+  const sortedItems = items.toSorted((left, right) =>
     left.tileKey.localeCompare(right.tileKey) ||
     left.featureId.localeCompare(right.featureId, undefined, { numeric: true, sensitivity: 'base' }) ||
     left.objectId.localeCompare(right.objectId, undefined, { numeric: true, sensitivity: 'base' }),
@@ -2013,8 +2013,17 @@ function rebuildFeatureGeometry(
       continue
     }
 
-    if (changedVertexIndex != null && !objectGeometry.vertexIndices.includes(changedVertexIndex)) {
-      continue
+    if (changedVertexIndex != null) {
+      let hasChangedVertex = false
+      for (const vertexIndex of objectGeometry.vertexIndices) {
+        if (vertexIndex === changedVertexIndex) {
+          hasChangedVertex = true
+          break
+        }
+      }
+      if (!hasChangedVertex) {
+        continue
+      }
     }
 
     const objectKey = viewerObjectKey(featureId, object.id)
@@ -2108,10 +2117,12 @@ function updateSelectionSurfacePresentation(
     affectedKeys.add(nextObjectKey)
   }
 
+  const featureById = new Map(data.features.map((feature) => [feature.id, feature]))
   for (const key of affectedKeys) {
     const [featureId, objectId] = key.split('::')
-    const feature = data.features.find((candidate) => candidate.id === featureId)
-    const object = feature?.objects.find((candidate) => candidate.id === objectId)
+    const feature = featureById.get(featureId)
+    const objectById = feature ? new Map(feature.objects.map((object) => [object.id, object])) : null
+    const object = objectById?.get(objectId)
     if (!feature || !object) {
       continue
     }
@@ -2412,9 +2423,13 @@ function preparePolygonGeometry(
   vertices: Vec3[],
   allowTriangleNormals: boolean,
 ) {
-  const rings = polygon
-    .map((ring) => removeClosingDuplicateVertex(collectRingVertices(ring, vertices)))
-    .filter((ring) => ring.length >= 3)
+  const rings: Vec3[][] = []
+  for (const ring of polygon) {
+    const preparedRing = removeClosingDuplicateVertex(collectRingVertices(ring, vertices))
+    if (preparedRing.length >= 3) {
+      rings.push(preparedRing)
+    }
+  }
 
   if (rings.length === 0) {
     return {
@@ -2664,7 +2679,7 @@ function buildGroupedObjectGeometry(
 
   const allIndices: number[] = []
   const triangleFaceIndices: number[] = []
-  const sortedKeys = [...groupedIndices.keys()].sort((a, b) => a - b)
+  const sortedKeys = Array.from(groupedIndices.keys()).toSorted((a, b) => a - b)
   for (const key of sortedKeys) {
     const groupIndices = groupedIndices.get(key) ?? []
     const groupFaceIndices = triangleFaceIndicesByGroup.get(key) ?? []
@@ -3077,22 +3092,23 @@ function applyMeshSelectionAppearance(
   const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
   for (const material of materials) {
     const mat = material as THREE.MeshStandardMaterial
-    if (mat.userData.isError) {
-      if (typeof mat.userData.errorColor === 'string') {
-        mat.color.set(mat.userData.errorColor)
+    const { color, emissive, userData } = mat
+    if (userData.isError) {
+      if (typeof userData.errorColor === 'string') {
+        color.set(userData.errorColor)
       }
-      mat.emissive.set(palette.errorEmissive)
+      emissive.set(palette.errorEmissive)
       mat.emissiveIntensity = palette.errorIntensity
-    } else if (mat.userData.isSemantic || mat.userData.isSemanticBase) {
-      if (typeof mat.userData.semanticColor === 'string') {
-        mat.color.set(mat.userData.semanticColor)
+    } else if (userData.isSemantic || userData.isSemanticBase) {
+      if (typeof userData.semanticColor === 'string') {
+        color.set(userData.semanticColor)
       }
-      mat.emissive.set('#000000')
+      emissive.set('#000000')
       mat.emissiveIntensity = 0
       mat.roughness = 0.72
     } else {
-      mat.color.set(baseColor)
-      mat.emissive.set(palette.baseEmissive)
+      color.set(baseColor)
+      emissive.set(palette.baseEmissive)
       mat.emissiveIntensity = palette.baseEmissiveIntensity
       mat.roughness = 0.72
     }
