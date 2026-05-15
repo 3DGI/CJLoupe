@@ -1409,7 +1409,7 @@ function App() {
   const handleSelectFeature = useCallback((
     featureId: string,
     objectId?: string | null,
-    options?: { preserveEditMode?: boolean; openMobileDetails?: boolean },
+    options?: { preserveEditMode?: boolean },
   ) => {
     const feature = featureMap.get(featureId)
     if (!feature) {
@@ -1429,9 +1429,6 @@ function App() {
         setShowVertexGizmo(false)
       }
 
-      if (isMobileLayout && options?.openMobileDetails) {
-        setMobilePanelView('details')
-      }
       setSelectedFeatureId(featureId)
       setActiveObjectId(objectId ?? feature.objects[0]?.id ?? null)
       setActiveGeometryIndex(null)
@@ -1440,7 +1437,7 @@ function App() {
       setSelectedVertexIndex(null)
       setSelectedFaceVertexEntryIndex(null)
     })
-  }, [editMode, featureMap, isolateSelectedFeature, isMobileLayout, selectedFeatureId])
+  }, [editMode, featureMap, isolateSelectedFeature, selectedFeatureId])
 
   const handleClearSelection = useCallback(() => {
     startTransition(() => {
@@ -1472,7 +1469,7 @@ function App() {
     featureId: string,
     objectId?: string | null,
   ) => {
-    handleSelectFeature(featureId, objectId, { openMobileDetails: true })
+    handleSelectFeature(featureId, objectId)
   }, [handleSelectFeature])
 
   const handleSelectFace = useCallback((faceIndex: number | null) => {
@@ -2496,7 +2493,7 @@ function App() {
           </div>
         )}
 
-        {isMobileLayout && Boolean(selectedFeature) && !editMode && (
+        {isMobileLayout && !editMode && (
           <div
             className={cn(
               'pointer-events-none absolute z-10',
