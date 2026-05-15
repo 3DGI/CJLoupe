@@ -51,3 +51,25 @@ export async function measureAsyncPerformance<T>(
     perf.clearMarks(endMark)
   }
 }
+
+export function nowPerformance() {
+  return globalThis.performance?.now?.() ?? Date.now()
+}
+
+export function recordPerformanceMeasure(name: string, duration: number) {
+  const perf = getPerformance()
+  if (!perf) {
+    return
+  }
+
+  const id = measureId++
+  const startMark = `${name}:start:${id}`
+  const endMark = `${name}:end:${id}`
+  const startTime = Math.max(perf.now() - duration, 0)
+
+  perf.mark(startMark, { startTime })
+  perf.mark(endMark)
+  perf.measure(name, startMark, endMark)
+  perf.clearMarks(startMark)
+  perf.clearMarks(endMark)
+}

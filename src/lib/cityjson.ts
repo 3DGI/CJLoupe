@@ -8,7 +8,12 @@ import type {
   ViewerSemanticSurface,
   ViewerValidationError,
 } from '@/types/cityjson'
-import { measureAsyncPerformance, measurePerformance } from '@/lib/performance'
+import {
+  measureAsyncPerformance,
+  measurePerformance,
+  nowPerformance,
+  recordPerformanceMeasure,
+} from '@/lib/performance'
 
 type CityJsonTransform = {
   scale?: number[]
@@ -82,10 +87,14 @@ type Val3dityReport = {
 }
 
 export async function loadCityJsonSequenceFromUrl(url: string, sourceName: string) {
-  return loadCityJsonFromUrl(url, sourceName)
+  return loadCityJsonFromUrl(url, sourceName, { cityJsonKind: 'sequence' })
 }
 
-export async function loadCityJsonFromUrl(url: string, sourceName: string) {
+export async function loadCityJsonFromUrl(
+  url: string,
+  sourceName: string,
+  options?: { cityJsonKind?: 'auto' | 'document' | 'sequence' },
+) {
   return measureAsyncPerformance('cjvis:cityjson:load-url-total', async () => {
     const response = await measureAsyncPerformance('cjvis:cityjson:fetch-url', () => fetch(url))
     if (!response.ok) {
@@ -93,15 +102,18 @@ export async function loadCityJsonFromUrl(url: string, sourceName: string) {
     }
 
     const text = await measureAsyncPerformance('cjvis:cityjson:read-url-text', () => response.text())
-    return parseCityJson(text, sourceName)
+    return parseCityJsonForSource(text, sourceName, options?.cityJsonKind ?? inferCityJsonKindFromSource(url))
   })
 }
 
 export async function loadCityJsonSequenceFromFile(file: File) {
-  return loadCityJsonFromFile(file)
+  return loadCityJsonFromFile(file, { cityJsonKind: 'sequence' })
 }
 
-export async function loadCityJsonFromFile(file: File) {
+export async function loadCityJsonFromFile(
+  file: File,
+  options?: { cityJsonKind?: 'auto' | 'document' | 'sequence' },
+) {
   return measureAsyncPerformance('cjvis:cityjson:load-file-total', async () => {
     let text: string
     try {
@@ -119,7 +131,7 @@ export async function loadCityJsonFromFile(file: File) {
       )
     }
 
-    return parseCityJson(text, file.name)
+    return parseCityJsonForSource(text, file.name, options?.cityJsonKind ?? inferCityJsonKindFromSource(file.name))
   })
 }
 
@@ -155,10 +167,33 @@ function hasNonWhitespace(text: string) {
   return /\S/.test(text)
 }
 
+function inferCityJsonKindFromSource(source: string): 'auto' | 'sequence' {
+  const normalized = source
+    .split(/[?#]/, 1)[0]
+    .toLowerCase()
+    .replace(/\.gz$/, '')
+
+  return normalized.endsWith('.jsonl') || normalized.endsWith('.city.jsonl')
+    ? 'sequence'
+    : 'auto'
+}
+
 export function parseCityJson(text: string, sourceName: string): ViewerDataset {
+  return parseCityJsonForSource(text, sourceName, 'auto')
+}
+
+function parseCityJsonForSource(
+  text: string,
+  sourceName: string,
+  cityJsonKind: 'auto' | 'document' | 'sequence',
+): ViewerDataset {
   return measurePerformance('cjvis:cityjson:parse-total', () => {
     if (!hasNonWhitespace(text)) {
       throw new Error('CityJSON input is empty.')
+    }
+
+    if (cityJsonKind === 'sequence') {
+      return parseCityJsonSequence(text, sourceName)
     }
 
     try {
@@ -172,6 +207,10 @@ export function parseCityJson(text: string, sourceName: string): ViewerDataset {
         return parseCityJsonDocument(parsed as CityJsonDocument, sourceName)
       }
 
+      if (cityJsonKind === 'document') {
+        throw new Error('Expected a CityJSON object.')
+      }
+
       if (type === 'CityJSONFeature') {
         throw new Error('Expected a CityJSON feature sequence with a header line before feature objects.')
       }
@@ -181,6 +220,10 @@ export function parseCityJson(text: string, sourceName: string): ViewerDataset {
       if (!(caughtError instanceof SyntaxError)) {
         throw caughtError
       }
+    }
+
+    if (cityJsonKind === 'document') {
+      throw new Error('Expected a CityJSON object.')
     }
 
     return parseCityJsonSequence(text, sourceName)
@@ -203,20 +246,32 @@ export function parseCityJsonSequence(text: string, sourceName: string): ViewerD
     const features: ViewerFeature[] = []
 
     measurePerformance('cjvis:cityjsonseq:build-features', () => {
+      let lineParseDuration = 0
+      let vertexTransformDuration = 0
+      let rootSelectionDuration = 0
+      let viewerFeatureDuration = 0
+
       for (let lineIndex = headerLineIndex + 1; lineIndex < lines.length; lineIndex += 1) {
         const line = lines[lineIndex]
         if (!hasNonWhitespace(line)) {
           continue
         }
 
+        let startedAt = nowPerformance()
         const feature = JSON.parse(line) as CityJsonFeature
+        lineParseDuration += nowPerformance() - startedAt
         if (feature.type !== 'CityJSONFeature' || !feature.CityObjects || !feature.vertices) {
           continue
         }
 
+        startedAt = nowPerformance()
         const worldVertices = transformVerticesInPlace(feature.vertices, transform)
+        vertexTransformDuration += nowPerformance() - startedAt
+
+        startedAt = nowPerformance()
         const objects = Object.entries(feature.CityObjects)
         if (objects.length === 0) {
+          rootSelectionDuration += nowPerformance() - startedAt
           continue
         }
 
@@ -228,6 +283,9 @@ export function parseCityJsonSequence(text: string, sourceName: string): ViewerD
             ? ([feature.id, featureRootObject] as const)
             : null) ?? roots[0] ?? objects[0]
         const [rootObjectId, rootObject] = rootEntry
+        rootSelectionDuration += nowPerformance() - startedAt
+
+        startedAt = nowPerformance()
         const viewerFeature = createViewerFeature({
           featureId: feature.id ?? rootObjectId,
           rootObjectId,
@@ -235,11 +293,17 @@ export function parseCityJsonSequence(text: string, sourceName: string): ViewerD
           cityObjects: feature.CityObjects,
           vertices: worldVertices,
         })
+        viewerFeatureDuration += nowPerformance() - startedAt
 
         if (viewerFeature) {
           features.push(viewerFeature)
         }
       }
+
+      recordPerformanceMeasure('cjvis:cityjsonseq:parse-feature-lines', lineParseDuration)
+      recordPerformanceMeasure('cjvis:cityjsonseq:transform-feature-vertices', vertexTransformDuration)
+      recordPerformanceMeasure('cjvis:cityjsonseq:select-feature-roots', rootSelectionDuration)
+      recordPerformanceMeasure('cjvis:cityjsonseq:create-viewer-features', viewerFeatureDuration)
     })
 
     return measurePerformance('cjvis:cityjson:create-viewer-dataset', () =>

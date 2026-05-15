@@ -220,6 +220,7 @@ function App() {
   const attributeColorMapReversedByKeyRef = useRef<Map<string, boolean>>(new Map())
   const preInspectPickingModeRef = useRef<ViewerPickingMode>('object')
   const inspectPickingModeRef = useRef<ViewerPickingMode>('face')
+  const pendingViewportDatasetRef = useRef<ViewerDataset | null>(null)
 
   const [dataset, setDataset] = useState<ViewerDataset | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -773,6 +774,25 @@ function App() {
     return () => window.removeEventListener('keydown', handleEscape)
   }, [isChangelogDialogOpen])
 
+  const waitForViewportDataset = useCallback((nextDataset: ViewerDataset) => {
+    pendingViewportDatasetRef.current = nextDataset
+  }, [])
+
+  const finishLoadingIfViewportIsReady = useCallback(() => {
+    if (!pendingViewportDatasetRef.current) {
+      setIsLoading(false)
+    }
+  }, [])
+
+  const handleViewportDataRendered = useCallback((renderedDataset: ViewerDataset) => {
+    if (pendingViewportDatasetRef.current !== renderedDataset) {
+      return
+    }
+
+    pendingViewportDatasetRef.current = null
+    setIsLoading(false)
+  }, [])
+
   async function openCityJsonFile(file: File) {
     setIsLoading(true)
     setError(null)
@@ -786,7 +806,7 @@ function App() {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to parse selected file.'
       setError(message)
     } finally {
-      setIsLoading(false)
+      finishLoadingIfViewportIsReady()
     }
   }
 
@@ -802,6 +822,7 @@ function App() {
       }
 
       const nextDataset = mergeValidationAnnotations(current, annotations)
+      waitForViewportDataset(nextDataset)
       setShowOnlyInvalidFeatures(nextDataset.features.some((feature) => feature.errors.length > 0))
       return nextDataset
     })
@@ -825,7 +846,7 @@ function App() {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to parse annotation report.'
       setError(message)
     } finally {
-      setIsLoading(false)
+      finishLoadingIfViewportIsReady()
     }
   }
 
@@ -852,7 +873,7 @@ function App() {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to load val3dity report from URL.'
       setError(message)
     } finally {
-      setIsLoading(false)
+      finishLoadingIfViewportIsReady()
     }
   }
 
@@ -917,7 +938,7 @@ function App() {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to load dropped files.'
       setError(message)
     } finally {
-      setIsLoading(false)
+      finishLoadingIfViewportIsReady()
     }
   }
 
@@ -954,6 +975,7 @@ function App() {
   const applyDataset = useCallback((nextDataset: ViewerDataset) => {
     originalVerticesRef.current = new Map()
     originalObjectGeometriesRef.current = new Map()
+    waitForViewportDataset(nextDataset)
     resetViewerState()
     setDataset(nextDataset)
 
@@ -965,7 +987,7 @@ function App() {
     setSelectedVertexIndex(null)
     setSelectedFaceVertexEntryIndex(null)
     setEditMode(false)
-  }, [resetViewerState])
+  }, [resetViewerState, waitForViewportDataset])
 
   const loadFromSample = useCallback(async () => {
     setIsLoading(true)
@@ -984,9 +1006,9 @@ function App() {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to load sample file.'
       setError(message)
     } finally {
-      setIsLoading(false)
+      finishLoadingIfViewportIsReady()
     }
-  }, [applyDataset])
+  }, [applyDataset, finishLoadingIfViewportIsReady])
 
   const loadFromUrlParams = useCallback(async (cjUrl: string, valUrl: string) => {
     setIsLoading(true)
@@ -1007,9 +1029,9 @@ function App() {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to load files from URL parameters.'
       setError(message)
     } finally {
-      setIsLoading(false)
+      finishLoadingIfViewportIsReady()
     }
-  }, [applyDataset])
+  }, [applyDataset, finishLoadingIfViewportIsReady])
 
   const openCityJsonFromUrl = useCallback(async (url: string) => {
     const trimmed = stripGzSuffix(url.trim())
@@ -1031,9 +1053,9 @@ function App() {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to load file from URL.'
       setError(message)
     } finally {
-      setIsLoading(false)
+      finishLoadingIfViewportIsReady()
     }
-  }, [applyDataset])
+  }, [applyDataset, finishLoadingIfViewportIsReady])
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -2344,6 +2366,7 @@ function App() {
             onSelectSemanticSurface={handleSelectSemanticSurface}
             onVertexCommit={applyFeatureVertices}
             onViewportCenterChange={setViewportCenter}
+            onDataRendered={handleViewportDataRendered}
             theme={theme}
           />
         </Suspense>

@@ -27,7 +27,7 @@ import {
   resolveObjectGeometryIndex,
 } from '@/lib/object-geometry'
 import { errorColor } from '@/lib/error-palette'
-import { measurePerformance } from '@/lib/performance'
+import { measurePerformance, nowPerformance, recordPerformanceMeasure } from '@/lib/performance'
 import { semanticSurfaceColor } from '@/lib/semantic-surface-colors'
 import { viewerObjectKey } from '@/lib/utils'
 
@@ -180,6 +180,7 @@ type CityViewportProps = {
   } | null) => void
   onVertexCommit: (featureId: string, vertices: Vec3[]) => void
   onViewportCenterChange: (center: Vec3 | null) => void
+  onDataRendered: (data: ViewerDataset) => void
   theme: Theme
 }
 
@@ -546,6 +547,7 @@ function CityViewport({
   onSelectSemanticSurface,
   onVertexCommit,
   onViewportCenterChange,
+  onDataRendered,
   theme,
 }: CityViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -585,6 +587,7 @@ function CityViewport({
   const onSelectSemanticSurfaceRef = useRef(onSelectSemanticSurface)
   const onVertexCommitRef = useRef(onVertexCommit)
   const onViewportCenterChangeRef = useRef(onViewportCenterChange)
+  const onDataRenderedRef = useRef(onDataRendered)
   const themeRef = useRef(theme)
   const showSemanticSurfacesRef = useRef(showSemanticSurfaces)
   const attributeColorRef = useRef(attributeColor)
@@ -626,6 +629,7 @@ function CityViewport({
   useEffect(() => { onSelectSemanticSurfaceRef.current = onSelectSemanticSurface }, [onSelectSemanticSurface])
   useEffect(() => { onVertexCommitRef.current = onVertexCommit }, [onVertexCommit])
   useEffect(() => { onViewportCenterChangeRef.current = onViewportCenterChange }, [onViewportCenterChange])
+  useEffect(() => { onDataRenderedRef.current = onDataRendered }, [onDataRendered])
   useEffect(() => { themeRef.current = theme }, [theme])
   useEffect(() => { showSemanticSurfacesRef.current = showSemanticSurfaces }, [showSemanticSurfaces])
   useEffect(() => { attributeColorRef.current = attributeColor }, [attributeColor])
@@ -1098,11 +1102,12 @@ function CityViewport({
       }
 
       const handle = activeRuntime.transformProxy
-      const draftVertices = activeRuntime.featureDrafts.get(featureId)
-      if (!handle || !draftVertices) {
+      const feature = currentData.features.find((candidate) => candidate.id === featureId)
+      if (!handle || !feature) {
         return
       }
 
+      const draftVertices = ensureFeatureDraft(activeRuntime, feature)
       const pivot = activeRuntime.editPivot ?? currentData.center
       draftVertices[vertexIndex] = [
         handle.position.x + pivot[0],
@@ -1188,8 +1193,11 @@ function CityViewport({
       )
       previousSelectionRef.current = selectionRef.current
       previousIsolateSelectedFeatureRef.current = isolateSelectedFeatureRef.current
+      previousGeometryDisplayModeRef.current = selectionRef.current.geometryDisplayMode
+      previousActiveGeometryIndexRef.current = selectionRef.current.activeGeometryIndex
       measurePerformance('cjvis:viewport:render-frame', () => renderViewport(runtime))
       reportViewportCenter(runtime, data, onViewportCenterChangeRef.current)
+      onDataRenderedRef.current(data)
     })
   }, [data])
 
@@ -1226,10 +1234,7 @@ function CityViewport({
       if (selection.selectedFeatureId) {
         const feature = currentData.features.find((candidate) => candidate.id === selection.selectedFeatureId)
         if (feature) {
-          runtime.featureDrafts.set(
-            feature.id,
-            feature.vertices.map((vertex) => [...vertex] as Vec3),
-          )
+          runtime.featureDrafts.set(feature.id, cloneFeatureVertices(feature))
           rebuildFeatureGeometry(runtime, currentData, feature.id, selection)
         }
       }
@@ -1334,6 +1339,11 @@ function CityViewport({
     const runtime = runtimeRef.current
     const currentData = dataRef.current
     if (!runtime) {
+      return
+    }
+
+    const didSemanticModeChange = runtime.showSemanticSurfaces !== showSemanticSurfaces
+    if (!didSemanticModeChange) {
       return
     }
 
@@ -1501,6 +1511,23 @@ function resolveDisplayedObjectGeometry(
   return resolveObjectGeometry(object, selection.geometryDisplayMode, activeGeometryOverride)
 }
 
+function cloneFeatureVertices(feature: ViewerFeature) {
+  return feature.vertices.map((vertex) => [...vertex] as Vec3)
+}
+
+function getRenderableFeatureVertices(runtime: Runtime, feature: ViewerFeature) {
+  return runtime.featureDrafts.get(feature.id) ?? feature.vertices
+}
+
+function ensureFeatureDraft(runtime: Runtime, feature: ViewerFeature) {
+  let draftVertices = runtime.featureDrafts.get(feature.id)
+  if (!draftVertices) {
+    draftVertices = cloneFeatureVertices(feature)
+    runtime.featureDrafts.set(feature.id, draftVertices)
+  }
+  return draftVertices
+}
+
 function rebuildScene(
   runtime: Runtime,
   data: ViewerDataset,
@@ -1511,11 +1538,7 @@ function rebuildScene(
     runtime.shaderObjectIdsByObjectKey.clear()
     runtime.nextShaderObjectId = 1
     syncSemanticSurfaceSharedUniforms(runtime, data)
-    runtime.featureDrafts = measurePerformance('cjvis:viewport:clone-feature-drafts', () =>
-      new Map(
-        data.features.map((feature) => [feature.id, feature.vertices.map((vertex) => [...vertex] as Vec3)]),
-      ),
-    )
+    runtime.featureDrafts = measurePerformance('cjvis:viewport:clone-feature-drafts', () => new Map())
 
     const sizeX = data.extent[3] - data.extent[0]
     const sizeY = data.extent[4] - data.extent[1]
@@ -1525,10 +1548,7 @@ function rebuildScene(
 
     measurePerformance('cjvis:viewport:build-object-geometries', () => {
       for (const feature of data.features) {
-        const draftVertices = runtime.featureDrafts.get(feature.id)
-        if (!draftVertices) {
-          continue
-        }
+        const vertices = getRenderableFeatureVertices(runtime, feature)
 
         // Center each feature's mesh geometry around the feature's own center
         // to keep float32 vertex buffer values small and avoid GPU precision jitter.
@@ -1549,7 +1569,7 @@ function rebuildScene(
           if (canBatchObject(runtime, feature, object, objectGeometry)) {
             const blueprint = buildObjectGeometryBlueprint(
               objectGeometry.polygons,
-              draftVertices,
+              vertices,
               featureCenter,
               collectObjectErrorFaceIndices(
                 feature.errors,
@@ -1591,7 +1611,7 @@ function rebuildScene(
               feature,
               object,
               objectGeometry,
-              draftVertices,
+              vertices,
               featureCenter,
               nextObjectKey,
             )
@@ -1830,10 +1850,15 @@ function buildSpatialBatches(
     return
   }
 
-  const chunks = chunkBatchItems(items)
+  const chunks = measurePerformance('cjvis:viewport:batch:chunk-items', () => chunkBatchItems(items))
   const identity = new THREE.Matrix4()
   const translation = new THREE.Matrix4()
   const color = new THREE.Color()
+  let allocateBatchDuration = 0
+  let addGeometryDuration = 0
+  let addInstanceDuration = 0
+  let recordBatchDuration = 0
+  let computeBoundsDuration = 0
 
   for (const chunk of chunks) {
     const maxInstanceCount = chunk.length
@@ -1846,6 +1871,7 @@ function buildSpatialBatches(
       continue
     }
 
+    let startedAt = nowPerformance()
     const batch = new THREE.BatchedMesh(
       maxInstanceCount,
       maxVertexCount,
@@ -1857,6 +1883,7 @@ function buildSpatialBatches(
         runtime.selectionTintUniforms,
       ),
     )
+    allocateBatchDuration += nowPerformance() - startedAt
     batch.perObjectFrustumCulled = true
     batch.sortObjects = false
     batch.userData.recordsByInstanceId = new Map<number, BatchedObjectRecord>()
@@ -1864,7 +1891,11 @@ function buildSpatialBatches(
     runtime.rootGroup.add(batch)
 
     for (const item of chunk) {
+      startedAt = nowPerformance()
       const geometryId = batch.addGeometry(item.geometry)
+      addGeometryDuration += nowPerformance() - startedAt
+
+      startedAt = nowPerformance()
       const instanceId = batch.addInstance(geometryId)
       translation.copy(identity)
       translation.setPosition(
@@ -1874,7 +1905,9 @@ function buildSpatialBatches(
       )
       batch.setMatrixAt(instanceId, translation)
       batch.setColorAt(instanceId, color.set(resolveInitialBatchedObjectColor(runtime, item)))
+      addInstanceDuration += nowPerformance() - startedAt
 
+      startedAt = nowPerformance()
       const record: BatchedObjectRecord = {
         key: item.key,
         featureId: item.featureId,
@@ -1900,52 +1933,68 @@ function buildSpatialBatches(
         runtime.batchedObjectsByFeatureId.set(item.featureId, [record])
       }
       item.geometry.dispose()
+      recordBatchDuration += nowPerformance() - startedAt
     }
 
+    startedAt = nowPerformance()
     batch.computeBoundingSphere()
     batch.computeBoundingBox()
+    computeBoundsDuration += nowPerformance() - startedAt
   }
 
-  applyBatchSelectionAppearance(runtime, selection, false, runtime.batchedObjectsByObjectKey.values())
+  recordPerformanceMeasure('cjvis:viewport:batch:allocate-meshes', allocateBatchDuration)
+  recordPerformanceMeasure('cjvis:viewport:batch:add-geometries', addGeometryDuration)
+  recordPerformanceMeasure('cjvis:viewport:batch:add-instances', addInstanceDuration)
+  recordPerformanceMeasure('cjvis:viewport:batch:record-objects', recordBatchDuration)
+  recordPerformanceMeasure('cjvis:viewport:batch:compute-bounds', computeBoundsDuration)
+  measurePerformance('cjvis:viewport:batch:apply-selection-appearance', () =>
+    applyBatchSelectionAppearance(runtime, selection, false, runtime.batchedObjectsByObjectKey.values()),
+  )
 }
 
 function chunkBatchItems(items: BatchBuildItem[]) {
-  const sortedItems = items.toSorted((left, right) =>
-    left.tileKey.localeCompare(right.tileKey) ||
-    left.featureId.localeCompare(right.featureId, undefined, { numeric: true, sensitivity: 'base' }) ||
-    left.objectId.localeCompare(right.objectId, undefined, { numeric: true, sensitivity: 'base' }),
-  )
   const chunks: BatchBuildItem[][] = []
-  let current: BatchBuildItem[] = []
-  let currentTile = ''
-  let vertexCount = 0
-  let indexCount = 0
+  const itemsByTile = new Map<string, BatchBuildItem[]>()
 
-  const flush = () => {
-    if (current.length > 0) {
-      chunks.push(current)
-      current = []
-      vertexCount = 0
-      indexCount = 0
+  for (const item of items) {
+    const tileItems = itemsByTile.get(item.tileKey)
+    if (tileItems) {
+      tileItems.push(item)
+    } else {
+      itemsByTile.set(item.tileKey, [item])
     }
   }
 
-  for (const item of sortedItems) {
-    const tileChanged = current.length > 0 && item.tileKey !== currentTile
-    const exceedsObjectLimit = current.length >= BATCH_MAX_OBJECT_COUNT
-    const exceedsVertexLimit = current.length > 0 && vertexCount + item.vertexCount > BATCH_MAX_VERTEX_COUNT
-    const exceedsIndexLimit = current.length > 0 && indexCount + item.indexCount > BATCH_MAX_INDEX_COUNT
-    if (tileChanged || exceedsObjectLimit || exceedsVertexLimit || exceedsIndexLimit) {
-      flush()
+  for (const tileItems of itemsByTile.values()) {
+    let current: BatchBuildItem[] = []
+    let vertexCount = 0
+    let indexCount = 0
+
+    const flush = () => {
+      if (current.length > 0) {
+        chunks.push(current)
+        current = []
+        vertexCount = 0
+        indexCount = 0
+      }
     }
 
-    currentTile = item.tileKey
-    current.push(item)
-    vertexCount += item.vertexCount
-    indexCount += item.indexCount
+    for (const item of tileItems) {
+      const exceedsObjectLimit = current.length >= BATCH_MAX_OBJECT_COUNT
+      const exceedsVertexLimit = current.length > 0 && vertexCount + item.vertexCount > BATCH_MAX_VERTEX_COUNT
+      const exceedsIndexLimit = current.length > 0 && indexCount + item.indexCount > BATCH_MAX_INDEX_COUNT
+      if (exceedsObjectLimit || exceedsVertexLimit || exceedsIndexLimit) {
+        flush()
+      }
+
+      current.push(item)
+      vertexCount += item.vertexCount
+      indexCount += item.indexCount
+    }
+
+    flush()
   }
 
-  flush()
   return chunks
 }
 
@@ -2017,10 +2066,10 @@ function rebuildFeatureGeometry(
   changedVertexIndex?: number,
 ) {
   const feature = data.features.find((candidate) => candidate.id === featureId)
-  const vertices = runtime.featureDrafts.get(featureId)
-  if (!feature || !vertices) {
+  if (!feature) {
     return
   }
+  const vertices = getRenderableFeatureVertices(runtime, feature)
 
   for (const object of feature.objects) {
     const objectGeometry = resolveDisplayedObjectGeometry(feature, object, selection)
@@ -2164,7 +2213,7 @@ function updateObjectSurfacePresentation(
     return
   }
 
-  const draftVertices = runtime.featureDrafts.get(feature.id) ?? feature.vertices
+  const draftVertices = getRenderableFeatureVertices(runtime, feature)
   const featureCenter: Vec3 = [
     (feature.extent[0] + feature.extent[3]) * 0.5,
     (feature.extent[1] + feature.extent[4]) * 0.5,
@@ -3310,13 +3359,10 @@ function rebuildHandles(
   const objectGeometry = feature && object
     ? resolveDisplayedObjectGeometry(feature, object, selection)
     : null
-  const draftVertices = selection.selectedFeatureId
-    ? runtime.featureDrafts.get(selection.selectedFeatureId)
-    : undefined
-
-  if (!feature || !object || !objectGeometry || !draftVertices) {
+  if (!feature || !object || !objectGeometry) {
     return
   }
+  const draftVertices = ensureFeatureDraft(runtime, feature)
 
   // Re-center edit geometry around the feature's own center to avoid
   // float32 precision jitter when zoomed in close and rotating.
@@ -3398,11 +3444,10 @@ function rebuildEditWireframe(
   const objectGeometry = feature && object
     ? resolveDisplayedObjectGeometry(feature, object, selection)
     : null
-  const draftVertices = runtime.featureDrafts.get(selection.selectedFeatureId)
-
-  if (!feature || !object || !objectGeometry || !draftVertices) {
+  if (!feature || !object || !objectGeometry) {
     return
   }
+  const draftVertices = ensureFeatureDraft(runtime, feature)
 
   const edgeCenter = runtime.editPivot ?? data.center
   const palette = getViewportPalette(runtime.theme)
@@ -3694,10 +3739,10 @@ function syncEditPointGeometry(
   const objectGeometry = feature && object
     ? resolveDisplayedObjectGeometry(feature, object, selection)
     : null
-  const draftVertices = runtime.featureDrafts.get(selection.selectedFeatureId)
-  if (!feature || !object || !objectGeometry || !draftVertices) {
+  if (!feature || !object || !objectGeometry) {
     return
   }
+  const draftVertices = ensureFeatureDraft(runtime, feature)
 
   const pointCenter = runtime.editPivot ?? data.center
   updatePointPositions(runtime.editPoints, objectGeometry.vertexIndices, draftVertices, pointCenter)
@@ -5210,10 +5255,10 @@ function findNearestEditVertexIndexOnScreen(
   const objectGeometry = feature && object
     ? resolveDisplayedObjectGeometry(feature, object, selection)
     : null
-  const draftVertices = runtime.featureDrafts.get(selection.selectedFeatureId)
-  if (!objectGeometry || !draftVertices) {
+  if (!feature || !objectGeometry) {
     return null
   }
+  const draftVertices = ensureFeatureDraft(runtime, feature)
 
   const rect = runtime.renderer.domElement.getBoundingClientRect()
   if (rect.width <= 0 || rect.height <= 0) {
