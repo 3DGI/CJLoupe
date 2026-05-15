@@ -8,6 +8,7 @@ import type {
   ViewerSemanticSurface,
   ViewerValidationError,
 } from '@/types/cityjson'
+import { measureAsyncPerformance, measurePerformance } from '@/lib/performance'
 
 type CityJsonTransform = {
   scale?: number[]
@@ -85,13 +86,15 @@ export async function loadCityJsonSequenceFromUrl(url: string, sourceName: strin
 }
 
 export async function loadCityJsonFromUrl(url: string, sourceName: string) {
-  const response = await fetch(url)
-  if (!response.ok) {
-    throw new Error(`Could not fetch ${sourceName}.`)
-  }
+  return measureAsyncPerformance('cjvis:cityjson:load-url-total', async () => {
+    const response = await measureAsyncPerformance('cjvis:cityjson:fetch-url', () => fetch(url))
+    if (!response.ok) {
+      throw new Error(`Could not fetch ${sourceName}.`)
+    }
 
-  const text = await response.text()
-  return parseCityJson(text, sourceName)
+    const text = await measureAsyncPerformance('cjvis:cityjson:read-url-text', () => response.text())
+    return parseCityJson(text, sourceName)
+  })
 }
 
 export async function loadCityJsonSequenceFromFile(file: File) {
@@ -99,23 +102,25 @@ export async function loadCityJsonSequenceFromFile(file: File) {
 }
 
 export async function loadCityJsonFromFile(file: File) {
-  let text: string
-  try {
-    text = await file.text()
-  } catch (caughtError) {
-    throw new Error(
-      `Could not read ${file.name} (${formatByteSize(file.size)}). Very large CityJSON files can exceed browser memory limits.`,
-      { cause: caughtError },
-    )
-  }
+  return measureAsyncPerformance('cjvis:cityjson:load-file-total', async () => {
+    let text: string
+    try {
+      text = await measureAsyncPerformance('cjvis:cityjson:read-file-text', () => file.text())
+    } catch (caughtError) {
+      throw new Error(
+        `Could not read ${file.name} (${formatByteSize(file.size)}). Very large CityJSON files can exceed browser memory limits.`,
+        { cause: caughtError },
+      )
+    }
 
-  if (!hasNonWhitespace(text) && file.size > 0) {
-    throw new Error(
-      `Could not read text from ${file.name} (${formatByteSize(file.size)}). The browser returned an empty text buffer for a non-empty file, which usually means the file is too large to read this way.`,
-    )
-  }
+    if (!hasNonWhitespace(text) && file.size > 0) {
+      throw new Error(
+        `Could not read text from ${file.name} (${formatByteSize(file.size)}). The browser returned an empty text buffer for a non-empty file, which usually means the file is too large to read this way.`,
+      )
+    }
 
-  return parseCityJson(text, file.name)
+    return parseCityJson(text, file.name)
+  })
 }
 
 export async function loadValidationReportFromUrl(url: string) {
@@ -151,151 +156,171 @@ function hasNonWhitespace(text: string) {
 }
 
 export function parseCityJson(text: string, sourceName: string): ViewerDataset {
-  if (!hasNonWhitespace(text)) {
-    throw new Error('CityJSON input is empty.')
-  }
-
-  try {
-    const parsed = JSON.parse(text) as unknown
-    if (!isRecord(parsed) || Array.isArray(parsed)) {
-      throw new Error('CityJSON input must be a JSON object or a CityJSON feature sequence.')
+  return measurePerformance('cjvis:cityjson:parse-total', () => {
+    if (!hasNonWhitespace(text)) {
+      throw new Error('CityJSON input is empty.')
     }
 
-    const type = parsed.type
-    if (type === 'CityJSON') {
-      return parseCityJsonDocument(parsed as CityJsonDocument, sourceName)
+    try {
+      const parsed = measurePerformance('cjvis:cityjson:parse-json-document-attempt', () => JSON.parse(text) as unknown)
+      if (!isRecord(parsed) || Array.isArray(parsed)) {
+        throw new Error('CityJSON input must be a JSON object or a CityJSON feature sequence.')
+      }
+
+      const type = parsed.type
+      if (type === 'CityJSON') {
+        return parseCityJsonDocument(parsed as CityJsonDocument, sourceName)
+      }
+
+      if (type === 'CityJSONFeature') {
+        throw new Error('Expected a CityJSON feature sequence with a header line before feature objects.')
+      }
+
+      throw new Error('Expected a CityJSON object or a CityJSON feature sequence.')
+    } catch (caughtError) {
+      if (!(caughtError instanceof SyntaxError)) {
+        throw caughtError
+      }
     }
 
-    if (type === 'CityJSONFeature') {
-      throw new Error('Expected a CityJSON feature sequence with a header line before feature objects.')
-    }
-
-    throw new Error('Expected a CityJSON object or a CityJSON feature sequence.')
-  } catch (caughtError) {
-    if (!(caughtError instanceof SyntaxError)) {
-      throw caughtError
-    }
-  }
-
-  return parseCityJsonSequence(text, sourceName)
+    return parseCityJsonSequence(text, sourceName)
+  })
 }
 
 export function parseCityJsonSequence(text: string, sourceName: string): ViewerDataset {
-  const lines = text.split(/\r?\n/)
-  const headerLineIndex = lines.findIndex(hasNonWhitespace)
+  return measurePerformance('cjvis:cityjsonseq:parse-total', () => {
+    const lines = measurePerformance('cjvis:cityjsonseq:split-lines', () => text.split(/\r?\n/))
+    const headerLineIndex = lines.findIndex(hasNonWhitespace)
 
-  if (headerLineIndex < 0) {
-    throw new Error('Expected a CityJSON feature sequence with a header line and at least one feature line.')
-  }
-
-  const header = JSON.parse(lines[headerLineIndex]) as CityJsonHeader
-  const transform = header.transform ?? {}
-  const info = extractDatasetInfo(header)
-
-  const features: ViewerFeature[] = []
-
-  for (let lineIndex = headerLineIndex + 1; lineIndex < lines.length; lineIndex += 1) {
-    const line = lines[lineIndex]
-    if (!hasNonWhitespace(line)) {
-      continue
+    if (headerLineIndex < 0) {
+      throw new Error('Expected a CityJSON feature sequence with a header line and at least one feature line.')
     }
 
-    const feature = JSON.parse(line) as CityJsonFeature
-    if (feature.type !== 'CityJSONFeature' || !feature.CityObjects || !feature.vertices) {
-      continue
-    }
+    const header = measurePerformance('cjvis:cityjsonseq:parse-header', () => JSON.parse(lines[headerLineIndex]) as CityJsonHeader)
+    const transform = header.transform ?? {}
+    const info = extractDatasetInfo(header)
 
-    const worldVertices = transformVerticesInPlace(feature.vertices, transform)
-    const objects = Object.entries(feature.CityObjects)
-    if (objects.length === 0) {
-      continue
-    }
+    const features: ViewerFeature[] = []
 
-    const objectsById = new Map(objects)
-    const roots = objects.filter(([, object]) => !object.parents || object.parents.length === 0)
-    const featureRootObject = feature.id ? objectsById.get(feature.id) : undefined
-    const rootEntry =
-      (feature.id && featureRootObject
-        ? ([feature.id, featureRootObject] as const)
-        : null) ?? roots[0] ?? objects[0]
-    const [rootObjectId, rootObject] = rootEntry
-    const viewerFeature = createViewerFeature({
-      featureId: feature.id ?? rootObjectId,
-      rootObjectId,
-      rootObject,
-      cityObjects: feature.CityObjects,
-      vertices: worldVertices,
+    measurePerformance('cjvis:cityjsonseq:build-features', () => {
+      for (let lineIndex = headerLineIndex + 1; lineIndex < lines.length; lineIndex += 1) {
+        const line = lines[lineIndex]
+        if (!hasNonWhitespace(line)) {
+          continue
+        }
+
+        const feature = JSON.parse(line) as CityJsonFeature
+        if (feature.type !== 'CityJSONFeature' || !feature.CityObjects || !feature.vertices) {
+          continue
+        }
+
+        const worldVertices = transformVerticesInPlace(feature.vertices, transform)
+        const objects = Object.entries(feature.CityObjects)
+        if (objects.length === 0) {
+          continue
+        }
+
+        const objectsById = new Map(objects)
+        const roots = objects.filter(([, object]) => !object.parents || object.parents.length === 0)
+        const featureRootObject = feature.id ? objectsById.get(feature.id) : undefined
+        const rootEntry =
+          (feature.id && featureRootObject
+            ? ([feature.id, featureRootObject] as const)
+            : null) ?? roots[0] ?? objects[0]
+        const [rootObjectId, rootObject] = rootEntry
+        const viewerFeature = createViewerFeature({
+          featureId: feature.id ?? rootObjectId,
+          rootObjectId,
+          rootObject,
+          cityObjects: feature.CityObjects,
+          vertices: worldVertices,
+        })
+
+        if (viewerFeature) {
+          features.push(viewerFeature)
+        }
+      }
     })
 
-    if (viewerFeature) {
-      features.push(viewerFeature)
-    }
-  }
-
-  return createViewerDataset(sourceName, features, info, 'CityJSONFeatures')
+    return measurePerformance('cjvis:cityjson:create-viewer-dataset', () =>
+      createViewerDataset(sourceName, features, info, 'CityJSONFeatures'),
+    )
+  })
 }
 
 function parseCityJsonDocument(document: CityJsonDocument, sourceName: string): ViewerDataset {
-  if (!isCityObjectsRecord(document.CityObjects)) {
-    throw new Error('CityJSON object must contain a top-level "CityObjects" object.')
-  }
-
-  if (!Array.isArray(document.vertices)) {
-    throw new Error('CityJSON object must contain a top-level "vertices" array.')
-  }
-
-  const transform = document.transform ?? {}
-  const info = extractDatasetInfo(document)
-  const worldVertices = transformVerticesInPlace(document.vertices, transform)
-  const featureRootIds = collectFeatureRootIds(document.CityObjects)
-  const features: ViewerFeature[] = []
-  const processedObjectIds = new Set<string>()
-
-  for (const rootObjectId of featureRootIds) {
-    const rootObject = document.CityObjects[rootObjectId]
-    if (!rootObject) {
-      continue
+  return measurePerformance('cjvis:cityjson:parse-document-total', () => {
+    if (!isCityObjectsRecord(document.CityObjects)) {
+      throw new Error('CityJSON object must contain a top-level "CityObjects" object.')
     }
 
-    const cityObjects = collectCityObjectSubtree(rootObjectId, document.CityObjects)
-    for (const objectId of Object.keys(cityObjects)) {
-      processedObjectIds.add(objectId)
+    if (!Array.isArray(document.vertices)) {
+      throw new Error('CityJSON object must contain a top-level "vertices" array.')
     }
 
-    const localized = localizeCityObjects(cityObjects, worldVertices)
-    const viewerFeature = createViewerFeature({
-      featureId: rootObjectId,
-      rootObjectId,
-      rootObject,
-      cityObjects: localized.cityObjects,
-      vertices: localized.vertices,
+    const cityObjectsById = document.CityObjects
+    const vertices = document.vertices
+    const transform = document.transform ?? {}
+    const info = extractDatasetInfo(document)
+    const worldVertices = measurePerformance('cjvis:cityjson:transform-document-vertices', () =>
+      transformVerticesInPlace(vertices, transform),
+    )
+    const featureRootIds = measurePerformance('cjvis:cityjson:collect-feature-roots', () =>
+      collectFeatureRootIds(cityObjectsById),
+    )
+    const features: ViewerFeature[] = []
+    const processedObjectIds = new Set<string>()
+
+    measurePerformance('cjvis:cityjson:build-document-features', () => {
+      for (const rootObjectId of featureRootIds) {
+        const rootObject = cityObjectsById[rootObjectId]
+        if (!rootObject) {
+          continue
+        }
+
+        const cityObjects = collectCityObjectSubtree(rootObjectId, cityObjectsById)
+        for (const objectId of Object.keys(cityObjects)) {
+          processedObjectIds.add(objectId)
+        }
+
+        const localized = localizeCityObjects(cityObjects, worldVertices)
+        const viewerFeature = createViewerFeature({
+          featureId: rootObjectId,
+          rootObjectId,
+          rootObject,
+          cityObjects: localized.cityObjects,
+          vertices: localized.vertices,
+        })
+
+        if (viewerFeature) {
+          features.push(viewerFeature)
+        }
+      }
+
+      for (const [objectId, object] of Object.entries(cityObjectsById)) {
+        if (processedObjectIds.has(objectId)) {
+          continue
+        }
+
+        const localized = localizeCityObjects({ [objectId]: object }, worldVertices)
+        const viewerFeature = createViewerFeature({
+          featureId: objectId,
+          rootObjectId: objectId,
+          rootObject: object,
+          cityObjects: localized.cityObjects,
+          vertices: localized.vertices,
+        })
+
+        if (viewerFeature) {
+          features.push(viewerFeature)
+        }
+      }
     })
 
-    if (viewerFeature) {
-      features.push(viewerFeature)
-    }
-  }
-
-  for (const [objectId, object] of Object.entries(document.CityObjects)) {
-    if (processedObjectIds.has(objectId)) {
-      continue
-    }
-
-    const localized = localizeCityObjects({ [objectId]: object }, worldVertices)
-    const viewerFeature = createViewerFeature({
-      featureId: objectId,
-      rootObjectId: objectId,
-      rootObject: object,
-      cityObjects: localized.cityObjects,
-      vertices: localized.vertices,
-    })
-
-    if (viewerFeature) {
-      features.push(viewerFeature)
-    }
-  }
-
-  return createViewerDataset(sourceName, features, info, 'CityJSON')
+    return measurePerformance('cjvis:cityjson:create-viewer-dataset', () =>
+      createViewerDataset(sourceName, features, info, 'CityJSON'),
+    )
+  })
 }
 
 function createViewerDataset(

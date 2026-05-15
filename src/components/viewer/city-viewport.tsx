@@ -27,6 +27,7 @@ import {
   resolveObjectGeometryIndex,
 } from '@/lib/object-geometry'
 import { errorColor } from '@/lib/error-palette'
+import { measurePerformance } from '@/lib/performance'
 import { semanticSurfaceColor } from '@/lib/semantic-surface-colors'
 import { viewerObjectKey } from '@/lib/utils'
 
@@ -1167,25 +1168,29 @@ function CityViewport({
       return
     }
 
-    rebuildScene(runtime, data, selectionRef.current)
-    const datasetKey = getDatasetViewKey(data)
-    if (fittedDatasetKeyRef.current !== datasetKey) {
-      fitCameraToDataset(runtime, data)
-      fittedDatasetKeyRef.current = datasetKey
-    }
-    rebuildAnnotations(runtime)
-    syncSelection(
-      runtime,
-      data,
-      selectionRef.current,
-      hideOccludedEditEdgesRef.current,
-      isolateSelectedFeatureRef.current,
-      showVertexGizmoRef.current,
-    )
-    previousSelectionRef.current = selectionRef.current
-    previousIsolateSelectedFeatureRef.current = isolateSelectedFeatureRef.current
-    renderViewport(runtime)
-    reportViewportCenter(runtime, data, onViewportCenterChangeRef.current)
+    measurePerformance('cjvis:viewport:data-update-total', () => {
+      rebuildScene(runtime, data, selectionRef.current)
+      const datasetKey = getDatasetViewKey(data)
+      if (fittedDatasetKeyRef.current !== datasetKey) {
+        measurePerformance('cjvis:viewport:fit-camera-to-dataset', () => fitCameraToDataset(runtime, data))
+        fittedDatasetKeyRef.current = datasetKey
+      }
+      measurePerformance('cjvis:viewport:rebuild-annotations', () => rebuildAnnotations(runtime))
+      measurePerformance('cjvis:viewport:sync-selection', () =>
+        syncSelection(
+          runtime,
+          data,
+          selectionRef.current,
+          hideOccludedEditEdgesRef.current,
+          isolateSelectedFeatureRef.current,
+          showVertexGizmoRef.current,
+        ),
+      )
+      previousSelectionRef.current = selectionRef.current
+      previousIsolateSelectedFeatureRef.current = isolateSelectedFeatureRef.current
+      measurePerformance('cjvis:viewport:render-frame', () => renderViewport(runtime))
+      reportViewportCenter(runtime, data, onViewportCenterChangeRef.current)
+    })
   }, [data])
 
   useEffect(() => {
@@ -1501,97 +1506,107 @@ function rebuildScene(
   data: ViewerDataset,
   selection: ViewSelection,
 ) {
-  disposeSceneContents(runtime)
-  runtime.shaderObjectIdsByObjectKey.clear()
-  runtime.nextShaderObjectId = 1
-  syncSemanticSurfaceSharedUniforms(runtime, data)
-  runtime.featureDrafts = new Map(
-    data.features.map((feature) => [feature.id, feature.vertices.map((vertex) => [...vertex] as Vec3)]),
-  )
+  measurePerformance('cjvis:viewport:rebuild-scene-total', () => {
+    measurePerformance('cjvis:viewport:dispose-scene-contents', () => disposeSceneContents(runtime))
+    runtime.shaderObjectIdsByObjectKey.clear()
+    runtime.nextShaderObjectId = 1
+    syncSemanticSurfaceSharedUniforms(runtime, data)
+    runtime.featureDrafts = measurePerformance('cjvis:viewport:clone-feature-drafts', () =>
+      new Map(
+        data.features.map((feature) => [feature.id, feature.vertices.map((vertex) => [...vertex] as Vec3)]),
+      ),
+    )
 
-  const sizeX = data.extent[3] - data.extent[0]
-  const sizeY = data.extent[4] - data.extent[1]
-  const sizeZ = data.extent[5] - data.extent[2]
-  runtime.sceneScale = Math.max(sizeX, sizeY, sizeZ)
-  const batchItems: BatchBuildItem[] = []
+    const sizeX = data.extent[3] - data.extent[0]
+    const sizeY = data.extent[4] - data.extent[1]
+    const sizeZ = data.extent[5] - data.extent[2]
+    runtime.sceneScale = Math.max(sizeX, sizeY, sizeZ)
+    const batchItems: BatchBuildItem[] = []
 
-  for (const feature of data.features) {
-    const draftVertices = runtime.featureDrafts.get(feature.id)
-    if (!draftVertices) {
-      continue
-    }
+    measurePerformance('cjvis:viewport:build-object-geometries', () => {
+      for (const feature of data.features) {
+        const draftVertices = runtime.featureDrafts.get(feature.id)
+        if (!draftVertices) {
+          continue
+        }
 
-    // Center each feature's mesh geometry around the feature's own center
-    // to keep float32 vertex buffer values small and avoid GPU precision jitter.
-    const featureCenter: Vec3 = [
-      (feature.extent[0] + feature.extent[3]) * 0.5,
-      (feature.extent[1] + feature.extent[4]) * 0.5,
-      (feature.extent[2] + feature.extent[5]) * 0.5,
-    ]
+        // Center each feature's mesh geometry around the feature's own center
+        // to keep float32 vertex buffer values small and avoid GPU precision jitter.
+        const featureCenter: Vec3 = [
+          (feature.extent[0] + feature.extent[3]) * 0.5,
+          (feature.extent[1] + feature.extent[4]) * 0.5,
+          (feature.extent[2] + feature.extent[5]) * 0.5,
+        ]
 
-    for (const object of feature.objects) {
-      const objectGeometry = resolveDisplayedObjectGeometry(feature, object, selection)
-      if (!objectGeometry) {
-        continue
+        for (const object of feature.objects) {
+          const objectGeometry = resolveDisplayedObjectGeometry(feature, object, selection)
+          if (!objectGeometry) {
+            continue
+          }
+
+          const nextObjectKey = viewerObjectKey(feature.id, object.id)
+
+          if (canBatchObject(runtime, feature, object, objectGeometry)) {
+            const blueprint = buildObjectGeometryBlueprint(
+              objectGeometry.polygons,
+              draftVertices,
+              featureCenter,
+              collectObjectErrorFaceIndices(
+                feature.errors,
+                object.id,
+                objectGeometry.index,
+                objectGeometry.sourceFaceIndices,
+              ),
+            )
+            const geometry = buildUngroupedObjectGeometry(blueprint)
+            applyBatchGeometryAttributes(
+              geometry,
+              blueprint,
+              runtime,
+              objectGeometry,
+              nextObjectKey,
+            )
+            geometry.computeBoundingBox()
+            batchItems.push({
+              key: nextObjectKey,
+              featureId: feature.id,
+              objectId: object.id,
+              objectType: object.type,
+              hasRenderableChildren: object.hasRenderableChildren,
+              geometryIndex: objectGeometry.index,
+              featureCenter,
+              baseColorLight: baseColorForType(object.type, 'light'),
+              baseColorDark: baseColorForType(object.type, 'dark'),
+              triangleFaceIndices: geometry.userData.triangleFaceIndices,
+              blueprint,
+              geometry,
+              tileKey: getBatchTileKey(featureCenter, data),
+              vertexCount: geometry.getAttribute('position')?.count ?? 0,
+              indexCount: geometry.getIndex()?.count ?? 0,
+            })
+          } else {
+            addStandaloneObjectMesh(
+              runtime,
+              data,
+              feature,
+              object,
+              objectGeometry,
+              draftVertices,
+              featureCenter,
+              nextObjectKey,
+            )
+          }
+        }
       }
+    })
 
-      const nextObjectKey = viewerObjectKey(feature.id, object.id)
-
-      if (canBatchObject(runtime, feature, object, objectGeometry)) {
-        const blueprint = buildObjectGeometryBlueprint(
-          objectGeometry.polygons,
-          draftVertices,
-          featureCenter,
-          collectObjectErrorFaceIndices(
-            feature.errors,
-            object.id,
-            objectGeometry.index,
-            objectGeometry.sourceFaceIndices,
-          ),
-        )
-        const geometry = buildUngroupedObjectGeometry(blueprint)
-        applyBatchGeometryAttributes(
-          geometry,
-          blueprint,
-          runtime,
-          objectGeometry,
-          nextObjectKey,
-        )
-        geometry.computeBoundingBox()
-        batchItems.push({
-          key: nextObjectKey,
-          featureId: feature.id,
-          objectId: object.id,
-          objectType: object.type,
-          hasRenderableChildren: object.hasRenderableChildren,
-          geometryIndex: objectGeometry.index,
-          featureCenter,
-          baseColorLight: baseColorForType(object.type, 'light'),
-          baseColorDark: baseColorForType(object.type, 'dark'),
-          triangleFaceIndices: geometry.userData.triangleFaceIndices,
-          blueprint,
-          geometry,
-          tileKey: getBatchTileKey(featureCenter, data),
-          vertexCount: geometry.getAttribute('position')?.count ?? 0,
-          indexCount: geometry.getIndex()?.count ?? 0,
-        })
-      } else {
-        addStandaloneObjectMesh(
-          runtime,
-          data,
-          feature,
-          object,
-          objectGeometry,
-          draftVertices,
-          featureCenter,
-          nextObjectKey,
-        )
-      }
-    }
-  }
-
-  buildSpatialBatches(runtime, data, batchItems, selection)
-  syncBatchedAttributeValueTexture(runtime, runtime.attributeColor)
+    measurePerformance('cjvis:viewport:build-spatial-batches', () =>
+      buildSpatialBatches(runtime, data, batchItems, selection),
+    )
+    measurePerformance('cjvis:viewport:sync-batched-attribute-texture', () =>
+      syncBatchedAttributeValueTexture(runtime, runtime.attributeColor),
+    )
+  })
 }
 
 function canBatchObject(

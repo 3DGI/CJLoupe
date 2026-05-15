@@ -3803,17 +3803,17 @@ const FeatureListRow = memo(function FeatureListRow({
         )}
       >
         <div className="flex items-start gap-2">
-          <CollapsibleTrigger asChild>
-            <button
-              type="button"
-              onClick={() => onSelectFeature(feature.id)}
-              className={cn('min-w-0 flex-1 text-left focus-visible:outline-none', !selected && 'cursor-pointer')}
-            >
-              <div className="min-w-0 flex-1 overflow-hidden text-left">
+          <div className="flex min-w-0 flex-1 items-start gap-1">
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                onClick={() => onSelectFeature(feature.id)}
+                className={cn('min-w-0 flex-1 text-left focus-visible:outline-none', !selected && 'cursor-pointer')}
+              >
+                <div className="min-w-0 flex-1 overflow-hidden text-left">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <div className="flex min-w-0 shrink items-center gap-1">
                     <p className="truncate text-sm font-medium leading-5">{feature.label}</p>
-                    <CopyIdButton value={feature.id} label="feature ID" />
                   </div>
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground">
@@ -3847,9 +3847,11 @@ const FeatureListRow = memo(function FeatureListRow({
                     </span>
                   ) : null}
                 </div>
-              </div>
-            </button>
-          </CollapsibleTrigger>
+                </div>
+              </button>
+            </CollapsibleTrigger>
+            <CopyIdButton value={feature.id} label="feature ID" />
+          </div>
           <Button
             type="button"
             variant="ghost"
