@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+- Performance improvements for file loading
+- Fix an issue with the copy buttons that resulted in console errors
+- Simplify object list. Flatten it for regular CityJSON files (no feature containers)
+- Fix autoscroll in object list on object selection in 3D viewport
+
 ## 0.7.0 - 2026-05-12
 
 - Fix issue with colormap clamping past max value

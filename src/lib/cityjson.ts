@@ -459,7 +459,8 @@ function createViewerFeature({
   cityObjects: Record<string, CityJsonObject>
   vertices: Vec3[]
 }): ViewerFeature | null {
-  const renderableObjects = createRenderableObjects(cityObjects)
+  const objects = createViewerObjects(cityObjects)
+  const renderableObjects = objects.filter((object) => object.geometries.length > 0)
   if (renderableObjects.length === 0) {
     return null
   }
@@ -483,7 +484,7 @@ function createViewerFeature({
     errors: [],
     attributes: rootObject.attributes ?? {},
     vertices,
-    objects: renderableObjects,
+    objects,
     extent,
   }
 }
@@ -580,7 +581,7 @@ export function mergeValidationAnnotations(
   }
 }
 
-function createRenderableObjects(cityObjects: Record<string, CityJsonObject>) {
+function createViewerObjects(cityObjects: Record<string, CityJsonObject>) {
   const objects = Object.entries(cityObjects).map(([id, object]) => {
     const geometries = extractRenderableGeometries(object.geometry ?? [])
 
@@ -601,33 +602,18 @@ function createRenderableObjects(cityObjects: Record<string, CityJsonObject>) {
   })
 
   const parsedById = new Map(objects.map((entry) => [entry.id, entry]))
-  const renderableIds = new Set<string>()
-  for (const entry of objects) {
-    if (entry.parsed.geometries.length > 0) {
-      renderableIds.add(entry.id)
-    }
-  }
 
-  const renderableObjects: ViewerCityObject[] = []
+  const viewerObjects: ViewerCityObject[] = []
   for (const entry of objects) {
-    if (entry.parsed.geometries.length === 0) {
-      continue
-    }
-
-    renderableObjects.push({
+    viewerObjects.push({
       ...entry.parsed,
       hasRenderableChildren: hasRenderableChild(entry.object, parsedById),
-      parentIds: (entry.object.parents ?? []).filter((parentId) => renderableIds.has(parentId)),
-      childIds: (entry.object.children ?? []).filter((childId) => renderableIds.has(childId)),
+      parentIds: (entry.object.parents ?? []).filter((parentId) => parsedById.has(parentId)),
+      childIds: (entry.object.children ?? []).filter((childId) => parsedById.has(childId)),
     })
   }
 
-  const renderableLeafObjects = renderableObjects.filter((entry) => !entry.hasRenderableChildren)
-  const renderableParentObjects = renderableObjects.filter((entry) => entry.hasRenderableChildren)
-
-  return renderableLeafObjects.length > 0
-    ? [...renderableLeafObjects, ...renderableParentObjects]
-    : renderableObjects
+  return viewerObjects
 }
 
 function collectFeatureRootIds(cityObjects: Record<string, CityJsonObject>) {
@@ -752,14 +738,20 @@ function remapBoundaryVertexIndices(
 function hasRenderableChild(
   object: CityJsonObject,
   parsedById: Map<string, { object: CityJsonObject; parsed: ViewerCityObject }>,
+  visited = new Set<string>(),
 ): boolean {
   for (const childId of object.children ?? []) {
+    if (visited.has(childId)) {
+      continue
+    }
+
+    visited.add(childId)
     const child = parsedById.get(childId)
     if (!child) {
       continue
     }
 
-    if (child.parsed.geometries.length > 0 || hasRenderableChild(child.object, parsedById)) {
+    if (child.parsed.geometries.length > 0 || hasRenderableChild(child.object, parsedById, visited)) {
       return true
     }
   }

@@ -157,10 +157,13 @@ const VIEW_PICKING_MODES: ViewerPickingMode[] = ['none', 'object', 'face']
 const EDIT_PICKING_MODES: ViewerPickingMode[] = ['none', 'face', 'vertex']
 
 const FEATURE_LIST_ROW_HEIGHT = 58
+const CITY_OBJECT_TREE_ROW_ESTIMATE = 31
+const FEATURE_SEPARATOR_HEIGHT_ESTIMATE = 18
 const FEATURE_LIST_ROW_GAP = 6
 const FEATURE_LIST_TOP_PADDING = 8
 const FEATURE_LIST_BOTTOM_PADDING = 12
 const FEATURE_LIST_OVERSCAN = 6
+const OBJECT_LIST_VISIBILITY_INSET = 4
 const EMPTY_CITY_OBJECTS: ViewerCityObject[] = []
 const EMPTY_ATTRIBUTES: Record<string, unknown> = {}
 const ATTRIBUTE_COLOR_MISSING = '#94a3b8'
@@ -203,8 +206,6 @@ const CityViewport = lazy(() =>
 
 type FeatureListItem = {
   feature: ViewerFeature
-  objectTypes: string[]
-  errorCodeSummary: string
   errorCount: number
   isInvalid: boolean
   searchText: string
@@ -512,8 +513,6 @@ function App() {
 
     return dataset.features.map((feature) => ({
       feature,
-      objectTypes: [...new Set(feature.objects.map((object) => object.type))],
-      errorCodeSummary: [...new Set(feature.errors.map((error) => error.code))].join(', '),
       errorCount: feature.errors.length,
       isInvalid: feature.validity === false,
       searchText: [
@@ -522,6 +521,7 @@ function App() {
         ...feature.objects.map((object) => object.id),
         ...feature.objects.map((object) => object.type),
         ...Object.values(feature.attributes),
+        ...feature.objects.flatMap((object) => Object.values(object.attributes)),
       ]
         .filter((value): value is string => typeof value === 'string')
         .join(' ')
@@ -1482,10 +1482,47 @@ function App() {
     setShowOnlyInvalidFeatures(checked)
   }, [])
 
-  const handleCenterFeature = useCallback((featureId: string) => {
-    handleSelectFeature(featureId, null, { preserveEditMode: true })
-    centerFeatureById(featureId)
-  }, [centerFeatureById, handleSelectFeature])
+  const handleCenterObject = useCallback((
+    featureId: string,
+    objectId: string,
+  ) => {
+    const feature = featureMap.get(featureId)
+    const object = feature?.objects.find((candidate) => candidate.id === objectId)
+    if (!feature || !object) {
+      return
+    }
+
+    startTransition(() => {
+      const shouldExitEditMode =
+        editMode &&
+        isolateSelectedFeature &&
+        featureId !== selectedFeatureId
+
+      if (shouldExitEditMode) {
+        setEditMode(false)
+        setIsolateSelectedFeature(false)
+        setShowVertexGizmo(false)
+      }
+
+      setSelectedFeatureId(featureId)
+      setActiveObjectId(objectId)
+      setActiveGeometryIndex(null)
+      setSelectedFaceIndex(null)
+      setSelectedFaceRingIndex(0)
+      setSelectedVertexIndex(null)
+      setSelectedFaceVertexEntryIndex(null)
+    })
+
+    setFocusTarget({
+      kind: 'error',
+      featureId,
+      objectId,
+      geometryIndex: null,
+      faceIndex: null,
+      location: null,
+    })
+    setFocusRevision((current) => current + 1)
+  }, [editMode, featureMap, isolateSelectedFeature, selectedFeatureId])
 
   const handleViewportSelectFeature = useCallback((
     featureId: string,
@@ -1874,7 +1911,7 @@ function App() {
     : 'right-4'
   const showViewportTooltips = !isMobileLayout && !isHelpCollapsed && !hasModalScrim
   const mobilePanelTabs: Array<{ view: MobilePanelView; label: string; disabled?: boolean }> = [
-    { view: 'features', label: 'Features' },
+    { view: 'features', label: 'Objects' },
     { view: 'details', label: 'Details', disabled: !selectedFeature },
   ]
   const helpItems: HelpItem[] = isMobileLayout
@@ -1888,7 +1925,7 @@ function App() {
         },
         { keys: 'Drag', description: 'Orbit the model' },
         { keys: 'Pinch', description: 'Zoom' },
-        { keys: 'Panel', description: 'Browse features and details' },
+        { keys: 'Panel', description: 'Browse objects and details' },
         { keys: 'Sem', description: 'Toggle semantic colors' },
         { keys: 'B', description: 'Toggle sidebar' },
       ]
@@ -2021,13 +2058,13 @@ function App() {
             {isMobileLayout ? (
               <div className="flex shrink-0 items-center gap-2">
                 <Badge variant="outline" className="border-accent/30 bg-accent/10 text-accent">
-                  {dataset?.features.length ?? 0}
+                  {dataset ? countDatasetObjects(dataset) : 0}
                 </Badge>
               </div>
             ) : (
               <div className="flex h-8 w-full items-center justify-center border-t border-accent/30 bg-accent/10 text-accent">
                 <span className="font-mono text-sm font-medium leading-none">
-                  {dataset?.features.length ?? 0}
+                  {dataset ? countDatasetObjects(dataset) : 0}
                 </span>
               </div>
             )}
@@ -2096,19 +2133,18 @@ function App() {
                     filteredFeatureItems={filteredFeatureItems}
                     isLoading={isLoading}
                     annotationSourceName={annotationSourceName}
-                    datasetFeatureCount={dataset?.features.length ?? 0}
+                    datasetFeatureCount={dataset ? countDatasetObjects(dataset) : 0}
+                    showFeatureSeparators={dataset?.cityJsonKind === 'CityJSONFeatures'}
                     showDesktopHeading={!isMobileLayout}
                     searchQuery={searchQuery}
                     selectedFeatureId={selectedFeatureId}
                     showOnlyInvalidFeatures={showOnlyInvalidFeatures}
                     onSearchQueryChange={handleSearchQueryChange}
                     onShowOnlyInvalidFeaturesChange={handleShowOnlyInvalidFeaturesChange}
-                    onCenterFeature={handleCenterFeature}
                     onSelectFeature={handleSelectFeature}
-                    onShowFeatureDetails={isMobileLayout ? () => setMobilePanelView('details') : null}
+                    onCenterObject={handleCenterObject}
                     onShowInfo={dataset ? () => setIsInfoDialogOpen(true) : null}
                     activeObjectId={activeObject?.id ?? null}
-                    activeGeometryIndex={resolvedActiveGeometryIndex}
                   />
                 </section>
               )}
@@ -3290,6 +3326,21 @@ function formatObjectDisplayId(objectId: string) {
     : objectId
 }
 
+function countDatasetObjects(dataset: ViewerDataset) {
+  return dataset.features.reduce((count, feature) => count + feature.objects.length, 0)
+}
+
+function objectSelectionKey(featureId: string, objectId?: string | null) {
+  return `${featureId}::${objectId ?? ''}`
+}
+
+function estimateFeatureListRowHeight(item: FeatureListItem, showFeatureSeparator: boolean) {
+  const objectRowsHeight = Math.max(item.feature.objects.length, 1) * CITY_OBJECT_TREE_ROW_ESTIMATE
+  return showFeatureSeparator
+    ? Math.max(FEATURE_LIST_ROW_HEIGHT, objectRowsHeight + FEATURE_SEPARATOR_HEIGHT_ESTIMATE)
+    : objectRowsHeight
+}
+
 function collectTreeRootIds(objects: ViewerCityObject[], objectById: Map<string, ViewerCityObject>) {
   const roots: string[] = []
   for (const object of objects) {
@@ -3442,9 +3493,9 @@ function ObjectTreeGeometrySummary({
   }
 
   return (
-    <div className="inline-flex overflow-hidden rounded-sm border border-foreground/10 bg-background/45">
+    <div className="inline-flex translate-y-[-1px] items-center overflow-hidden rounded-sm border border-foreground/10 bg-background/45 align-middle leading-none">
       {geometryTypeLabel && (
-        <span className="bg-muted/70 px-1.5 py-0.5 text-[9px] font-medium text-foreground/80">
+        <span className="flex h-4 items-center bg-muted/70 px-1.5 text-[9px] font-medium leading-none text-foreground/80">
           {geometryTypeLabel}
         </span>
       )}
@@ -3452,7 +3503,7 @@ function ObjectTreeGeometrySummary({
         <span
           key={chip.key}
           className={cn(
-            'bg-background/70 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground',
+            'flex h-4 items-center bg-background/70 px-1.5 text-[9px] font-medium uppercase tracking-[0.14em] leading-none text-muted-foreground',
             (geometryTypeLabel || index > 0) && 'border-l border-foreground/10',
           )}
         >
@@ -3464,17 +3515,19 @@ function ObjectTreeGeometrySummary({
 }
 
 const FeatureObjectTree = memo(function FeatureObjectTree({
+  featureId,
   objects,
   activeObjectId,
-  activeGeometryIndex,
   errorCountsByObjectId,
   onSelectObject,
+  onCenterObject,
 }: {
+  featureId: string
   objects: ViewerCityObject[]
   activeObjectId: string | null
-  activeGeometryIndex: number | null
   errorCountsByObjectId: Map<string, number>
   onSelectObject: (objectId: string) => void
+  onCenterObject: (featureId: string, objectId: string) => void
 }) {
   const objectById = useMemo(() => new Map(objects.map((object) => [object.id, object])), [objects])
   const rootIds = useMemo(() => collectTreeRootIds(objects, objectById), [objectById, objects])
@@ -3488,13 +3541,14 @@ const FeatureObjectTree = memo(function FeatureObjectTree({
       {rootIds.map((objectId) => (
         <FeatureObjectTreeNode
           key={objectId}
+          featureId={featureId}
           objectId={objectId}
           objectById={objectById}
           activeObjectId={activeObjectId}
-          activeGeometryIndex={activeGeometryIndex}
           errorCountsByObjectId={errorCountsByObjectId}
           expandedIds={expandedIds}
           onSelectObject={onSelectObject}
+          onCenterObject={onCenterObject}
           depth={0}
         />
       ))}
@@ -3503,37 +3557,30 @@ const FeatureObjectTree = memo(function FeatureObjectTree({
 })
 
 const FeatureObjectTreeNode = memo(function FeatureObjectTreeNode({
+  featureId,
   objectId,
   objectById,
   activeObjectId,
-  activeGeometryIndex,
   errorCountsByObjectId,
   expandedIds,
   onSelectObject,
+  onCenterObject,
   depth,
   visited = new Set<string>(),
 }: {
+  featureId: string
   objectId: string
   objectById: Map<string, ViewerCityObject>
   activeObjectId: string | null
-  activeGeometryIndex: number | null
   errorCountsByObjectId: Map<string, number>
   expandedIds: Set<string>
   onSelectObject: (objectId: string) => void
+  onCenterObject: (featureId: string, objectId: string) => void
   depth: number
   visited?: Set<string>
 }) {
   const object = objectById.get(objectId)
   const isVisited = visited.has(objectId)
-  const childIds = object?.childIds.filter((childId) => objectById.has(childId)) ?? []
-  const hasChildren = childIds.length > 0
-  const isActive = objectId === activeObjectId
-  const hasAttributes = Object.keys(object?.attributes ?? {}).length > 0
-  const errorCount = errorCountsByObjectId.get(objectId) ?? 0
-  const chips = getObjectGeometryChips(object?.geometries ?? [])
-  const geometryTypeLabel = getObjectGeometryTypeLabel(object?.geometries ?? [])
-  const nextVisited = new Set(visited)
-  nextVisited.add(objectId)
   const [open, setOpen] = useState(depth === 0 || expandedIds.has(objectId))
   const wasExpandedBySelectionRef = useRef(expandedIds.has(objectId))
 
@@ -3550,12 +3597,47 @@ const FeatureObjectTreeNode = memo(function FeatureObjectTreeNode({
     return null
   }
 
+  const childIds = object.childIds.filter((childId) => objectById.has(childId))
+  const hasChildren = childIds.length > 0
+  const isActive = objectId === activeObjectId
+  const hasAttributes = Object.keys(object.attributes).length > 0
+  const hasGeometry = object.geometries.length > 0
+  const errorCount = errorCountsByObjectId.get(objectId) ?? 0
+  const chips = getObjectGeometryChips(object.geometries)
+  const geometryTypeLabel = getObjectGeometryTypeLabel(object.geometries)
+  const nextVisited = new Set(visited)
+  nextVisited.add(objectId)
+  const objectLabel = formatObjectDisplayId(object.id)
+  const objectContents = (
+    <>
+      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+        <span className="min-w-0 truncate text-[11px] font-medium">{objectLabel}</span>
+      </div>
+      <ObjectTreeIndicators hasAttributes={hasAttributes} errorCount={errorCount} />
+      <span className="shrink-0 text-[10px] text-muted-foreground">{object.type}</span>
+      {!hasGeometry && <span className="shrink-0 text-[10px] text-muted-foreground/70">no geom</span>}
+      {(geometryTypeLabel || chips.length > 0) && (
+        <div className="shrink-0">
+          <ObjectTreeGeometrySummary
+            geometryTypeLabel={geometryTypeLabel}
+            chips={chips}
+          />
+        </div>
+      )}
+    </>
+  )
+
   if (!hasChildren) {
     return (
       <div style={{ paddingLeft: `${depth * 14}px` }}>
         <button
           type="button"
+          data-active-object-list-item={isActive ? 'true' : undefined}
           onClick={() => onSelectObject(object.id)}
+          onDoubleClick={(event) => {
+            event.stopPropagation()
+            onCenterObject(featureId, object.id)
+          }}
           className={cn(
             'flex min-h-7 w-full min-w-0 flex-wrap items-center gap-1.5 rounded-sm px-2 py-1 text-left transition',
             isActive
@@ -3563,16 +3645,7 @@ const FeatureObjectTreeNode = memo(function FeatureObjectTreeNode({
               : 'text-foreground/72 hover:bg-foreground/6',
           )}
         >
-          <div className="flex min-w-0 flex-1 items-center gap-1.5">
-            <span className="min-w-0 truncate text-[11px] font-medium">{formatObjectDisplayId(object.id)}</span>
-          </div>
-          <ObjectTreeIndicators hasAttributes={hasAttributes} errorCount={errorCount} />
-          <span className="shrink-0 text-[10px] text-muted-foreground">{object.type}</span>
-          {(geometryTypeLabel || chips.length > 0) && (
-            <div className="shrink-0">
-              <ObjectTreeGeometrySummary geometryTypeLabel={geometryTypeLabel} chips={chips} />
-            </div>
-          )}
+          {objectContents}
         </button>
       </div>
     )
@@ -3592,7 +3665,7 @@ const FeatureObjectTreeNode = memo(function FeatureObjectTreeNode({
           <CollapsibleTrigger asChild>
             <button
               type="button"
-              aria-label={open ? `Collapse ${formatObjectDisplayId(object.id)}` : `Expand ${formatObjectDisplayId(object.id)}`}
+              aria-label={open ? `Collapse ${objectLabel}` : `Expand ${objectLabel}`}
               className="shrink-0 rounded-sm p-0.5 text-muted-foreground transition hover:bg-foreground/6 hover:text-foreground"
               onClick={(event) => event.stopPropagation()}
             >
@@ -3603,19 +3676,15 @@ const FeatureObjectTreeNode = memo(function FeatureObjectTreeNode({
           </CollapsibleTrigger>
           <button
             type="button"
+            data-active-object-list-item={isActive ? 'true' : undefined}
             onClick={() => onSelectObject(object.id)}
+            onDoubleClick={(event) => {
+              event.stopPropagation()
+              onCenterObject(featureId, object.id)
+            }}
             className="flex min-h-6 min-w-0 flex-1 flex-wrap items-center gap-1.5 text-left"
           >
-            <div className="flex min-w-0 flex-1 items-center gap-1.5">
-              <span className="min-w-0 truncate text-[11px] font-medium">{formatObjectDisplayId(object.id)}</span>
-            </div>
-            <ObjectTreeIndicators hasAttributes={hasAttributes} errorCount={errorCount} />
-            <span className="shrink-0 text-[10px] text-muted-foreground">{object.type}</span>
-            {(geometryTypeLabel || chips.length > 0) && (
-              <div className="shrink-0">
-                <ObjectTreeGeometrySummary geometryTypeLabel={geometryTypeLabel} chips={chips} />
-              </div>
-            )}
+            {objectContents}
           </button>
         </div>
         <CollapsibleContent className="overflow-hidden">
@@ -3623,13 +3692,14 @@ const FeatureObjectTreeNode = memo(function FeatureObjectTreeNode({
             {childIds.map((childId) => (
               <FeatureObjectTreeNode
                 key={childId}
+                featureId={featureId}
                 objectId={childId}
                 objectById={objectById}
                 activeObjectId={activeObjectId}
-                activeGeometryIndex={activeGeometryIndex}
                 errorCountsByObjectId={errorCountsByObjectId}
                 expandedIds={expandedIds}
                 onSelectObject={onSelectObject}
+                onCenterObject={onCenterObject}
                 depth={depth + 1}
                 visited={nextVisited}
               />
@@ -3747,31 +3817,22 @@ function CopyIdButton({
 const FeatureListRow = memo(function FeatureListRow({
   item,
   selected,
+  showFeatureSeparator,
   activeObjectId,
-  activeGeometryIndex,
-  onCenterFeature,
   onSelectFeature,
-  onShowFeatureDetails,
+  onCenterObject,
   onHeightChange,
 }: {
   item: FeatureListItem
   selected: boolean
+  showFeatureSeparator: boolean
   activeObjectId: string | null
-  activeGeometryIndex: number | null
-  onCenterFeature: (featureId: string) => void
   onSelectFeature: (featureId: string, objectId?: string | null) => void
-  onShowFeatureDetails: (() => void) | null
+  onCenterObject: (featureId: string, objectId: string) => void
   onHeightChange: (featureId: string, height: number) => void
 }) {
-  const { feature, objectTypes, errorCodeSummary, errorCount, isInvalid } = item
+  const { feature, isInvalid } = item
   const rowRef = useRef<HTMLDivElement | null>(null)
-  const objectTypeCounts = useMemo(
-    () => objectTypes.map((objectType) => ({
-      count: feature.objects.filter((object) => object.type === objectType).length,
-      type: objectType,
-    })),
-    [feature.objects, objectTypes],
-  )
   const errorCountsByObjectId = useMemo(() => {
     const counts = new Map<string, number>()
 
@@ -3793,7 +3854,13 @@ const FeatureListRow = memo(function FeatureListRow({
     }
 
     const reportHeight = () => {
-      onHeightChange(feature.id, Math.max(Math.ceil(element.getBoundingClientRect().height), FEATURE_LIST_ROW_HEIGHT))
+      const measuredHeight = Math.ceil(element.getBoundingClientRect().height)
+      onHeightChange(
+        feature.id,
+        showFeatureSeparator
+          ? Math.max(measuredHeight, FEATURE_LIST_ROW_HEIGHT)
+          : measuredHeight,
+      )
     }
 
     reportHeight()
@@ -3801,123 +3868,45 @@ const FeatureListRow = memo(function FeatureListRow({
     resizeObserver.observe(element)
 
     return () => resizeObserver.disconnect()
-  }, [feature.id, onHeightChange])
+  }, [feature.id, onHeightChange, showFeatureSeparator])
 
   return (
-    <Collapsible open={selected}>
+    <div
+      ref={rowRef}
+      style={showFeatureSeparator ? { minHeight: `max(${FEATURE_LIST_ROW_HEIGHT}px, 3.75rem)` } : undefined}
+      className="w-full min-w-0 overflow-hidden"
+    >
+      {showFeatureSeparator && (
+        <div className="flex min-w-0 items-center gap-1.5 pt-0.5 text-[9px] text-muted-foreground">
+          <span
+            className={cn(
+              'min-w-0 truncate font-medium',
+              selected ? 'text-accent' : isInvalid ? 'text-destructive' : 'text-muted-foreground',
+            )}
+            title={feature.id}
+          >
+            {feature.id}
+          </span>
+          <div className="min-w-6 flex-1 border-t border-border/70" />
+        </div>
+      )}
+
       <div
-        ref={rowRef}
-        aria-pressed={selected}
-        style={{ minHeight: `max(${FEATURE_LIST_ROW_HEIGHT}px, 3.75rem)` }}
-        onClick={() => {
-          if (!selected) {
-            onSelectFeature(feature.id)
-          }
-        }}
         className={cn(
-          'w-full min-w-0 overflow-hidden rounded-sm border px-2.5 pt-2 transition focus-within:ring-2 focus-within:ring-accent/30',
-          !selected && 'cursor-pointer',
-          selected ? 'pb-2' : 'pb-1.5',
-          selected
-            ? 'border-accent/40 bg-accent/10 text-foreground shadow-[0_0_0_1px] shadow-accent/25'
-            : isInvalid
-              ? 'border-destructive/20 bg-destructive/8 text-foreground/88 hover:border-destructive/28 hover:bg-destructive/12'
-              : 'border-foreground/8 bg-foreground/3 text-foreground/78 hover:border-foreground/16 hover:bg-foreground/6',
+          'transition',
+          showFeatureSeparator ? 'mt-0.5' : 'mt-0',
         )}
       >
-        <div className="flex items-start gap-2">
-          <div className="flex min-w-0 flex-1 items-start gap-1">
-            <CollapsibleTrigger asChild>
-              <button
-                type="button"
-                onClick={() => onSelectFeature(feature.id)}
-                className={cn('min-w-0 flex-1 text-left focus-visible:outline-none', !selected && 'cursor-pointer')}
-              >
-                <div className="min-w-0 flex-1 overflow-hidden text-left">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <div className="flex min-w-0 shrink items-center gap-1">
-                    <p className="truncate text-sm font-medium leading-5">{feature.label}</p>
-                  </div>
-                </div>
-                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground">
-                  {objectTypeCounts.length > 0 ? (
-                    objectTypeCounts.map(({ count, type }) => (
-                      <Badge
-                        key={type}
-                        variant="outline"
-                        className={cn(
-                          'px-1.5 py-0 text-[10px]',
-                          selected
-                            ? 'border-accent/30 bg-accent/10 text-accent'
-                            : isInvalid
-                              ? 'border-destructive/30 bg-destructive/12 text-destructive'
-                              : 'border-foreground/10 bg-foreground/5 text-foreground/60',
-                        )}
-                      >
-                        {type}
-                        {count > 1 && ` (${count})`}
-                      </Badge>
-                    ))
-                  ) : (
-                    <Badge variant="outline" className="border-foreground/10 bg-foreground/5 px-1.5 py-0 text-[10px] text-foreground/60">
-                      {feature.objects.length} obj
-                    </Badge>
-                  )}
-                  <span>{feature.vertices.length} vtx</span>
-                  {errorCount > 0 ? (
-                    <span className="text-destructive">
-                      {errorCount} err ({errorCodeSummary})
-                    </span>
-                  ) : null}
-                </div>
-                </div>
-              </button>
-            </CollapsibleTrigger>
-            <CopyIdButton value={feature.id} label="feature ID" />
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="mt-0.5 size-7 shrink-0 self-start"
-            aria-label={`Center ${feature.label}`}
-            title={`Center ${feature.label}`}
-            onClick={(event) => {
-              event.stopPropagation()
-              onCenterFeature(feature.id)
-            }}
-          >
-            <Crosshair className="size-3.5" />
-          </Button>
-          {selected && onShowFeatureDetails && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="mt-0.5 h-7 shrink-0 px-2 text-xs"
-              onClick={(event) => {
-                event.stopPropagation()
-                onShowFeatureDetails()
-              }}
-            >
-              Details
-            </Button>
-          )}
-        </div>
-
-        <CollapsibleContent className="overflow-hidden">
-          <div className="mt-2 border-t border-border/55 pt-2">
-            <FeatureObjectTree
-              objects={feature.objects}
-              activeObjectId={activeObjectId}
-              activeGeometryIndex={activeGeometryIndex}
-              errorCountsByObjectId={errorCountsByObjectId}
-              onSelectObject={(objectId) => onSelectFeature(feature.id, objectId)}
-            />
-          </div>
-        </CollapsibleContent>
+        <FeatureObjectTree
+          featureId={feature.id}
+          objects={feature.objects}
+          activeObjectId={activeObjectId}
+          errorCountsByObjectId={errorCountsByObjectId}
+          onSelectObject={(objectId) => onSelectFeature(feature.id, objectId)}
+          onCenterObject={onCenterObject}
+        />
       </div>
-    </Collapsible>
+    </div>
   )
 })
 
@@ -3926,38 +3915,36 @@ const FeatureListPanel = memo(function FeatureListPanel({
   isLoading,
   annotationSourceName,
   datasetFeatureCount,
+  showFeatureSeparators,
   showDesktopHeading,
   searchQuery,
   selectedFeatureId,
   showOnlyInvalidFeatures,
   onSearchQueryChange,
   onShowOnlyInvalidFeaturesChange,
-  onCenterFeature,
   onSelectFeature,
-  onShowFeatureDetails,
+  onCenterObject,
   onShowInfo,
   activeObjectId,
-  activeGeometryIndex,
 }: {
   filteredFeatureItems: FeatureListItem[]
   isLoading: boolean
   annotationSourceName: string | null
   datasetFeatureCount: number
+  showFeatureSeparators: boolean
   showDesktopHeading: boolean
   searchQuery: string
   selectedFeatureId: string | null
   showOnlyInvalidFeatures: boolean
   onSearchQueryChange: (event: ChangeEvent<HTMLInputElement>) => void
   onShowOnlyInvalidFeaturesChange: (checked: boolean) => void
-  onCenterFeature: (featureId: string) => void
   onSelectFeature: (featureId: string, objectId?: string | null) => void
-  onShowFeatureDetails: (() => void) | null
+  onCenterObject: (featureId: string, objectId: string) => void
   onShowInfo: (() => void) | null
   activeObjectId: string | null
-  activeGeometryIndex: number | null
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
-  const autoScrolledFeatureIdRef = useRef<string | null>(null)
+  const completedAutoScrollKeyRef = useRef<string | null>(null)
   const [scrollTop, setScrollTop] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(0)
   const [rowHeights, setRowHeights] = useState<Map<string, number>>(() => new Map())
@@ -3993,11 +3980,12 @@ const FeatureListPanel = memo(function FeatureListPanel({
   const rowLayout = useMemo(() => {
     const rows: Array<{ top: number; height: number }> = []
     let nextTop = FEATURE_LIST_TOP_PADDING
+    const rowGap = showFeatureSeparators ? FEATURE_LIST_ROW_GAP : 0
 
     for (const item of filteredFeatureItems) {
-      const height = rowHeights.get(item.feature.id) ?? FEATURE_LIST_ROW_HEIGHT
+      const height = rowHeights.get(item.feature.id) ?? estimateFeatureListRowHeight(item, showFeatureSeparators)
       rows.push({ top: nextTop, height })
-      nextTop += height + FEATURE_LIST_ROW_GAP
+      nextTop += height + rowGap
     }
 
     const totalHeight =
@@ -4006,7 +3994,12 @@ const FeatureListPanel = memo(function FeatureListPanel({
         : FEATURE_LIST_TOP_PADDING + FEATURE_LIST_BOTTOM_PADDING
 
     return { rows, totalHeight }
-  }, [filteredFeatureItems, rowHeights])
+  }, [filteredFeatureItems, rowHeights, showFeatureSeparators])
+
+  const filteredObjectCount = useMemo(
+    () => filteredFeatureItems.reduce((count, item) => count + item.feature.objects.length, 0),
+    [filteredFeatureItems],
+  )
 
   const handleRowHeightChange = useCallback((featureId: string, height: number) => {
     setRowHeights((current) => {
@@ -4019,6 +4012,22 @@ const FeatureListPanel = memo(function FeatureListPanel({
       return next
     })
   }, [])
+
+  const handleListSelectFeature = useCallback((
+    featureId: string,
+    objectId?: string | null,
+  ) => {
+    completedAutoScrollKeyRef.current = objectSelectionKey(featureId, objectId)
+    onSelectFeature(featureId, objectId)
+  }, [onSelectFeature])
+
+  const handleListCenterObject = useCallback((
+    featureId: string,
+    objectId: string,
+  ) => {
+    completedAutoScrollKeyRef.current = objectSelectionKey(featureId, objectId)
+    onCenterObject(featureId, objectId)
+  }, [onCenterObject])
 
   const scrollSelectedFeatureIntoView = useCallback(() => {
     const viewport = viewportRef.current
@@ -4042,30 +4051,108 @@ const FeatureListPanel = memo(function FeatureListPanel({
 
     const nextTop =
       rowStart < viewportStart
-        ? Math.max(rowStart - FEATURE_LIST_ROW_GAP, 0)
-        : rowEnd - viewport.clientHeight + FEATURE_LIST_ROW_GAP
+        ? Math.max(rowStart - (showFeatureSeparators ? FEATURE_LIST_ROW_GAP : 0), 0)
+        : rowEnd - viewport.clientHeight + (showFeatureSeparators ? FEATURE_LIST_ROW_GAP : 0)
 
     viewport.scrollTo({
       top: Math.max(nextTop, 0),
       behavior: 'auto',
     })
-  }, [rowLayout.rows, selectedIndex])
+  }, [rowLayout.rows, selectedIndex, showFeatureSeparators])
+
+  const scrollActiveObjectIntoView = useCallback(() => {
+    const viewport = viewportRef.current
+    if (!viewport) {
+      return false
+    }
+
+    const activeElement = viewport.querySelector<HTMLElement>('[data-active-object-list-item="true"]')
+    if (!activeElement) {
+      return false
+    }
+
+    const viewportRect = viewport.getBoundingClientRect()
+    const activeRect = activeElement.getBoundingClientRect()
+    if (activeRect.height <= 0) {
+      return false
+    }
+
+    const visibilityInset = Math.min(
+      OBJECT_LIST_VISIBILITY_INSET,
+      Math.max((viewport.clientHeight - activeRect.height) / 2, 0),
+    )
+    if (
+      activeRect.top >= viewportRect.top + visibilityInset &&
+      activeRect.bottom <= viewportRect.bottom - visibilityInset
+    ) {
+      return true
+    }
+
+    const viewportCenter = viewportRect.top + viewport.clientHeight / 2
+    const activeCenter = activeRect.top + activeRect.height / 2
+    const nextTop = viewport.scrollTop + activeCenter - viewportCenter
+
+    viewport.scrollTo({
+      top: Math.max(nextTop, 0),
+      behavior: 'auto',
+    })
+    return true
+  }, [])
 
   useEffect(() => {
     if (!selectedFeatureId) {
-      autoScrolledFeatureIdRef.current = null
+      completedAutoScrollKeyRef.current = null
       return
     }
 
-    if (selectedIndex < 0 || autoScrolledFeatureIdRef.current === selectedFeatureId) {
+    const selectionKey = objectSelectionKey(selectedFeatureId, activeObjectId)
+    if (selectedIndex < 0 || completedAutoScrollKeyRef.current === selectionKey) {
       return
     }
 
-    autoScrolledFeatureIdRef.current = selectedFeatureId
     scrollSelectedFeatureIntoView()
-  }, [scrollSelectedFeatureIntoView, selectedFeatureId, selectedIndex])
+    if (!activeObjectId) {
+      completedAutoScrollKeyRef.current = selectionKey
+      return
+    }
 
-  const overscanDistance = FEATURE_LIST_OVERSCAN * (FEATURE_LIST_ROW_HEIGHT + FEATURE_LIST_ROW_GAP)
+    const frameIds: number[] = []
+    const scheduleObjectScroll = (attempt: number) => {
+      const frameId = window.requestAnimationFrame(() => {
+        if (scrollActiveObjectIntoView()) {
+          completedAutoScrollKeyRef.current = selectionKey
+          return
+        }
+
+        if (attempt <= 0) {
+          return
+        }
+
+        scrollSelectedFeatureIntoView()
+        scheduleObjectScroll(attempt - 1)
+      })
+      frameIds.push(frameId)
+    }
+
+    scheduleObjectScroll(12)
+
+    return () => {
+      for (const frameId of frameIds) {
+        window.cancelAnimationFrame(frameId)
+      }
+    }
+  }, [
+    activeObjectId,
+    scrollActiveObjectIntoView,
+    scrollSelectedFeatureIntoView,
+    selectedFeatureId,
+    selectedIndex,
+  ])
+
+  const overscanDistance = FEATURE_LIST_OVERSCAN * (
+    (showFeatureSeparators ? FEATURE_LIST_ROW_HEIGHT : CITY_OBJECT_TREE_ROW_ESTIMATE) +
+    (showFeatureSeparators ? FEATURE_LIST_ROW_GAP : 0)
+  )
   const visibleStart = Math.max(scrollTop - overscanDistance, 0)
   const visibleEnd = scrollTop + viewportHeight + overscanDistance
   let startIndex = 0
@@ -4080,6 +4167,14 @@ const FeatureListPanel = memo(function FeatureListPanel({
   while (endIndex < rowLayout.rows.length && rowLayout.rows[endIndex].top <= visibleEnd) {
     endIndex += 1
   }
+  const renderedItemIndices = Array.from(
+    { length: Math.max(endIndex - startIndex, 0) },
+    (_, index) => startIndex + index,
+  )
+  if (selectedIndex >= 0 && (selectedIndex < startIndex || selectedIndex >= endIndex)) {
+    renderedItemIndices.push(selectedIndex)
+    renderedItemIndices.sort((left, right) => left - right)
+  }
 
   return (
     <>
@@ -4088,7 +4183,7 @@ const FeatureListPanel = memo(function FeatureListPanel({
           <div className="flex items-center justify-between gap-2">
             <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
               <Layers className="size-4 text-muted-foreground" />
-              Features ({datasetFeatureCount})
+              CityObjects ({datasetFeatureCount})
             </h1>
             {onShowInfo && (
               <Button
@@ -4111,7 +4206,7 @@ const FeatureListPanel = memo(function FeatureListPanel({
             <Input
               value={searchQuery}
               onChange={onSearchQueryChange}
-              placeholder="Search features"
+              placeholder="Search objects"
               className="h-9 pl-8"
             />
           </div>
@@ -4122,14 +4217,14 @@ const FeatureListPanel = memo(function FeatureListPanel({
             <div>
               <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Show errors only</p>
               <p className="text-xs text-foreground/60">
-                Showing {filteredFeatureItems.length} of {datasetFeatureCount}
+                Showing {filteredObjectCount} of {datasetFeatureCount}
               </p>
             </div>
             <Switch
               checked={showOnlyInvalidFeatures}
               onCheckedChange={onShowOnlyInvalidFeaturesChange}
               className="shrink-0"
-              aria-label="Show only features with validation errors"
+              aria-label="Show only objects with validation errors"
             />
           </div>
         )}
@@ -4138,8 +4233,11 @@ const FeatureListPanel = memo(function FeatureListPanel({
       <ScrollArea className="min-h-0 flex-1" viewportRef={viewportRef}>
         {filteredFeatureItems.length > 0 ? (
           <div className="relative" style={{ height: `${rowLayout.totalHeight}px` }}>
-            {filteredFeatureItems.slice(startIndex, endIndex).map((item, visibleIndex) => {
-              const itemIndex = startIndex + visibleIndex
+            {renderedItemIndices.map((itemIndex) => {
+              const item = filteredFeatureItems[itemIndex]
+              if (!item) {
+                return null
+              }
               const top = rowLayout.rows[itemIndex]?.top ?? FEATURE_LIST_TOP_PADDING
               const isSelected = item.feature.id === selectedFeatureId
 
@@ -4152,11 +4250,10 @@ const FeatureListPanel = memo(function FeatureListPanel({
                   <FeatureListRow
                     item={item}
                     selected={isSelected}
+                    showFeatureSeparator={showFeatureSeparators}
                     activeObjectId={isSelected ? activeObjectId : null}
-                    activeGeometryIndex={isSelected ? activeGeometryIndex : null}
-                    onCenterFeature={onCenterFeature}
-                    onSelectFeature={onSelectFeature}
-                    onShowFeatureDetails={onShowFeatureDetails}
+                    onSelectFeature={handleListSelectFeature}
+                    onCenterObject={handleListCenterObject}
                     onHeightChange={handleRowHeightChange}
                   />
                 </div>
@@ -4167,7 +4264,7 @@ const FeatureListPanel = memo(function FeatureListPanel({
           !isLoading && (
             <div className="p-3 pt-2">
               <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-4 py-6 text-sm text-muted-foreground">
-                No features matched the current filter.
+                No objects matched the current filter.
               </div>
             </div>
           )
