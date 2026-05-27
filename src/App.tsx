@@ -11,7 +11,7 @@ import {
   Crosshair,
   FolderOpen,
   FileText,
-  Github,
+  GitFork,
   Layers,
   Maximize2,
   Minimize2,
@@ -25,6 +25,7 @@ import {
   RotateCcw,
   RotateCw,
   Search,
+  SearchAlert,
   Columns3Cog,
   Shuffle,
   SquareMousePointer,
@@ -83,6 +84,8 @@ import {
   loadValidationReportFromUrl,
   mergeValidationAnnotations,
 } from '@/lib/cityjson'
+import { validateDatasetWithVal3dity } from '@/lib/val3dity-wasm'
+import type { Val3dityValidationOptions } from '@/lib/val3dity-wasm'
 import { cn, viewerObjectKey } from '@/lib/utils'
 import type {
   PolygonRings,
@@ -106,11 +109,26 @@ const GITHUB_REPO_URL = 'https://github.com/3DGI/CJLoupe'
 const APP_VERSION = packageJson.version
 const DEFAULT_CAMERA_FOCAL_LENGTH = 50
 const BAG_BUILDING_ID_PREFIX = 'NL.IMBAG.Pand.'
+const DEFAULT_VAL3DITY_PARAMETERS: Val3dityParameterForm = {
+  tolSnap: '0.001',
+  planarityD2pTol: '0.01',
+  planarityNTol: '20.0',
+  overlapTol: '-1.0',
+  primitive: 'Solid',
+}
 
 type DetailPaneMode = 'split' | 'collapsed' | 'fullscreen'
 type MobileInspectMode = 'object' | 'surface'
 type MobilePanelView = 'features' | 'details'
 type InfoPanelSection = 'pinned' | 'attribute' | 'semantic'
+type Val3dityPrimitiveOption = 'auto' | 'Solid' | 'MultiSurface' | 'CompositeSurface'
+type Val3dityParameterForm = {
+  tolSnap: string
+  planarityD2pTol: string
+  planarityNTol: string
+  overlapTol: string
+  primitive: Val3dityPrimitiveOption
+}
 type HelpItem = { keys: string; description: string }
 type ContinuousAttributeColorMapId = keyof typeof ATTRIBUTE_COLOR_MAPS
 type QualitativeAttributeColorMapId = keyof typeof QUALITATIVE_COLOR_MAPS
@@ -242,6 +260,7 @@ function App() {
   const [focusRevision, setFocusRevision] = useState(0)
   const [focusTarget, setFocusTarget] = useState<ViewerFocusTarget>(null)
   const [annotationSourceName, setAnnotationSourceName] = useState<string | null>(null)
+  const [loadingMessage, setLoadingMessage] = useState<string | null>(null)
   const [cameraFocalLength, setCameraFocalLength] = useState(DEFAULT_CAMERA_FOCAL_LENGTH)
   const [viewportCenter, setViewportCenter] = useState<Vec3 | null>(null)
   const [hideOccludedEditEdges, setHideOccludedEditEdges] = useState(true)
@@ -271,6 +290,7 @@ function App() {
   const [isChangelogDialogOpen, setIsChangelogDialogOpen] = useState(false)
   const [cityJsonUrlInput, setCityJsonUrlInput] = useState('')
   const [annotationUrlInput, setAnnotationUrlInput] = useState('')
+  const [val3dityParameters, setVal3dityParameters] = useState<Val3dityParameterForm>(DEFAULT_VAL3DITY_PARAMETERS)
   const [isMobileLayout, setIsMobileLayout] = useState(false)
   const [mobileInspectMode, setMobileInspectMode] = useState<MobileInspectMode>('object')
   const [mobilePanelView, setMobilePanelView] = useState<MobilePanelView>('features')
@@ -873,6 +893,32 @@ function App() {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to load val3dity report from URL.'
       setError(message)
     } finally {
+      finishLoadingIfViewportIsReady()
+    }
+  }
+
+  async function validateCurrentDatasetWithVal3dity() {
+    if (!dataset) {
+      return
+    }
+
+    setIsLoading(true)
+    setLoadingMessage('Validating…')
+    setError(null)
+    setIsInfoDialogOpen(false)
+
+    try {
+      if (!isValidVal3dityParameters(val3dityParameters)) {
+        throw new Error('Fix the val3dity parameters before running validation.')
+      }
+      await waitForNextPaint()
+      const annotations = await validateDatasetWithVal3dity(dataset, buildVal3dityValidationOptions(val3dityParameters))
+      applyLoadedAnnotations(dataset, annotations, 'val3dity wasm')
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : 'Failed to run val3dity validation.'
+      setError(message)
+    } finally {
+      setLoadingMessage(null)
       finishLoadingIfViewportIsReady()
     }
   }
@@ -2050,7 +2096,7 @@ function App() {
                   aria-label="Open GitHub repository"
                   title="Open GitHub repository"
                 >
-                  <Github className="size-4" />
+                  <GitFork className="size-4" />
                 </a>
               </Button>
             </div>
@@ -2141,6 +2187,9 @@ function App() {
                     showOnlyInvalidFeatures={showOnlyInvalidFeatures}
                     onSearchQueryChange={handleSearchQueryChange}
                     onShowOnlyInvalidFeaturesChange={handleShowOnlyInvalidFeaturesChange}
+                    val3dityParameters={val3dityParameters}
+                    onVal3dityParametersChange={setVal3dityParameters}
+                    onValidate={dataset ? () => void validateCurrentDatasetWithVal3dity() : null}
                     onSelectFeature={handleSelectFeature}
                     onCenterObject={handleCenterObject}
                     onShowInfo={dataset ? () => setIsInfoDialogOpen(true) : null}
@@ -2729,10 +2778,10 @@ function App() {
             <div className="flex items-start gap-4">
               <div className="min-w-0 flex-1">
                 <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary">
-                  Loading
+                  {loadingMessage ? 'Validation' : 'Loading'}
                 </p>
                 <p className="mt-2 text-sm leading-6 text-foreground/92">
-                  Loading…
+                  {loadingMessage ?? 'Loading…'}
                 </p>
               </div>
             </div>
@@ -3922,6 +3971,9 @@ const FeatureListPanel = memo(function FeatureListPanel({
   showOnlyInvalidFeatures,
   onSearchQueryChange,
   onShowOnlyInvalidFeaturesChange,
+  val3dityParameters,
+  onVal3dityParametersChange,
+  onValidate,
   onSelectFeature,
   onCenterObject,
   onShowInfo,
@@ -3938,6 +3990,9 @@ const FeatureListPanel = memo(function FeatureListPanel({
   showOnlyInvalidFeatures: boolean
   onSearchQueryChange: (event: ChangeEvent<HTMLInputElement>) => void
   onShowOnlyInvalidFeaturesChange: (checked: boolean) => void
+  val3dityParameters: Val3dityParameterForm
+  onVal3dityParametersChange: (parameters: Val3dityParameterForm) => void
+  onValidate: (() => void) | null
   onSelectFeature: (featureId: string, objectId?: string | null) => void
   onCenterObject: (featureId: string, objectId: string) => void
   onShowInfo: (() => void) | null
@@ -4175,6 +4230,7 @@ const FeatureListPanel = memo(function FeatureListPanel({
     renderedItemIndices.push(selectedIndex)
     renderedItemIndices.sort((left, right) => left - right)
   }
+  const hasInvalidVal3dityParameters = !isValidVal3dityParameters(val3dityParameters)
 
   return (
     <>
@@ -4185,18 +4241,54 @@ const FeatureListPanel = memo(function FeatureListPanel({
               <Layers className="size-4 text-muted-foreground" />
               CityObjects ({datasetFeatureCount})
             </h1>
-            {onShowInfo && (
-              <Button
-                size="icon"
-                variant="ghost"
-                className="size-8 shrink-0"
-                onClick={onShowInfo}
-                aria-label="Show file information"
-                title="Show file information"
-              >
-                <FileText className="size-4" />
-              </Button>
-            )}
+            <div className="flex items-center gap-1">
+              {onValidate && (
+                <div className="flex shrink-0 overflow-hidden rounded-sm border border-input bg-background/55">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-8 rounded-none border-r border-border/55"
+                    onClick={onValidate}
+                    disabled={hasInvalidVal3dityParameters}
+                    aria-label="Run val3dity validation"
+                    title={hasInvalidVal3dityParameters ? 'Fix val3dity parameters' : 'Run val3dity validation'}
+                  >
+                    <SearchAlert className="size-4" />
+                  </Button>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-6 rounded-none"
+                        aria-label="Set val3dity parameters"
+                        title="Set val3dity parameters"
+                      >
+                        <ChevronDown className="size-3.5" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-96 p-0">
+                      <Val3dityParametersPopover
+                        parameters={val3dityParameters}
+                        onChange={onVal3dityParametersChange}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              )}
+              {onShowInfo && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-8 shrink-0"
+                  onClick={onShowInfo}
+                  aria-label="Show file information"
+                  title="Show file information"
+                >
+                  <FileText className="size-4" />
+                </Button>
+              )}
+            </div>
           </div>
         )}
 
@@ -5651,6 +5743,69 @@ function tryParseHttpUrl(text: string): string | null {
   }
 }
 
+function waitForNextPaint() {
+  return new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => resolve())
+    })
+  })
+}
+
+function buildVal3dityValidationOptions(parameters: Val3dityParameterForm): Val3dityValidationOptions {
+  const options: Val3dityValidationOptions = {}
+  const tolSnap = parseVal3dityParameterValue(parameters.tolSnap, 0)
+  const planarityD2pTol = parseVal3dityParameterValue(parameters.planarityD2pTol, 0)
+  const planarityNTol = parseVal3dityParameterValue(parameters.planarityNTol, 0)
+  const overlapTol = parseVal3dityParameterValue(parameters.overlapTol, -Infinity)
+
+  if (tolSnap != null) {
+    options.tolSnap = tolSnap
+  }
+  if (planarityD2pTol != null) {
+    options.planarityD2pTol = planarityD2pTol
+  }
+  if (planarityNTol != null) {
+    options.planarityNTol = planarityNTol
+  }
+  if (overlapTol != null) {
+    options.overlapTol = overlapTol
+  }
+  if (parameters.primitive !== 'auto') {
+    options.primitive = parameters.primitive
+  }
+
+  return options
+}
+
+function parseVal3dityParameterValue(value: string, min: number) {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  const parsed = Number(trimmed)
+  return Number.isFinite(parsed) && parsed >= min ? parsed : null
+}
+
+function isValidVal3dityParameterValue(value: string, min: number) {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return true
+  }
+
+  const parsed = Number(trimmed)
+  return Number.isFinite(parsed) && parsed >= min
+}
+
+function isValidVal3dityParameters(parameters: Val3dityParameterForm) {
+  return (
+    isValidVal3dityParameterValue(parameters.tolSnap, 0) &&
+    isValidVal3dityParameterValue(parameters.planarityD2pTol, 0) &&
+    isValidVal3dityParameterValue(parameters.planarityNTol, 0) &&
+    isValidVal3dityParameterValue(parameters.overlapTol, -Infinity)
+  )
+}
+
 function deriveSourceNameFromUrl(url: string) {
   try {
     const parsed = new URL(url)
@@ -5859,6 +6014,136 @@ function InfoDialog({
         </div>
       </div>
     </div>
+  )
+}
+
+function Val3dityParametersPopover({
+  parameters,
+  onChange,
+}: {
+  parameters: Val3dityParameterForm
+  onChange: (parameters: Val3dityParameterForm) => void
+}) {
+  const hasInvalidNumber =
+    !isValidVal3dityParameterValue(parameters.tolSnap, 0) ||
+    !isValidVal3dityParameterValue(parameters.planarityD2pTol, 0) ||
+    !isValidVal3dityParameterValue(parameters.planarityNTol, 0) ||
+    !isValidVal3dityParameterValue(parameters.overlapTol, -Infinity)
+
+  const updateDraft = (key: keyof Val3dityParameterForm, value: string) => {
+    onChange({ ...parameters, [key]: value })
+  }
+
+  return (
+    <div>
+      <div className="border-b border-border/40 px-4 py-3">
+        <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary">
+          Val3dity parameters
+        </p>
+      </div>
+
+      <div className="space-y-4 p-4">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Val3dityNumberInput
+            id="val3dity-tol-snap"
+            label="Snap tolerance"
+            min="0"
+            step="0.001"
+            value={parameters.tolSnap}
+            onChange={(value) => updateDraft('tolSnap', value)}
+          />
+          <Val3dityNumberInput
+            id="val3dity-overlap-tol"
+            label="Overlap tolerance"
+            step="0.1"
+            value={parameters.overlapTol}
+            onChange={(value) => updateDraft('overlapTol', value)}
+          />
+          <Val3dityNumberInput
+            id="val3dity-planarity-d2p-tol"
+            label="Planarity distance"
+            min="0"
+            step="0.01"
+            value={parameters.planarityD2pTol}
+            onChange={(value) => updateDraft('planarityD2pTol', value)}
+          />
+          <Val3dityNumberInput
+            id="val3dity-planarity-n-tol"
+            label="Planarity normal"
+            min="0"
+            step="0.1"
+            value={parameters.planarityNTol}
+            onChange={(value) => updateDraft('planarityNTol', value)}
+          />
+        </div>
+
+        <label className="block space-y-1.5" htmlFor="val3dity-primitive">
+          <span className="text-xs font-medium text-muted-foreground">Primitive</span>
+          <select
+            id="val3dity-primitive"
+            value={parameters.primitive}
+            onChange={(event) =>
+              onChange({
+                ...parameters,
+                primitive: event.target.value as Val3dityPrimitiveOption,
+              })}
+            className="flex h-10 w-full rounded-sm border border-input bg-background/70 px-3 py-2 text-sm text-foreground shadow-sm outline-none transition focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+          >
+            <option value="auto">Auto</option>
+            <option value="Solid">Solid</option>
+            <option value="MultiSurface">MultiSurface</option>
+            <option value="CompositeSurface">CompositeSurface</option>
+          </select>
+        </label>
+
+        {hasInvalidNumber && (
+          <p className="rounded-sm border border-destructive/25 bg-destructive/8 px-3 py-2 text-sm text-destructive">
+            Snap and planarity tolerances must be non-negative numbers; overlap tolerance must be numeric.
+          </p>
+        )}
+      </div>
+
+      <div className="flex justify-end border-t border-border/40 p-3">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => onChange(DEFAULT_VAL3DITY_PARAMETERS)}
+        >
+          Reset
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function Val3dityNumberInput({
+  id,
+  label,
+  min,
+  step,
+  value,
+  onChange,
+}: {
+  id: string
+  label: string
+  min?: string
+  step: string
+  value: string
+  onChange: (value: string) => void
+}) {
+  return (
+    <label className="block space-y-1.5" htmlFor={id}>
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <Input
+        id={id}
+        type="number"
+        inputMode="decimal"
+        min={min}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
   )
 }
 

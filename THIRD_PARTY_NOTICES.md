@@ -22,6 +22,22 @@ Imported files:
 - `src/assets/blender-icons/tracker.svg`
 - `src/assets/blender-icons/vertexsel.svg`
 
+## val3dity WebAssembly
+
+This repository includes WebAssembly browser artifacts built from the val3dity wasm branch:
+
+- Source: https://github.com/Ylannl/val3dity/tree/wasm
+- Project: https://github.com/tudelft3d/val3dity
+- Copyright: 3D geoinformation research group, TU Delft
+- License: GNU General Public License, compatible with this repository's `GPL-3.0-or-later` license
+
+Imported files:
+
+- `src/vendor/val3dity/README.md`
+- `src/vendor/val3dity/val3dity.js`
+- `src/vendor/val3dity/val3dity_wasm.mjs`
+- `src/vendor/val3dity/val3dity_wasm.wasm`
+
 ## Three Jump Flood Demo
 
 The selected-object outline shader in `src/components/viewer/city-viewport.tsx` adapts the jump flood outline technique from:

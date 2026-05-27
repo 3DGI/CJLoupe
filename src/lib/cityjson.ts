@@ -204,7 +204,7 @@ function parseCityJsonForSource(
 
       const type = parsed.type
       if (type === 'CityJSON') {
-        return parseCityJsonDocument(parsed as CityJsonDocument, sourceName)
+        return parseCityJsonDocument(parsed as CityJsonDocument, sourceName, text)
       }
 
       if (cityJsonKind === 'document') {
@@ -307,12 +307,12 @@ export function parseCityJsonSequence(text: string, sourceName: string): ViewerD
     })
 
     return measurePerformance('cjvis:cityjson:create-viewer-dataset', () =>
-      createViewerDataset(sourceName, features, info, 'CityJSONFeatures'),
+      createViewerDataset(sourceName, text, features, info, 'CityJSONFeatures'),
     )
   })
 }
 
-function parseCityJsonDocument(document: CityJsonDocument, sourceName: string): ViewerDataset {
+function parseCityJsonDocument(document: CityJsonDocument, sourceName: string, sourceText: string): ViewerDataset {
   return measurePerformance('cjvis:cityjson:parse-document-total', () => {
     if (!isCityObjectsRecord(document.CityObjects)) {
       throw new Error('CityJSON object must contain a top-level "CityObjects" object.')
@@ -382,13 +382,14 @@ function parseCityJsonDocument(document: CityJsonDocument, sourceName: string): 
     })
 
     return measurePerformance('cjvis:cityjson:create-viewer-dataset', () =>
-      createViewerDataset(sourceName, features, info, 'CityJSON'),
+      createViewerDataset(sourceName, sourceText, features, info, 'CityJSON'),
     )
   })
 }
 
 function createViewerDataset(
   sourceName: string,
+  sourceText: string,
   features: ViewerFeature[],
   info: ViewerDatasetInfo,
   cityJsonKind: 'CityJSON' | 'CityJSONFeatures',
@@ -422,6 +423,7 @@ function createViewerDataset(
 
   return {
     sourceName,
+    sourceText,
     center,
     extent,
     features,

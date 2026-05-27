@@ -66,6 +66,7 @@ export type ViewerFocusTarget =
 
 export interface ViewerDataset {
   sourceName: string
+  sourceText: string
   center: Vec3
   extent: [number, number, number, number, number, number]
   features: ViewerFeature[]

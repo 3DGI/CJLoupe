@@ -5,6 +5,7 @@
 - Fix an issue with the copy buttons that resulted in console errors
 - Simplify object list. Flatten it for regular CityJSON files (no feature containers)
 - Fix autoscroll in object list on object selection in 3D viewport
+- Add in-browser val3dity validation
 
 ## 0.7.0 - 2026-05-12
 
