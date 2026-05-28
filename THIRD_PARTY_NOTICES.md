@@ -22,6 +22,19 @@ Imported files:
 - `src/assets/blender-icons/tracker.svg`
 - `src/assets/blender-icons/vertexsel.svg`
 
+## Git Logo
+
+This repository includes the black and white Git logomark SVGs:
+
+- Source: https://git-scm.com/community/logos
+- Author: Jason Long
+- License: Creative Commons Attribution 3.0 Unported License
+
+Imported files:
+
+- `src/assets/git-icon-black.svg`
+- `src/assets/git-icon-white.svg`
+
 ## val3dity WebAssembly
 
 This repository includes WebAssembly browser artifacts built from the val3dity wasm branch:

@@ -11,7 +11,6 @@ import {
   Crosshair,
   FolderOpen,
   FileText,
-  GitFork,
   Layers,
   Maximize2,
   Minimize2,
@@ -67,6 +66,8 @@ import { useTheme } from '@/components/use-theme'
 import cubeIconUrl from '@/assets/blender-icons/cube.svg'
 import editModeIconUrl from '@/assets/blender-icons/editmode_hlt.svg'
 import faceSelectIconUrl from '@/assets/blender-icons/facesel.svg'
+import gitIconBlackUrl from '@/assets/git-icon-black.svg'
+import gitIconWhiteUrl from '@/assets/git-icon-white.svg'
 import materialIconUrl from '@/assets/blender-icons/material.svg'
 import objectOriginIconUrl from '@/assets/blender-icons/object_origin.svg'
 import pointcloudPointIconUrl from '@/assets/blender-icons/pointcloud_point.svg'
@@ -2096,7 +2097,12 @@ function App() {
                   aria-label="Open GitHub repository"
                   title="Open GitHub repository"
                 >
-                  <GitFork className="size-4" />
+                  <img
+                    src={theme === 'dark' ? gitIconWhiteUrl : gitIconBlackUrl}
+                    alt=""
+                    className="size-4"
+                    aria-hidden="true"
+                  />
                 </a>
               </Button>
             </div>
