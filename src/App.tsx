@@ -1356,6 +1356,10 @@ function App() {
       (selectedFeature.objects.length === 1 ? selectedFeature.objects[0]?.id ?? null : activeObjectId)
 
     if (!isMobileLayout) {
+      if (!editMode) {
+        preInspectPickingModeRef.current = pickingMode
+        setPickingMode(inspectPickingModeRef.current)
+      }
       setEditMode(true)
       setIsolateSelectedFeature(true)
       setShowSemanticSurfaces(false)
@@ -3163,6 +3167,7 @@ function DesktopViewportToolbar({
               variant="ghost"
               size="icon"
               className="size-7"
+              disabled={editMode}
               onClick={onClearSelection}
               aria-label="Clear selection"
               title="Clear selection"

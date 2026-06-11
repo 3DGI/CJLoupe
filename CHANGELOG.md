@@ -6,6 +6,8 @@
 - Simplify object list. Flatten it for regular CityJSON files (no feature containers)
 - Fix autoscroll in object list on object selection in 3D viewport
 - Add in-browser val3dity validation
+- Restore the previous inspect picking mode when centering validation errors
+- Disable clearing the selection while in inspect mode
 
 ## 0.7.0 - 2026-05-12
 

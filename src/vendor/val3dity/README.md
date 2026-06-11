@@ -49,6 +49,39 @@ wasm-build
 
 The build writes `build-wasm/val3dity_wasm.mjs` and `build-wasm/val3dity_wasm.wasm`.
 
+## Updating the CJLoupe vendored files
+
+Build the wasm branch of val3dity in a separate checkout:
+
+```sh
+git clone https://github.com/Ylannl/val3dity.git
+cd val3dity
+git checkout wasm
+nix develop .#wasm
+wasm-build
+```
+
+Then copy the generated module files into this directory:
+
+```sh
+cp build-wasm/val3dity_wasm.mjs /path/to/cjvis/src/vendor/val3dity/
+cp build-wasm/val3dity_wasm.wasm /path/to/cjvis/src/vendor/val3dity/
+```
+
+Keep `val3dity.js` and `val3dity.d.ts` in this directory in sync with the exported Embind functions. CJLoupe expects the wrapper to expose:
+
+- `createVal3dity(options?)`
+- `validateCityJSON(input, options?)`
+- `validateCityJSONSeq(input, options?)`
+- `validateRawArrays(vertices, faces, options?)`
+
+After updating the files, run the app checks from the CJLoupe repository:
+
+```sh
+nix develop --command bun run build
+nix develop --command bun run lint
+```
+
 The same directory also contains `demo.html`, a small browser demo for uploading a CityJSON or CityJSONSeq file and viewing the validation report. Serve the directory over HTTP, for example:
 
 ```sh
