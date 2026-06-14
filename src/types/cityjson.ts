@@ -53,7 +53,7 @@ export type ViewerFocusTarget =
       objectId: string | null
       vertexIndex: number
     }
-    | {
+  | {
       kind: 'error'
       featureId: string
       objectId: string | null
@@ -61,6 +61,10 @@ export type ViewerFocusTarget =
       faceIndex: number | null
       location: Vec3 | null
       preserveCameraOffset?: boolean
+    }
+  | {
+      kind: 'location'
+      location: Vec3
     }
   | null
 

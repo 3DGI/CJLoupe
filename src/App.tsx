@@ -1315,6 +1315,11 @@ function App() {
     setFocusRevision((current) => current + 1)
   }, [featureMap])
 
+  const handleSetViewportCenter = useCallback((center: Vec3) => {
+    setFocusTarget({ kind: 'location', location: center })
+    setFocusRevision((current) => current + 1)
+  }, [])
+
   const centerCurrentSelection = useCallback(() => {
     if (!selectedFeature) {
       return
@@ -2615,6 +2620,7 @@ function App() {
               cameraFocalLength={cameraFocalLength}
               onCameraFocalLengthChange={setCameraFocalLength}
               onSetTopDownView={() => setTopDownViewRevision((current) => current + 1)}
+              onSetCenter={handleSetViewportCenter}
               onTogglePinnedAttributesOpen={() => setIsPinnedAttributesOpen((current) => !current)}
             />
           </div>
@@ -3225,6 +3231,7 @@ function DesktopViewportStatusBar({
   cameraFocalLength,
   onCameraFocalLengthChange,
   onSetTopDownView,
+  onSetCenter,
   onTogglePinnedAttributesOpen,
 }: {
   isPinnedAttributesOpen: boolean
@@ -3236,6 +3243,7 @@ function DesktopViewportStatusBar({
   cameraFocalLength: number
   onCameraFocalLengthChange: (value: number) => void
   onSetTopDownView: () => void
+  onSetCenter: (center: Vec3) => void
   onTogglePinnedAttributesOpen: () => void
 }) {
   const [didCopyObjectId, setDidCopyObjectId] = useState(false)
@@ -3304,11 +3312,8 @@ function DesktopViewportStatusBar({
             )}
           </Badge>
         )}
-        <div className="flex h-6 min-w-0 items-center gap-1.5 overflow-hidden rounded-sm border border-border/70 bg-background/35 px-1.5 font-mono text-[10px] text-muted-foreground">
-          <span className="shrink-0 text-foreground/75">center</span>
-          <span className="min-w-0 truncate">
-            {viewportCenter ? formatCoordinateTriple(viewportCenter) : '-, -, -'}
-          </span>
+        <div className="flex h-6 min-w-0 items-center gap-1 overflow-hidden rounded-sm border border-border/70 bg-background/35 px-1.5 font-mono text-[10px] text-muted-foreground">
+          <ViewportCenterEditor center={viewportCenter} onChange={onSetCenter} />
           {selectedVertexIndex != null && (
             <span className="shrink-0 text-foreground/75">vtx {selectedVertexIndex}</span>
           )}
@@ -3343,6 +3348,65 @@ function DesktopViewportStatusBar({
           <ArrowDown className="size-3" />
         </Button>
       </div>
+    </div>
+  )
+}
+
+const VIEWPORT_CENTER_AXES = ['x', 'y', 'z'] as const
+
+function ViewportCenterEditor({
+  center,
+  onChange,
+}: {
+  center: Vec3 | null
+  onChange: (center: Vec3) => void
+}) {
+  const [draft, setDraft] = useState<Record<(typeof VIEWPORT_CENTER_AXES)[number], string> | null>(null)
+  const values = useMemo(() => ({
+    x: center?.[0].toFixed(3) ?? '',
+    y: center?.[1].toFixed(3) ?? '',
+    z: center?.[2].toFixed(3) ?? '',
+  }), [center])
+  const displayedValues = draft ?? values
+
+  const commit = useCallback(() => {
+    const nextCenter = VIEWPORT_CENTER_AXES.map((axis) => Number.parseFloat(displayedValues[axis])) as Vec3
+    setDraft(null)
+    if (nextCenter.every(Number.isFinite)) {
+      onChange(nextCenter)
+    }
+  }, [displayedValues, onChange])
+
+  return (
+    <div
+      className="flex min-w-0 items-center gap-1"
+      onFocus={() => setDraft((current) => current ?? values)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          commit()
+        }
+      }}
+    >
+      <span className="shrink-0 text-foreground/75">center</span>
+      {VIEWPORT_CENTER_AXES.map((axis) => (
+        <input
+          key={axis}
+          type="text"
+          inputMode="decimal"
+          value={displayedValues[axis]}
+          onChange={(event) => setDraft((current) => ({ ...(current ?? values), [axis]: event.target.value }))}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              commit()
+            } else if (event.key === 'Escape') {
+              setDraft(null)
+            }
+          }}
+          className="w-16 min-w-0 bg-transparent text-center outline-none placeholder:text-muted-foreground/50"
+          placeholder="-"
+          aria-label={`Center ${axis.toUpperCase()} coordinate`}
+        />
+      ))}
     </div>
   )
 }

@@ -1303,7 +1303,15 @@ function CityViewport({
       return
     }
 
-    if (focusTarget.kind === 'error') {
+    if (focusTarget.kind === 'location') {
+      const center = new THREE.Vector3(
+        focusTarget.location[0] - currentData.center[0],
+        focusTarget.location[1] - currentData.center[1],
+        focusTarget.location[2] - currentData.center[2],
+      )
+      const cameraOffset = runtime.camera.position.clone().sub(getArcballCenter(runtime.arcball))
+      setArcballPose(runtime, center, center.clone().add(cameraOffset))
+    } else if (focusTarget.kind === 'error') {
       centerViewOnValidationError(runtime, currentData, focusTarget, selectionRef.current)
     } else if (focusTarget.kind === 'vertex') {
       centerViewOnVertex(runtime, currentData, focusTarget)
