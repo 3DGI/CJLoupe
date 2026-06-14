@@ -1,4 +1,5 @@
 import {
+  ArrowDown,
   Box,
   ChevronDown,
   ChevronLeft,
@@ -50,6 +51,11 @@ import {
   resolveObjectGeometryIndex,
 } from '@/lib/object-geometry'
 import { errorColor } from '@/lib/error-palette'
+import {
+  CAMERA_FOCAL_LENGTH_MIN,
+  ORTHOGRAPHIC_CAMERA_VALUE,
+  isOrthographicCameraValue,
+} from '@/lib/camera'
 import { semanticSurfaceColor } from '@/lib/semantic-surface-colors'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -258,6 +264,7 @@ function App() {
   const [selectedFaceVertexEntryIndex, setSelectedFaceVertexEntryIndex] = useState<number | null>(null)
   const [geometryRevision, setGeometryRevision] = useState(0)
   const [viewportResetRevision, setViewportResetRevision] = useState(0)
+  const [topDownViewRevision, setTopDownViewRevision] = useState(0)
   const [focusRevision, setFocusRevision] = useState(0)
   const [focusTarget, setFocusTarget] = useState<ViewerFocusTarget>(null)
   const [annotationSourceName, setAnnotationSourceName] = useState<string | null>(null)
@@ -2440,6 +2447,7 @@ function App() {
             activeGeometryIndex={activeGeometryIndex}
             geometryRevision={geometryRevision}
             viewportResetRevision={viewportResetRevision}
+            topDownViewRevision={topDownViewRevision}
             focusRevision={focusRevision}
             focusTarget={focusTarget}
             selectedFeatureId={selectedFeatureId}
@@ -2606,6 +2614,7 @@ function App() {
               selectedVertexIndex={selectedVertexIndex}
               cameraFocalLength={cameraFocalLength}
               onCameraFocalLengthChange={setCameraFocalLength}
+              onSetTopDownView={() => setTopDownViewRevision((current) => current + 1)}
               onTogglePinnedAttributesOpen={() => setIsPinnedAttributesOpen((current) => !current)}
             />
           </div>
@@ -3215,6 +3224,7 @@ function DesktopViewportStatusBar({
   selectedVertexIndex,
   cameraFocalLength,
   onCameraFocalLengthChange,
+  onSetTopDownView,
   onTogglePinnedAttributesOpen,
 }: {
   isPinnedAttributesOpen: boolean
@@ -3225,9 +3235,11 @@ function DesktopViewportStatusBar({
   selectedVertexIndex: number | null
   cameraFocalLength: number
   onCameraFocalLengthChange: (value: number) => void
+  onSetTopDownView: () => void
   onTogglePinnedAttributesOpen: () => void
 }) {
   const [didCopyObjectId, setDidCopyObjectId] = useState(false)
+  const isOrthographicCamera = isOrthographicCameraValue(cameraFocalLength)
 
   useEffect(() => {
     if (!didCopyObjectId) {
@@ -3304,17 +3316,32 @@ function DesktopViewportStatusBar({
       </div>
       <div className="floating-chip flex h-6 shrink-0 items-center gap-1.5 rounded-sm border px-1.5">
         <Camera className="size-3 text-muted-foreground" />
-        <span className="font-mono text-[10px] text-muted-foreground">{cameraFocalLength}mm</span>
+        <span className="font-mono text-[10px] text-muted-foreground">
+          {isOrthographicCamera ? 'Ortho' : `${cameraFocalLength}mm`}
+        </span>
         <input
           type="range"
-          min={12}
-          max={120}
+          min={CAMERA_FOCAL_LENGTH_MIN}
+          max={ORTHOGRAPHIC_CAMERA_VALUE}
           step={1}
           value={cameraFocalLength}
           onChange={(event) => onCameraFocalLengthChange(Number(event.target.value))}
           className="slider-accent h-2 w-20 cursor-pointer appearance-none rounded-none bg-input"
-          aria-label="Camera focal length"
+          aria-label="Camera projection and focal length"
+          aria-valuetext={isOrthographicCamera ? 'Orthographic' : `${cameraFocalLength} millimeters`}
         />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-5 shrink-0 rounded-[3px] p-0"
+          disabled={!viewportCenter}
+          onClick={onSetTopDownView}
+          aria-label="Set top-down view"
+          title="Top-down view"
+        >
+          <ArrowDown className="size-3" />
+        </Button>
       </div>
     </div>
   )

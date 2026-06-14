@@ -26,6 +26,10 @@ import {
   resolveObjectGeometry,
   resolveObjectGeometryIndex,
 } from '@/lib/object-geometry'
+import {
+  CAMERA_FOCAL_LENGTH_MAX,
+  isOrthographicCameraValue,
+} from '@/lib/camera'
 import { errorColor } from '@/lib/error-palette'
 import { measurePerformance, nowPerformance, recordPerformanceMeasure } from '@/lib/performance'
 import { semanticSurfaceColor } from '@/lib/semantic-surface-colors'
@@ -53,6 +57,12 @@ const SELECTION_OUTLINE_INTERACTIVE_TARGET_SCALE = 0.25
 const SELECTION_TINT_COLOR = '#7ee7e7'
 const SELECTION_TINT_STRENGTH = 0.34
 const SEMANTIC_SELECTION_TINT_STRENGTH = 0.58
+const REFERENCE_VERTICAL_FOV_DEGREES = 50
+const REFERENCE_HALF_FOV_TANGENT = Math.tan(
+  THREE.MathUtils.degToRad(REFERENCE_VERTICAL_FOV_DEGREES) / 2,
+)
+
+type ViewerCamera = THREE.PerspectiveCamera | THREE.OrthographicCamera
 const EMPTY_FACE_INDEX_SET = new Set<number>()
 
 const SELECTION_EFFECT_COLORS: Record<Theme, { outline: string }> = {
@@ -151,6 +161,7 @@ type CityViewportProps = {
   isolateSelectedFeature: boolean
   geometryRevision: number
   viewportResetRevision: number
+  topDownViewRevision: number
   focusRevision: number
   focusTarget: ViewerFocusTarget
   selectedFeatureId: string | null
@@ -187,7 +198,7 @@ type CityViewportProps = {
 type Runtime = {
   renderer: THREE.WebGLRenderer
   scene: THREE.Scene
-  camera: THREE.PerspectiveCamera
+  camera: ViewerCamera
   arcball: ArcballControls
   transform: TransformControls
   rootGroup: THREE.Group
@@ -524,6 +535,7 @@ function CityViewport({
   isolateSelectedFeature,
   geometryRevision,
   viewportResetRevision,
+  topDownViewRevision,
   focusRevision,
   focusTarget,
   selectedFeatureId,
@@ -555,6 +567,7 @@ function CityViewport({
   const fittedDatasetKeyRef = useRef<string | null>(null)
   const dataRef = useRef<ViewerDataset | null>(data)
   const initialCameraFocalLengthRef = useRef(cameraFocalLength)
+  const handledTopDownViewRevisionRef = useRef(topDownViewRevision)
   const hideOccludedEditEdgesRef = useRef(hideOccludedEditEdges)
   const isolateSelectedFeatureRef = useRef(isolateSelectedFeature)
   const selectionRef = useRef({
@@ -647,10 +660,7 @@ function CityViewport({
     const scene = new THREE.Scene()
     scene.fog = new THREE.FogExp2('#061120', VIEWPORT_FOG_DENSITY.dark)
 
-    const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500000)
-    camera.filmGauge = 35
-    camera.setFocalLength(initialCameraFocalLengthRef.current)
-    camera.up.set(0, 0, 1)
+    const camera = createViewerCamera(initialCameraFocalLengthRef.current, 1)
 
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
@@ -844,8 +854,7 @@ function CityViewport({
       const width = Math.max(target.clientWidth, 1)
       const height = Math.max(target.clientHeight, 1)
 
-      activeRuntime.camera.aspect = width / height
-      activeRuntime.camera.updateProjectionMatrix()
+      updateCameraAspect(activeRuntime.camera, width / height)
       activeRuntime.renderer.setSize(width, height)
       updateEditWireframeResolution(activeRuntime)
       syncArcballState(activeRuntime)
@@ -1469,28 +1478,37 @@ function CityViewport({
   }, [viewportResetRevision])
 
   useEffect(() => {
+    if (handledTopDownViewRevisionRef.current === topDownViewRevision) {
+      return
+    }
+    handledTopDownViewRevisionRef.current = topDownViewRevision
+
     const runtime = runtimeRef.current
     if (!runtime) {
       return
     }
 
-    const center = getArcballCenter(runtime.arcball).clone()
-    const distanceVector = new THREE.Vector3().subVectors(runtime.camera.position, center)
-    const currentDistance = distanceVector.length()
-    const currentFovRadians = THREE.MathUtils.degToRad(runtime.camera.fov)
+    setTopDownCameraView(runtime)
+    renderViewport(runtime)
+    reportViewportCenter(runtime, dataRef.current, onViewportCenterChangeRef.current)
+  }, [topDownViewRevision])
 
-    runtime.camera.setFocalLength(cameraFocalLength)
-    runtime.camera.updateProjectionMatrix()
-
-    if (currentDistance > 0) {
-      const nextFovRadians = THREE.MathUtils.degToRad(runtime.camera.fov)
-      const nextDistance =
-        currentDistance * (Math.tan(currentFovRadians / 2) / Math.tan(nextFovRadians / 2))
-      const nextPosition = center.clone().add(distanceVector.normalize().multiplyScalar(nextDistance))
-      setArcballPose(runtime, center, nextPosition)
-    } else {
-      syncArcballState(runtime, center)
+  useEffect(() => {
+    const runtime = runtimeRef.current
+    if (!runtime) {
+      return
     }
+
+    if (isOrthographicCameraValue(cameraFocalLength)) {
+      if (isPerspectiveCamera(runtime.camera)) {
+        switchToOrthographicCamera(runtime)
+      }
+    } else if (isOrthographicCamera(runtime.camera)) {
+      switchToPerspectiveCamera(runtime, cameraFocalLength)
+    } else {
+      updatePerspectiveFocalLength(runtime, cameraFocalLength)
+    }
+
     renderViewport(runtime)
     reportViewportCenter(runtime, dataRef.current, onViewportCenterChangeRef.current)
   }, [cameraFocalLength])
@@ -4140,16 +4158,9 @@ function fitCameraToDataset(runtime: Runtime, data: ViewerDataset) {
   const size = Math.max(sizeX, sizeY, sizeZ)
   const focusPoint = new THREE.Vector3(0, 0, size * 0.15)
   const direction = new THREE.Vector3(0.75, -1.35, 0.85).normalize()
-  const distance =
-    size * 1.76 * lensDistanceScale(runtime.camera.fov)
-
-  runtime.camera.position.copy(focusPoint).add(direction.multiplyScalar(distance))
-  runtime.camera.lookAt(focusPoint)
-  runtime.camera.updateMatrix()
-  runtime.camera.updateMatrixWorld(true)
   runtime.arcball.minDistance = Math.max(size * 0.000002, 0.001)
   runtime.arcball.maxDistance = size * 18
-  syncArcballState(runtime, focusPoint)
+  setCameraViewForBaseDistance(runtime, focusPoint, direction, size * 1.76, true)
   updateCameraClipping(runtime)
 }
 
@@ -4166,10 +4177,7 @@ function centerViewOnFeature(
   const sizeZ = extent[5] - extent[2]
   const featureSize = Math.max(sizeX, sizeY, sizeZ)
   const baseDistance = Math.max(featureSize * 2.4, runtime.sceneScale * 0.06, 8)
-  const distance = baseDistance * lensDistanceScale(runtime.camera.fov)
-
-  const nextPosition = center.clone().add(direction.multiplyScalar(distance))
-  setArcballPose(runtime, center, nextPosition)
+  setCameraViewForBaseDistance(runtime, center, direction, baseDistance)
 }
 
 function centerViewOnVertex(
@@ -4253,13 +4261,17 @@ function centerViewOnValidationError(
     )
     const nextPosition = preserveCameraOffset
       ? center.clone().add(runtime.camera.position.clone().sub(getArcballCenter(runtime.arcball).clone()))
-      : center.clone().add(
-          getCurrentViewDirection(runtime).multiplyScalar(
-            Math.max(objectSize * 0.85, featureSize * 0.18, runtime.sceneScale * 0.02, 4) *
-              lensDistanceScale(runtime.camera.fov),
-          ),
-        )
-    setArcballPose(runtime, center, nextPosition)
+      : null
+    if (nextPosition) {
+      setArcballPose(runtime, center, nextPosition)
+    } else {
+      setCameraViewForBaseDistance(
+        runtime,
+        center,
+        getCurrentViewDirection(runtime),
+        Math.max(objectSize * 0.85, featureSize * 0.18, runtime.sceneScale * 0.02, 4),
+      )
+    }
     return
   }
 
@@ -4288,9 +4300,7 @@ function centerViewOnExtent(
   const sizeZ = extent[5] - extent[2]
   const targetSize = Math.max(sizeX, sizeY, sizeZ)
   const baseDistance = Math.max(targetSize * 4.2, minimumDistance)
-  const distance = baseDistance * lensDistanceScale(runtime.camera.fov)
-  const nextPosition = center.clone().add(direction.multiplyScalar(distance))
-  setArcballPose(runtime, center, nextPosition)
+  setCameraViewForBaseDistance(runtime, center, direction, baseDistance)
 }
 
 function centerViewOnExtentPreservingOffset(
@@ -5188,10 +5198,231 @@ function resolveObjectHit(hit: THREE.Intersection) {
   return null
 }
 
+function createViewerCamera(cameraValue: number, aspect: number): ViewerCamera {
+  if (isOrthographicCameraValue(cameraValue)) {
+    return createOrthographicCamera(aspect, 1, 0.1, 500000)
+  }
+
+  return createPerspectiveCamera(cameraValue, aspect, 0.1, 500000)
+}
+
+function createPerspectiveCamera(focalLength: number, aspect: number, near: number, far: number) {
+  const camera = new THREE.PerspectiveCamera(REFERENCE_VERTICAL_FOV_DEGREES, aspect, near, far)
+  camera.filmGauge = 35
+  camera.setFocalLength(focalLength)
+  camera.up.set(0, 0, 1)
+  return camera
+}
+
+function createOrthographicCamera(aspect: number, halfHeight: number, near: number, far: number) {
+  const camera = new THREE.OrthographicCamera(
+    -halfHeight * aspect,
+    halfHeight * aspect,
+    halfHeight,
+    -halfHeight,
+    near,
+    far,
+  )
+  camera.up.set(0, 0, 1)
+  return camera
+}
+
+function updateCameraAspect(camera: ViewerCamera, aspect: number) {
+  if (isPerspectiveCamera(camera)) {
+    camera.aspect = aspect
+  } else {
+    const halfHeight = Math.max((camera.top - camera.bottom) * 0.5, 0.000001)
+    camera.left = -halfHeight * aspect
+    camera.right = halfHeight * aspect
+  }
+  camera.updateProjectionMatrix()
+}
+
+function updatePerspectiveFocalLength(runtime: Runtime, focalLength: number) {
+  if (!isPerspectiveCamera(runtime.camera)) {
+    return
+  }
+
+  const center = getArcballCenter(runtime.arcball).clone()
+  const distanceVector = new THREE.Vector3().subVectors(runtime.camera.position, center)
+  const currentDistance = distanceVector.length()
+  const currentHalfHeight = perspectiveHalfHeightAtDistance(runtime.camera, currentDistance)
+
+  runtime.camera.setFocalLength(focalLength)
+  runtime.camera.updateProjectionMatrix()
+
+  if (currentDistance <= 0) {
+    syncArcballState(runtime, center)
+    return
+  }
+
+  const nextDistance = perspectiveDistanceForHalfHeight(runtime.camera, currentHalfHeight)
+  const nextPosition = center.clone().add(distanceVector.normalize().multiplyScalar(nextDistance))
+  setArcballPose(runtime, center, nextPosition)
+}
+
+function switchToOrthographicCamera(runtime: Runtime) {
+  if (!isPerspectiveCamera(runtime.camera)) {
+    return
+  }
+
+  const previousCamera = runtime.camera
+  const center = getArcballCenter(runtime.arcball).clone()
+  const distance = Math.max(previousCamera.position.distanceTo(center), 0.000001)
+  const halfHeight = perspectiveHalfHeightAtDistance(previousCamera, distance)
+  const nextCamera = createOrthographicCamera(
+    previousCamera.aspect,
+    Math.max(halfHeight, 0.000001),
+    previousCamera.near,
+    previousCamera.far,
+  )
+  nextCamera.position.copy(previousCamera.position)
+  nextCamera.up.copy(previousCamera.up)
+  activateCamera(runtime, nextCamera, center)
+  updateOrthographicZoomLimits(runtime, distance)
+}
+
+function switchToPerspectiveCamera(runtime: Runtime, focalLength: number) {
+  if (!isOrthographicCamera(runtime.camera)) {
+    return
+  }
+
+  const previousCamera = runtime.camera
+  const center = getArcballCenter(runtime.arcball).clone()
+  const aspect = getCameraAspect(previousCamera)
+  const nextCamera = createPerspectiveCamera(
+    focalLength,
+    aspect,
+    previousCamera.near,
+    previousCamera.far,
+  )
+  const nextDistance = perspectiveDistanceForHalfHeight(
+    nextCamera,
+    getOrthographicHalfHeight(previousCamera),
+  )
+  const direction = new THREE.Vector3(0, 0, 1).applyQuaternion(previousCamera.quaternion)
+
+  nextCamera.position.copy(center).add(direction.multiplyScalar(nextDistance))
+  nextCamera.up.copy(previousCamera.up)
+  activateCamera(runtime, nextCamera, center)
+}
+
+function activateCamera(runtime: Runtime, camera: ViewerCamera, center: THREE.Vector3) {
+  const orientation = runtime.camera.quaternion.clone()
+  runtime.camera = camera
+  runtime.transform.camera = camera
+  getArcballTarget(runtime.arcball).copy(center)
+  runtime.arcball.setCamera(camera)
+  camera.quaternion.copy(orientation)
+  camera.updateMatrix()
+  camera.updateMatrixWorld(true)
+  runtime.arcball.setGizmosVisible(false)
+  syncArcballState(runtime, center)
+  updateCameraClipping(runtime)
+}
+
+function setCameraViewForBaseDistance(
+  runtime: Runtime,
+  center: THREE.Vector3,
+  direction: THREE.Vector3,
+  baseDistance: number,
+  orientToCenter = false,
+) {
+  const cameraFov = isPerspectiveCamera(runtime.camera)
+    ? runtime.camera.fov
+    : focalLengthToVerticalFov(CAMERA_FOCAL_LENGTH_MAX, getCameraAspect(runtime.camera))
+
+  if (isOrthographicCamera(runtime.camera)) {
+    setOrthographicHalfHeight(
+      runtime.camera,
+      Math.max(baseDistance * REFERENCE_HALF_FOV_TANGENT, 0.000001),
+    )
+  }
+
+  const distance = baseDistance * lensDistanceScale(cameraFov)
+  const nextPosition = center.clone().add(direction.clone().normalize().multiplyScalar(distance))
+  if (orientToCenter) {
+    runtime.camera.position.copy(nextPosition)
+    runtime.camera.lookAt(center)
+    syncArcballState(runtime, center)
+  } else {
+    setArcballPose(runtime, center, nextPosition)
+  }
+  if (isOrthographicCamera(runtime.camera)) {
+    updateOrthographicZoomLimits(runtime, distance)
+  }
+}
+
+function updateOrthographicZoomLimits(runtime: Runtime, equivalentDistance: number) {
+  runtime.arcball.minZoom =
+    Number.isFinite(runtime.arcball.maxDistance) && runtime.arcball.maxDistance > 0
+      ? equivalentDistance / runtime.arcball.maxDistance
+      : 0
+  runtime.arcball.maxZoom =
+    runtime.arcball.minDistance > 0
+      ? equivalentDistance / runtime.arcball.minDistance
+      : Infinity
+}
+
+function setOrthographicHalfHeight(camera: THREE.OrthographicCamera, halfHeight: number) {
+  const aspect = getCameraAspect(camera)
+  camera.left = -halfHeight * aspect
+  camera.right = halfHeight * aspect
+  camera.top = halfHeight
+  camera.bottom = -halfHeight
+  camera.zoom = 1
+  camera.updateProjectionMatrix()
+}
+
+function getOrthographicHalfHeight(camera: THREE.OrthographicCamera) {
+  return Math.max((camera.top - camera.bottom) * 0.5, 0.000001) /
+    Math.max(camera.zoom, 0.000001)
+}
+
+function perspectiveHalfHeightAtDistance(camera: THREE.PerspectiveCamera, distance: number) {
+  return Math.max(distance, 0.000001) * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)
+}
+
+function perspectiveDistanceForHalfHeight(camera: THREE.PerspectiveCamera, halfHeight: number) {
+  return halfHeight / Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)
+}
+
+function getCameraAspect(camera: ViewerCamera) {
+  if (isPerspectiveCamera(camera)) {
+    return camera.aspect
+  }
+
+  const height = camera.top - camera.bottom
+  return height !== 0 ? (camera.right - camera.left) / height : 1
+}
+
+function focalLengthToVerticalFov(focalLength: number, aspect: number) {
+  const filmHeight = 35 / Math.max(aspect, 1)
+  return THREE.MathUtils.radToDeg(2 * Math.atan(filmHeight / (2 * focalLength)))
+}
+
+function isPerspectiveCamera(camera: ViewerCamera): camera is THREE.PerspectiveCamera {
+  return camera instanceof THREE.PerspectiveCamera
+}
+
+function isOrthographicCamera(camera: ViewerCamera): camera is THREE.OrthographicCamera {
+  return camera instanceof THREE.OrthographicCamera
+}
+
 function getDatasetViewKey(data: ViewerDataset) {
   const firstId = data.features[0]?.id ?? ''
   const lastId = data.features.at(-1)?.id ?? ''
   return `${data.sourceName}:${data.features.length}:${firstId}:${lastId}`
+}
+
+function setTopDownCameraView(runtime: Runtime) {
+  const center = getArcballCenter(runtime.arcball).clone()
+  const distance = Math.max(runtime.camera.position.distanceTo(center), runtime.sceneScale * 0.001, 0.001)
+
+  runtime.camera.position.copy(center).add(new THREE.Vector3(0, 0, distance))
+  runtime.camera.up.set(0, 1, 0)
+  runtime.camera.lookAt(center)
+  syncArcballState(runtime, center)
 }
 
 function setArcballPose(runtime: Runtime, center: THREE.Vector3, cameraPosition: THREE.Vector3) {
@@ -5234,9 +5465,8 @@ function getArcballCenter(arcball: ArcballControls) {
 }
 
 function lensDistanceScale(verticalFovDegrees: number) {
-  const referenceFovRadians = THREE.MathUtils.degToRad(50)
   const currentFovRadians = THREE.MathUtils.degToRad(verticalFovDegrees)
-  return Math.tan(referenceFovRadians / 2) / Math.tan(currentFovRadians / 2)
+  return REFERENCE_HALF_FOV_TANGENT / Math.tan(currentFovRadians / 2)
 }
 
 function findNearestEditVertexIndexOnScreen(

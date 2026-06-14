@@ -8,7 +8,8 @@
 - Add in-browser val3dity validation
 - Restore the previous inspect picking mode when centering validation errors
 - Disable clearing the selection while in inspect mode
-
+- Switch to orthographic projection when maxing out focal length slider, set 18 mm minimum focal length
+- Add button for top-down camera view
 ## 0.7.0 - 2026-05-12
 
 - Fix issue with colormap clamping past max value
