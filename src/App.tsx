@@ -74,6 +74,7 @@ import editModeIconUrl from '@/assets/blender-icons/editmode_hlt.svg'
 import faceSelectIconUrl from '@/assets/blender-icons/facesel.svg'
 import gitIconBlackUrl from '@/assets/git-icon-black.svg'
 import gitIconWhiteUrl from '@/assets/git-icon-white.svg'
+import materialIconUrl from '@/assets/blender-icons/material.svg'
 import objectOriginIconUrl from '@/assets/blender-icons/object_origin.svg'
 import pointcloudPointIconUrl from '@/assets/blender-icons/pointcloud_point.svg'
 import restrictSelectOffIconUrl from '@/assets/blender-icons/restrict_select_off.svg'
@@ -6101,7 +6102,7 @@ function getAppearanceModeIcon(mode: ViewerAppearanceMode) {
     case 'normal':
       return <Pyramid className="size-3.5" />
     case 'semantic':
-      return <Layers className="size-3.5" />
+      return <MaskIcon src={materialIconUrl} className="size-3.5" />
     case 'colormap':
       return <Palette className="size-3.5" />
   }
