@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+- Reimplement normal coloring mode to calculate color in-shader
+
 ## 0.8.0 - 2026-06-14
 
 - Performance improvements for file loading

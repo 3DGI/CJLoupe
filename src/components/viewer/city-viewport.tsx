@@ -240,6 +240,7 @@ type Runtime = {
   appearanceMode: ViewerAppearanceMode
   attributeColor: ViewerAttributeColorState | null
   attributeColorSharedUniforms: AttributeColorSharedUniforms
+  normalColorUniforms: NormalColorUniforms
   selectionTintUniforms: SelectionTintUniforms
   semanticSurfaceSharedUniforms: SemanticSurfaceSharedUniforms
   semanticSurfaceTypeIds: Map<string, number>
@@ -317,7 +318,11 @@ type SemanticSurfaceSharedUniforms = {
   colors: { value: THREE.Color[] }
 }
 
-type BatchColorMode = 'base' | 'normal' | 'semantic' | 'continuous-attribute'
+type NormalColorUniforms = {
+  enabled: { value: number }
+}
+
+type BatchColorMode = 'base' | 'semantic' | 'continuous-attribute'
 
 const ATTRIBUTE_COLOR_STOP_COUNT = 10
 const SEMANTIC_SURFACE_COLOR_SLOT_COUNT = 64
@@ -787,9 +792,10 @@ function CityViewport({
       sceneScale: 1,
       editPivot: null,
       theme: themeRef.current,
-      appearanceMode: appearanceModeRef.current,
+      appearanceMode: appearanceModeRef.current === 'normal' ? 'regular' : appearanceModeRef.current,
       attributeColor: attributeColorRef.current,
       attributeColorSharedUniforms: createAttributeColorSharedUniforms(),
+      normalColorUniforms: createNormalColorUniforms(appearanceModeRef.current),
       selectionTintUniforms: createSelectionTintUniforms(),
       semanticSurfaceSharedUniforms: createSemanticSurfaceSharedUniforms(),
       semanticSurfaceTypeIds: new Map(),
@@ -1360,8 +1366,18 @@ function CityViewport({
       return
     }
 
+    if (appearanceMode === 'normal') {
+      runtime.normalColorUniforms.enabled.value = 1
+      renderViewport(runtime)
+      reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
+      return
+    }
+
+    runtime.normalColorUniforms.enabled.value = 0
     const previousAppearanceMode = runtime.appearanceMode
     if (previousAppearanceMode === appearanceMode) {
+      renderViewport(runtime)
+      reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
       return
     }
 
@@ -1371,12 +1387,9 @@ function CityViewport({
 
     if (currentData) {
       const selection = selectionRef.current
-      const normalModeChanged = previousAppearanceMode === 'normal' || appearanceMode === 'normal'
       const semanticModeChanged = previousAppearanceMode === 'semantic' || appearanceMode === 'semantic'
-      const needsRebuild = normalModeChanged || (
-        semanticModeChanged &&
+      const needsRebuild = semanticModeChanged &&
         shouldRebuildForSemanticModeToggle(runtime, currentData, selection, appearanceMode === 'semantic')
-      )
       if (needsRebuild) {
         rebuildScene(runtime, currentData, selection)
         rebuildAnnotations(runtime)
@@ -1667,7 +1680,7 @@ function canBatchObject(
   object: ViewerFeature['objects'][number],
   objectGeometry: ViewerObjectGeometry,
 ) {
-  if (runtime.appearanceMode === 'semantic' || runtime.appearanceMode === 'normal') {
+  if (runtime.appearanceMode === 'semantic') {
     return true
   }
 
@@ -1725,11 +1738,7 @@ function applyBatchGeometryAttributes(
 ) {
   const vertexCount = geometry.getAttribute('position')?.count ?? 0
   const colors = new Float32Array(vertexCount * 3)
-  if (runtime.appearanceMode === 'normal') {
-    fillNormalColors(colors, blueprint.normals)
-  } else {
-    colors.fill(1)
-  }
+  colors.fill(1)
 
   const shaderObjectId = getShaderObjectId(runtime, objectKey)
   const shaderObjectIds = new Float32Array(vertexCount)
@@ -1760,18 +1769,7 @@ function applyStandaloneGeometryAttributes(
   const shaderObjectIds = new Float32Array(vertexCount)
   shaderObjectIds.fill(shaderObjectId)
   geometry.setAttribute('shaderObjectId', new THREE.BufferAttribute(shaderObjectIds, 1))
-  if (runtime.appearanceMode === 'normal') {
-    const colors = new Float32Array(vertexCount * 3)
-    fillNormalColors(colors, blueprint.normals)
-    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
-  }
   setSelectionFaceIndexAttribute(geometry, blueprint)
-}
-
-function fillNormalColors(colors: Float32Array, normals: Float32Array) {
-  for (let index = 0; index < normals.length; index++) {
-    colors[index] = normals[index] * 0.5 + 0.5
-  }
 }
 
 function setSelectionFaceIndexAttribute(
@@ -1810,7 +1808,7 @@ function fillSemanticSurfaceAttributes(
 }
 
 function resolveInitialBatchedObjectColor(runtime: Runtime, item: BatchBuildItem) {
-  if (runtime.appearanceMode === 'semantic' || runtime.appearanceMode === 'normal') {
+  if (runtime.appearanceMode === 'semantic') {
     return '#ffffff'
   }
 
@@ -1928,6 +1926,7 @@ function buildSpatialBatches(
         runtime.attributeColorSharedUniforms,
         runtime.semanticSurfaceSharedUniforms,
         runtime.selectionTintUniforms,
+        runtime.normalColorUniforms,
       ),
     )
     allocateBatchDuration += nowPerformance() - startedAt
@@ -2050,13 +2049,8 @@ function createBatchMaterial(
   sharedUniforms: AttributeColorSharedUniforms,
   semanticUniforms: SemanticSurfaceSharedUniforms,
   selectionUniforms: SelectionTintUniforms,
+  normalUniforms: NormalColorUniforms,
 ) {
-  if (mode === 'normal') {
-    const material = createNormalMaterial()
-    material.userData.batchColorMode = mode
-    return material
-  }
-
   const material = new THREE.MeshStandardMaterial({
     color: '#ffffff',
     roughness: 0.72,
@@ -2075,14 +2069,11 @@ function createBatchMaterial(
   } else {
     applyBatchedSelectionTintToMaterial(material, selectionUniforms)
   }
+  applyNormalColorToMaterial(material, normalUniforms)
   return material
 }
 
 function getBatchColorMode(runtime: Runtime): BatchColorMode {
-  if (runtime.appearanceMode === 'normal') {
-    return 'normal'
-  }
-
   if (runtime.appearanceMode === 'semantic') {
     return 'semantic'
   }
@@ -2111,6 +2102,7 @@ function syncBatchMaterials(runtime: Runtime) {
       runtime.attributeColorSharedUniforms,
       runtime.semanticSurfaceSharedUniforms,
       runtime.selectionTintUniforms,
+      runtime.normalColorUniforms,
     )
   }
 }
@@ -2346,14 +2338,6 @@ function buildObjectMeshPresentation(
   const geometry = buildGroupedObjectGeometry(blueprint, faceGroups)
   const objectKey = viewerObjectKey(feature.id, object.id)
   applyStandaloneGeometryAttributes(geometry, blueprint, runtime, objectKey)
-  if (runtime.appearanceMode === 'normal') {
-    return {
-      blueprint,
-      geometry,
-      material: createNormalMaterial(),
-    }
-  }
-
   const semanticMode = runtime.appearanceMode === 'semantic'
   const baseMaterial = createMaterial(object.type, runtime.theme, semanticMode)
   applySelectionTintToMaterial(baseMaterial, runtime.selectionTintUniforms, semanticMode)
@@ -2376,6 +2360,7 @@ function buildObjectMeshPresentation(
       runtime.selectionTintUniforms,
       Boolean(material.userData.isSemantic || material.userData.isSemanticBase),
     )
+    applyNormalColorToMaterial(material, runtime.normalColorUniforms)
   }
 
   return {
@@ -2391,10 +2376,6 @@ function resolveObjectFaceGroups(
   object: ViewerFeature['objects'][number],
   objectGeometry: ViewerObjectGeometry,
 ) {
-  if (runtime.appearanceMode === 'normal') {
-    return { faceGroups: new Map<number, number>(), groupColors: new Map<number, string>() }
-  }
-
   return runtime.appearanceMode === 'semantic'
     ? computeFaceSemanticGroups(objectGeometry.semanticSurfaces)
     : computeFaceErrorGroups(feature.errors, object.id, objectGeometry.index, objectGeometry.sourceFaceIndices)
@@ -3225,18 +3206,6 @@ function applyMeshSelectionAppearance(
 
   const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
   for (const material of materials) {
-    if (material.userData.isNormal) {
-      const normalMaterial = material as THREE.MeshBasicMaterial
-      normalMaterial.color.set('#ffffff')
-      if (tintWholeObject) {
-        normalMaterial.color.lerp(new THREE.Color(SELECTION_TINT_COLOR), SELECTION_TINT_STRENGTH)
-      }
-      normalMaterial.opacity = 1
-      normalMaterial.transparent = false
-      normalMaterial.depthWrite = true
-      continue
-    }
-
     const mat = material as THREE.MeshStandardMaterial
     const { color, emissive, userData } = mat
     if (userData.isError) {
@@ -3362,7 +3331,7 @@ function resolveBatchedObjectColor(
     return '#ffffff'
   }
 
-  if (runtime.appearanceMode === 'semantic' || runtime.appearanceMode === 'normal') {
+  if (runtime.appearanceMode === 'semantic') {
     return '#ffffff'
   }
 
@@ -4399,17 +4368,6 @@ function createMaterial(objectType: string, theme: Theme, semanticMode = false) 
   return material
 }
 
-function createNormalMaterial() {
-  const material = new THREE.MeshBasicMaterial({
-    color: '#ffffff',
-    vertexColors: true,
-    side: THREE.DoubleSide,
-  })
-  material.toneMapped = false
-  material.userData.isNormal = true
-  return material
-}
-
 function applyAttributeColorToScene(runtime: Runtime) {
   for (const [key, mesh] of runtime.meshesByObjectKey.entries()) {
     const value = runtime.attributeColor?.valuesByObjectKey[key] ?? null
@@ -4745,6 +4703,54 @@ function createSelectionTintUniforms(): SelectionTintUniforms {
     strength: { value: SELECTION_TINT_STRENGTH },
     semanticStrength: { value: SEMANTIC_SELECTION_TINT_STRENGTH },
   }
+}
+
+function createNormalColorUniforms(appearanceMode: ViewerAppearanceMode): NormalColorUniforms {
+  return {
+    enabled: { value: appearanceMode === 'normal' ? 1 : 0 },
+  }
+}
+
+function applyNormalColorToMaterial(
+  material: THREE.MeshStandardMaterial,
+  uniforms: NormalColorUniforms,
+) {
+  const previousOnBeforeCompile = material.onBeforeCompile
+  const previousProgramCacheKey = material.customProgramCacheKey()
+
+  material.onBeforeCompile = (shader, renderer) => {
+    previousOnBeforeCompile.call(material, shader, renderer)
+    shader.uniforms.uNormalColorEnabled = uniforms.enabled
+    shader.vertexShader = `
+      varying vec3 vWorldNormalColor;
+    ${shader.vertexShader}`.replace(
+      '#include <normal_vertex>',
+      `
+      #include <normal_vertex>
+      vWorldNormalColor = normalize(transpose(mat3(viewMatrix)) * transformedNormal);
+      `,
+    )
+    shader.fragmentShader = `
+      uniform float uNormalColorEnabled;
+      varying vec3 vWorldNormalColor;
+    ${shader.fragmentShader}`.replace(
+      '#include <tonemapping_fragment>',
+      `
+      #include <tonemapping_fragment>
+      vec3 normalColorDirection = normalize(vWorldNormalColor);
+      #ifdef DOUBLE_SIDED
+        normalColorDirection *= gl_FrontFacing ? 1.0 : -1.0;
+      #endif
+      gl_FragColor.rgb = mix(
+        gl_FragColor.rgb,
+        normalColorDirection * 0.5 + 0.5,
+        uNormalColorEnabled
+      );
+      `,
+    )
+  }
+  material.customProgramCacheKey = () => `${previousProgramCacheKey}-normal-color-v1`
+  material.needsUpdate = true
 }
 
 function syncSelectionTintUniforms(runtime: Runtime, selection: ViewSelection) {
