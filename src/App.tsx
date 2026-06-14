@@ -4399,7 +4399,7 @@ const FeatureListPanel = memo(function FeatureListPanel({
                     onClick={onValidate}
                     disabled={hasInvalidVal3dityParameters}
                     aria-label="Run val3dity validation (experimental)"
-                    title={hasInvalidVal3dityParameters ? 'Fix val3dity parameters' : 'Run val3dity validation'}
+                    title={hasInvalidVal3dityParameters ? 'Fix val3dity parameters' : 'Run val3dity validation (experimental)'}
                   >
                     <SearchAlert className="size-4" />
                   </Button>
