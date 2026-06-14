@@ -10,6 +10,7 @@ import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js'
 import type {
   PolygonRings,
   Vec3,
+  ViewerAppearanceMode,
   ViewerAttributeColorState,
   ViewerCityObject,
   ViewerDataset,
@@ -172,7 +173,7 @@ type CityViewportProps = {
   selectedFaceIndex: number | null
   selectedFaceRingIndex: number
   selectedVertexIndex: number | null
-  showSemanticSurfaces: boolean
+  appearanceMode: ViewerAppearanceMode
   pickingMode: ViewerPickingMode
   showVertexGizmo: boolean
   attributeColor: ViewerAttributeColorState | null
@@ -236,7 +237,7 @@ type Runtime = {
   sceneScale: number
   editPivot: Vec3 | null
   theme: Theme
-  showSemanticSurfaces: boolean
+  appearanceMode: ViewerAppearanceMode
   attributeColor: ViewerAttributeColorState | null
   attributeColorSharedUniforms: AttributeColorSharedUniforms
   selectionTintUniforms: SelectionTintUniforms
@@ -316,7 +317,7 @@ type SemanticSurfaceSharedUniforms = {
   colors: { value: THREE.Color[] }
 }
 
-type BatchColorMode = 'base' | 'semantic' | 'continuous-attribute'
+type BatchColorMode = 'base' | 'normal' | 'semantic' | 'continuous-attribute'
 
 const ATTRIBUTE_COLOR_STOP_COUNT = 10
 const SEMANTIC_SURFACE_COLOR_SLOT_COUNT = 64
@@ -546,7 +547,7 @@ function CityViewport({
   selectedFaceIndex,
   selectedFaceRingIndex,
   selectedVertexIndex,
-  showSemanticSurfaces,
+  appearanceMode,
   pickingMode,
   showVertexGizmo,
   attributeColor,
@@ -602,7 +603,7 @@ function CityViewport({
   const onViewportCenterChangeRef = useRef(onViewportCenterChange)
   const onDataRenderedRef = useRef(onDataRendered)
   const themeRef = useRef(theme)
-  const showSemanticSurfacesRef = useRef(showSemanticSurfaces)
+  const appearanceModeRef = useRef(appearanceMode)
   const attributeColorRef = useRef(attributeColor)
   const pickingModeRef = useRef(pickingMode)
   const showVertexGizmoRef = useRef(showVertexGizmo)
@@ -644,7 +645,7 @@ function CityViewport({
   useEffect(() => { onViewportCenterChangeRef.current = onViewportCenterChange }, [onViewportCenterChange])
   useEffect(() => { onDataRenderedRef.current = onDataRendered }, [onDataRendered])
   useEffect(() => { themeRef.current = theme }, [theme])
-  useEffect(() => { showSemanticSurfacesRef.current = showSemanticSurfaces }, [showSemanticSurfaces])
+  useEffect(() => { appearanceModeRef.current = appearanceMode }, [appearanceMode])
   useEffect(() => { attributeColorRef.current = attributeColor }, [attributeColor])
   useEffect(() => { pickingModeRef.current = pickingMode }, [pickingMode])
   useEffect(() => { showVertexGizmoRef.current = showVertexGizmo }, [showVertexGizmo])
@@ -786,7 +787,7 @@ function CityViewport({
       sceneScale: 1,
       editPivot: null,
       theme: themeRef.current,
-      showSemanticSurfaces: showSemanticSurfacesRef.current,
+      appearanceMode: appearanceModeRef.current,
       attributeColor: attributeColorRef.current,
       attributeColorSharedUniforms: createAttributeColorSharedUniforms(),
       selectionTintUniforms: createSelectionTintUniforms(),
@@ -921,7 +922,7 @@ function CityViewport({
       const usesMobileTapSelection = mobileInteractionRef.current
       const mobileSurfaceSelection =
         usesMobileTapSelection &&
-        showSemanticSurfacesRef.current &&
+        appearanceModeRef.current === 'semantic' &&
         mobileSelectionModeRef.current === 'surface'
 
       if (!usesMobileTapSelection) {
@@ -1276,7 +1277,7 @@ function CityViewport({
     const previousSelection = previousSelectionRef.current
     const previousIsolateSelectedFeature = previousIsolateSelectedFeatureRef.current
 
-    if (runtime.showSemanticSurfaces && !editMode) {
+    if (runtime.appearanceMode === 'semantic' && !editMode) {
       updateSelectionSurfacePresentation(runtime, currentData, previousSelection, selection)
     }
 
@@ -1359,18 +1360,23 @@ function CityViewport({
       return
     }
 
-    const didSemanticModeChange = runtime.showSemanticSurfaces !== showSemanticSurfaces
-    if (!didSemanticModeChange) {
+    const previousAppearanceMode = runtime.appearanceMode
+    if (previousAppearanceMode === appearanceMode) {
       return
     }
 
-    runtime.showSemanticSurfaces = showSemanticSurfaces
+    runtime.appearanceMode = appearanceMode
     runtime.attributeColor = attributeColorRef.current
     syncAttributeColorSharedUniforms(runtime.attributeColorSharedUniforms, runtime.attributeColor)
 
     if (currentData) {
       const selection = selectionRef.current
-      const needsRebuild = shouldRebuildForSemanticModeToggle(runtime, currentData, selection, showSemanticSurfaces)
+      const normalModeChanged = previousAppearanceMode === 'normal' || appearanceMode === 'normal'
+      const semanticModeChanged = previousAppearanceMode === 'semantic' || appearanceMode === 'semantic'
+      const needsRebuild = normalModeChanged || (
+        semanticModeChanged &&
+        shouldRebuildForSemanticModeToggle(runtime, currentData, selection, appearanceMode === 'semantic')
+      )
       if (needsRebuild) {
         rebuildScene(runtime, currentData, selection)
         rebuildAnnotations(runtime)
@@ -1390,7 +1396,7 @@ function CityViewport({
 
     renderViewport(runtime)
     reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
-  }, [showSemanticSurfaces])
+  }, [appearanceMode])
 
   useEffect(() => {
     const runtime = runtimeRef.current
@@ -1661,7 +1667,7 @@ function canBatchObject(
   object: ViewerFeature['objects'][number],
   objectGeometry: ViewerObjectGeometry,
 ) {
-  if (runtime.showSemanticSurfaces) {
+  if (runtime.appearanceMode === 'semantic' || runtime.appearanceMode === 'normal') {
     return true
   }
 
@@ -1719,7 +1725,11 @@ function applyBatchGeometryAttributes(
 ) {
   const vertexCount = geometry.getAttribute('position')?.count ?? 0
   const colors = new Float32Array(vertexCount * 3)
-  colors.fill(1)
+  if (runtime.appearanceMode === 'normal') {
+    fillNormalColors(colors, blueprint.normals)
+  } else {
+    colors.fill(1)
+  }
 
   const shaderObjectId = getShaderObjectId(runtime, objectKey)
   const shaderObjectIds = new Float32Array(vertexCount)
@@ -1750,7 +1760,18 @@ function applyStandaloneGeometryAttributes(
   const shaderObjectIds = new Float32Array(vertexCount)
   shaderObjectIds.fill(shaderObjectId)
   geometry.setAttribute('shaderObjectId', new THREE.BufferAttribute(shaderObjectIds, 1))
+  if (runtime.appearanceMode === 'normal') {
+    const colors = new Float32Array(vertexCount * 3)
+    fillNormalColors(colors, blueprint.normals)
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+  }
   setSelectionFaceIndexAttribute(geometry, blueprint)
+}
+
+function fillNormalColors(colors: Float32Array, normals: Float32Array) {
+  for (let index = 0; index < normals.length; index++) {
+    colors[index] = normals[index] * 0.5 + 0.5
+  }
 }
 
 function setSelectionFaceIndexAttribute(
@@ -1789,7 +1810,7 @@ function fillSemanticSurfaceAttributes(
 }
 
 function resolveInitialBatchedObjectColor(runtime: Runtime, item: BatchBuildItem) {
-  if (runtime.showSemanticSurfaces) {
+  if (runtime.appearanceMode === 'semantic' || runtime.appearanceMode === 'normal') {
     return '#ffffff'
   }
 
@@ -2030,6 +2051,12 @@ function createBatchMaterial(
   semanticUniforms: SemanticSurfaceSharedUniforms,
   selectionUniforms: SelectionTintUniforms,
 ) {
+  if (mode === 'normal') {
+    const material = createNormalMaterial()
+    material.userData.batchColorMode = mode
+    return material
+  }
+
   const material = new THREE.MeshStandardMaterial({
     color: '#ffffff',
     roughness: 0.72,
@@ -2052,7 +2079,11 @@ function createBatchMaterial(
 }
 
 function getBatchColorMode(runtime: Runtime): BatchColorMode {
-  if (runtime.showSemanticSurfaces) {
+  if (runtime.appearanceMode === 'normal') {
+    return 'normal'
+  }
+
+  if (runtime.appearanceMode === 'semantic') {
     return 'semantic'
   }
 
@@ -2315,8 +2346,17 @@ function buildObjectMeshPresentation(
   const geometry = buildGroupedObjectGeometry(blueprint, faceGroups)
   const objectKey = viewerObjectKey(feature.id, object.id)
   applyStandaloneGeometryAttributes(geometry, blueprint, runtime, objectKey)
-  const baseMaterial = createMaterial(object.type, runtime.theme, runtime.showSemanticSurfaces)
-  applySelectionTintToMaterial(baseMaterial, runtime.selectionTintUniforms, runtime.showSemanticSurfaces)
+  if (runtime.appearanceMode === 'normal') {
+    return {
+      blueprint,
+      geometry,
+      material: createNormalMaterial(),
+    }
+  }
+
+  const semanticMode = runtime.appearanceMode === 'semantic'
+  const baseMaterial = createMaterial(object.type, runtime.theme, semanticMode)
+  applySelectionTintToMaterial(baseMaterial, runtime.selectionTintUniforms, semanticMode)
   applyAttributeColorToMaterial(
     baseMaterial,
     runtime.attributeColor,
@@ -2328,7 +2368,7 @@ function buildObjectMeshPresentation(
   const materials = buildMaterialArray(
     baseMaterial,
     groupColors,
-    runtime.showSemanticSurfaces ? createSemanticMaterial : createErrorMaterial,
+    semanticMode ? createSemanticMaterial : createErrorMaterial,
   )
   for (const material of materials) {
     applySelectionTintToMaterial(
@@ -2351,7 +2391,11 @@ function resolveObjectFaceGroups(
   object: ViewerFeature['objects'][number],
   objectGeometry: ViewerObjectGeometry,
 ) {
-  return runtime.showSemanticSurfaces
+  if (runtime.appearanceMode === 'normal') {
+    return { faceGroups: new Map<number, number>(), groupColors: new Map<number, string>() }
+  }
+
+  return runtime.appearanceMode === 'semantic'
     ? computeFaceSemanticGroups(objectGeometry.semanticSurfaces)
     : computeFaceErrorGroups(feature.errors, object.id, objectGeometry.index, objectGeometry.sourceFaceIndices)
 }
@@ -3181,6 +3225,18 @@ function applyMeshSelectionAppearance(
 
   const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
   for (const material of materials) {
+    if (material.userData.isNormal) {
+      const normalMaterial = material as THREE.MeshBasicMaterial
+      normalMaterial.color.set('#ffffff')
+      if (tintWholeObject) {
+        normalMaterial.color.lerp(new THREE.Color(SELECTION_TINT_COLOR), SELECTION_TINT_STRENGTH)
+      }
+      normalMaterial.opacity = 1
+      normalMaterial.transparent = false
+      normalMaterial.depthWrite = true
+      continue
+    }
+
     const mat = material as THREE.MeshStandardMaterial
     const { color, emissive, userData } = mat
     if (userData.isError) {
@@ -3256,7 +3312,7 @@ function applyBatchSelectionAppearance(
     if (tintWholeObject) {
       record.batch.setColorAt(
         record.instanceId,
-        color.lerp(new THREE.Color(SELECTION_TINT_COLOR), runtime.showSemanticSurfaces ? 1 : 0.42),
+        color.lerp(new THREE.Color(SELECTION_TINT_COLOR), runtime.appearanceMode === 'semantic' ? 1 : 0.42),
       )
     }
   }
@@ -3306,7 +3362,7 @@ function resolveBatchedObjectColor(
     return '#ffffff'
   }
 
-  if (runtime.showSemanticSurfaces) {
+  if (runtime.appearanceMode === 'semantic' || runtime.appearanceMode === 'normal') {
     return '#ffffff'
   }
 
@@ -4343,6 +4399,17 @@ function createMaterial(objectType: string, theme: Theme, semanticMode = false) 
   return material
 }
 
+function createNormalMaterial() {
+  const material = new THREE.MeshBasicMaterial({
+    color: '#ffffff',
+    vertexColors: true,
+    side: THREE.DoubleSide,
+  })
+  material.toneMapped = false
+  material.userData.isNormal = true
+  return material
+}
+
 function applyAttributeColorToScene(runtime: Runtime) {
   for (const [key, mesh] of runtime.meshesByObjectKey.entries()) {
     const value = runtime.attributeColor?.valuesByObjectKey[key] ?? null
@@ -4707,7 +4774,7 @@ function createSemanticSurfaceSharedUniforms(): SemanticSurfaceSharedUniforms {
 }
 
 function syncSemanticSurfaceSharedUniforms(runtime: Runtime, data: ViewerDataset) {
-  runtime.semanticSurfaceSharedUniforms.enabled.value = runtime.showSemanticSurfaces ? 1 : 0
+  runtime.semanticSurfaceSharedUniforms.enabled.value = runtime.appearanceMode === 'semantic' ? 1 : 0
   runtime.semanticSurfaceTypeIds.clear()
 
   const colors = runtime.semanticSurfaceSharedUniforms.colors.value

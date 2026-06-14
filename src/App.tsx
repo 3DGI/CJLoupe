@@ -74,7 +74,6 @@ import editModeIconUrl from '@/assets/blender-icons/editmode_hlt.svg'
 import faceSelectIconUrl from '@/assets/blender-icons/facesel.svg'
 import gitIconBlackUrl from '@/assets/git-icon-black.svg'
 import gitIconWhiteUrl from '@/assets/git-icon-white.svg'
-import materialIconUrl from '@/assets/blender-icons/material.svg'
 import objectOriginIconUrl from '@/assets/blender-icons/object_origin.svg'
 import pointcloudPointIconUrl from '@/assets/blender-icons/pointcloud_point.svg'
 import restrictSelectOffIconUrl from '@/assets/blender-icons/restrict_select_off.svg'
@@ -98,6 +97,7 @@ import type {
   PolygonRings,
   Vec3,
   ViewerAttributeColorState,
+  ViewerAppearanceMode,
   ViewerCityObject,
   ViewerDataset,
   ViewerFeature,
@@ -180,6 +180,7 @@ type AttributeColorCategory = {
 
 const VIEW_PICKING_MODES: ViewerPickingMode[] = ['none', 'object', 'face']
 const EDIT_PICKING_MODES: ViewerPickingMode[] = ['none', 'face', 'vertex']
+const VIEWER_APPEARANCE_MODES: ViewerAppearanceMode[] = ['regular', 'semantic', 'normal', 'colormap']
 
 const FEATURE_LIST_ROW_HEIGHT = 58
 const CITY_OBJECT_TREE_ROW_ESTIMATE = 31
@@ -273,7 +274,7 @@ function App() {
   const [viewportCenter, setViewportCenter] = useState<Vec3 | null>(null)
   const [hideOccludedEditEdges, setHideOccludedEditEdges] = useState(true)
   const [showOnlyInvalidFeatures, setShowOnlyInvalidFeatures] = useState(false)
-  const [showSemanticSurfaces, setShowSemanticSurfaces] = useState(false)
+  const [appearanceMode, setAppearanceMode] = useState<ViewerAppearanceMode>('regular')
   const [isolateSelectedFeature, setIsolateSelectedFeature] = useState(false)
   const [pinnedAttributeKeys, setPinnedAttributeKeys] = useState<string[]>([])
   const [isPinnedAttributesOpen, setIsPinnedAttributesOpen] = useState(false)
@@ -479,8 +480,8 @@ function App() {
       max: attributeColorModel.dataMax,
     }
   }, [attributeColorDomain, attributeColorModel])
-  const attributeColorViewportState = useMemo<ViewerAttributeColorState | null>(() => {
-    if (!attributeColorModel || showSemanticSurfaces) {
+  const availableAttributeColorViewportState = useMemo<ViewerAttributeColorState | null>(() => {
+    if (!attributeColorModel) {
       return null
     }
 
@@ -516,7 +517,11 @@ function App() {
       colors: attributeColorMapColors,
       missingColor: ATTRIBUTE_COLOR_MISSING,
     }
-  }, [activeAttributeColorDomain, attributeColorMapColors, attributeColorModel, showSemanticSurfaces])
+  }, [activeAttributeColorDomain, attributeColorMapColors, attributeColorModel])
+  const attributeColorViewportState = appearanceMode === 'colormap'
+    ? availableAttributeColorViewportState
+    : null
+  const showSemanticSurfaces = appearanceMode === 'semantic'
   const availableDetailTabs = [
     hasDetailErrors ? 'errors' : null,
     hasDetailAttributes ? 'attributes' : null,
@@ -605,8 +610,15 @@ function App() {
   useEffect(() => {
     if (!showSemanticSurfaces) {
       setMobileInspectMode('object')
+      setSelectedSemanticSurface(null)
     }
   }, [showSemanticSurfaces])
+
+  useEffect(() => {
+    if (appearanceMode === 'colormap' && !availableAttributeColorViewportState) {
+      setAppearanceMode('regular')
+    }
+  }, [appearanceMode, availableAttributeColorViewportState])
 
   useEffect(() => {
     if (!selectedFeatureId) {
@@ -1002,7 +1014,7 @@ function App() {
     setActiveGeometryIndex(null)
     setHideOccludedEditEdges(true)
     setShowOnlyInvalidFeatures(false)
-    setShowSemanticSurfaces(false)
+    setAppearanceMode('regular')
     setIsolateSelectedFeature(false)
     setDetailTab('errors')
     setDetailPaneMode('split')
@@ -1198,7 +1210,7 @@ function App() {
 
   const handleSelectAttributeColorKey = useCallback((key: string) => {
     setAttributeColorKey(key)
-    setShowSemanticSurfaces(false)
+    setAppearanceMode('colormap')
     setAttributeColorDomain(attributeColorDomainsByKeyRef.current.get(key) ?? null)
     setAttributeColorMapId(
       attributeColorMapIdsByKeyRef.current.get(key) ?? DEFAULT_ATTRIBUTE_COLOR_MAP_ID,
@@ -1209,6 +1221,7 @@ function App() {
   const handleClearAttributeColor = useCallback(() => {
     setAttributeColorKey(null)
     setAttributeColorDomain(null)
+    setAppearanceMode((current) => current === 'colormap' ? 'regular' : current)
   }, [])
 
   const handleCommitAttributeColorDomain = useCallback((domain: AttributeColorDomain) => {
@@ -1272,16 +1285,19 @@ function App() {
     )
   }, [])
 
-  const toggleSemanticSurfaces = useCallback(() => {
-    setShowSemanticSurfaces((current) => {
-      const next = !current
-      if (next) {
-        setAttributeColorKey(null)
-        setAttributeColorDomain(null)
-      }
-      return next
+  const availableAppearanceModes = useMemo(
+    () => VIEWER_APPEARANCE_MODES.filter(
+      (mode) => mode !== 'colormap' || availableAttributeColorViewportState != null,
+    ),
+    [availableAttributeColorViewportState],
+  )
+
+  const cycleAppearanceMode = useCallback(() => {
+    setAppearanceMode((current) => {
+      const currentIndex = availableAppearanceModes.indexOf(current)
+      return availableAppearanceModes[(currentIndex + 1) % availableAppearanceModes.length] ?? 'regular'
     })
-  }, [])
+  }, [availableAppearanceModes])
 
   const handleSelectSemanticSurface = useCallback((surface: {
     featureId: string
@@ -1374,7 +1390,7 @@ function App() {
       }
       setEditMode(true)
       setIsolateSelectedFeature(true)
-      setShowSemanticSurfaces(false)
+      setAppearanceMode('regular')
     }
 
     setActiveObjectId(inferredObjectId)
@@ -1833,7 +1849,19 @@ function App() {
         dataset
       ) {
         event.preventDefault()
-        toggleSemanticSurfaces()
+        cycleAppearanceMode()
+        return
+      }
+
+      if (
+        event.key.toLowerCase() === 't' &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        dataset
+      ) {
+        event.preventDefault()
+        setTopDownViewRevision((current) => current + 1)
         return
       }
 
@@ -1942,7 +1970,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [centerCurrentSelection, cycleGeometryDisplayMode, cycleSelectedFaceRing, cycleSelectedFaceVertex, dataset, deleteSelectedFace, editMode, handlePickingModeShortcut, restoreSelectedFeatureGeometry, selectedFaceIndex, selectedFeatureId, toggleEditMode, toggleSemanticSurfaces])
+  }, [centerCurrentSelection, cycleAppearanceMode, cycleGeometryDisplayMode, cycleSelectedFaceRing, cycleSelectedFaceVertex, dataset, deleteSelectedFace, editMode, handlePickingModeShortcut, restoreSelectedFeatureGeometry, selectedFaceIndex, selectedFeatureId, toggleEditMode])
 
   const isErrorDialogVisible = Boolean(error && dismissedErrorMessage !== error)
   const hasModalScrim =
@@ -1989,7 +2017,7 @@ function App() {
         { keys: 'Drag', description: 'Orbit the model' },
         { keys: 'Pinch', description: 'Zoom' },
         { keys: 'Panel', description: 'Browse objects and details' },
-        { keys: 'Sem', description: 'Toggle semantic colors' },
+        { keys: 'S', description: 'Cycle appearance' },
         { keys: 'B', description: 'Toggle sidebar' },
       ]
     : editMode
@@ -1998,11 +2026,13 @@ function App() {
           { keys: 'J / K', description: 'Step active ring' },
           { keys: 'R', description: 'Cycle rings' },
           { keys: 'D', description: 'Delete selected face' },
+          { keys: 'T', description: 'Top-down view' },
           { keys: 'B', description: 'Toggle sidebar' },
         ]
       : [
           { keys: 'Click', description: getPickingModeDescription(effectivePickingMode) },
           { keys: 'Double Click', description: 'Recenter navigation' },
+          { keys: 'T', description: 'Top-down view' },
           { keys: 'B', description: 'Toggle sidebar' },
         ]
 
@@ -2461,7 +2491,7 @@ function App() {
             selectedFaceIndex={selectedFaceIndex}
             selectedFaceRingIndex={activeFaceRingIndex}
             selectedVertexIndex={selectedVertexIndex}
-            showSemanticSurfaces={showSemanticSurfaces}
+            appearanceMode={appearanceMode}
             attributeColor={attributeColorViewportState}
             pickingMode={effectivePickingMode}
             showVertexGizmo={showVertexGizmo}
@@ -2552,9 +2582,11 @@ function App() {
           >
             <MobileViewportToolbar
               hasSelectedFeature={Boolean(selectedFeature)}
-              showSemanticSurfaces={showSemanticSurfaces}
+              appearanceMode={appearanceMode}
+              colormapAvailable={availableAttributeColorViewportState != null}
               mobileInspectMode={mobileInspectMode}
-              onToggleSemanticSurfaces={toggleSemanticSurfaces}
+              onCycleAppearanceMode={cycleAppearanceMode}
+              onSelectAppearanceMode={setAppearanceMode}
               onToggleMobileInspectMode={() =>
                 setMobileInspectMode((current) => (current === 'object' ? 'surface' : 'object'))
               }
@@ -2576,7 +2608,8 @@ function App() {
               xrayActive={!hideOccludedEditEdges}
               xrayDisabled={!editMode || !activeObjectGeometry}
               hasSelectedFeature={Boolean(selectedFeature)}
-              showSemanticSurfaces={showSemanticSurfaces}
+              appearanceMode={appearanceMode}
+              colormapAvailable={availableAttributeColorViewportState != null}
               pickingMode={effectivePickingMode}
               showVertexGizmo={showVertexGizmo}
               hasSelectedVertex={selectedVertexIndex != null}
@@ -2586,7 +2619,8 @@ function App() {
               onCyclePickingMode={cyclePickingMode}
               onToggleVertexGizmo={() => setShowVertexGizmo((current) => !current)}
               onToggleXray={() => setHideOccludedEditEdges((current) => !current)}
-              onToggleSemanticSurfaces={toggleSemanticSurfaces}
+              onCycleAppearanceMode={cycleAppearanceMode}
+              onSelectAppearanceMode={setAppearanceMode}
               onToggleIsolateSelectedFeature={() => setIsolateSelectedFeature((current) => !current)}
               onSelectPickingMode={handleSelectPickingMode}
               onCenterCurrentSelection={centerCurrentSelection}
@@ -2974,29 +3008,36 @@ function EditSelectionOverlay({
 
 function MobileViewportToolbar({
   hasSelectedFeature,
-  showSemanticSurfaces,
+  appearanceMode,
+  colormapAvailable,
   mobileInspectMode,
-  onToggleSemanticSurfaces,
+  onCycleAppearanceMode,
+  onSelectAppearanceMode,
   onToggleMobileInspectMode,
   onCenterCurrentSelection,
 }: {
   hasSelectedFeature: boolean
-  showSemanticSurfaces: boolean
+  appearanceMode: ViewerAppearanceMode
+  colormapAvailable: boolean
   mobileInspectMode: MobileInspectMode
-  onToggleSemanticSurfaces: () => void
+  onCycleAppearanceMode: () => void
+  onSelectAppearanceMode: (mode: ViewerAppearanceMode) => void
   onToggleMobileInspectMode: () => void
   onCenterCurrentSelection: () => void
 }) {
+  const [isAppearanceMenuOpen, setIsAppearanceMenuOpen] = useState(false)
+  const showSemanticSurfaces = appearanceMode === 'semantic'
+
   return (
     <div className="floating-panel pointer-events-auto flex flex-col items-center gap-1 rounded-sm border p-1">
-      <ToolbarToggleButton
-        active={showSemanticSurfaces}
-        onClick={onToggleSemanticSurfaces}
-        ariaLabel="Toggle semantic surface colors"
-        iconSrc={materialIconUrl}
-      >
-        Semantics
-      </ToolbarToggleButton>
+      <ToolbarAppearanceButton
+        mode={appearanceMode}
+        colormapAvailable={colormapAvailable}
+        onClick={onCycleAppearanceMode}
+        onSelectMode={onSelectAppearanceMode}
+        isMenuOpen={isAppearanceMenuOpen}
+        onMenuOpenChange={setIsAppearanceMenuOpen}
+      />
       {showSemanticSurfaces && (
         <ToolbarToggleButton
           active={mobileInspectMode === 'surface'}
@@ -3054,7 +3095,8 @@ function DesktopViewportToolbar({
   xrayActive,
   xrayDisabled,
   hasSelectedFeature,
-  showSemanticSurfaces,
+  appearanceMode,
+  colormapAvailable,
   pickingMode,
   showVertexGizmo,
   hasSelectedVertex,
@@ -3064,7 +3106,8 @@ function DesktopViewportToolbar({
   onCyclePickingMode,
   onToggleVertexGizmo,
   onToggleXray,
-  onToggleSemanticSurfaces,
+  onCycleAppearanceMode,
+  onSelectAppearanceMode,
   onToggleIsolateSelectedFeature,
   onSelectPickingMode,
   onCenterCurrentSelection,
@@ -3076,7 +3119,8 @@ function DesktopViewportToolbar({
   xrayActive: boolean
   xrayDisabled: boolean
   hasSelectedFeature: boolean
-  showSemanticSurfaces: boolean
+  appearanceMode: ViewerAppearanceMode
+  colormapAvailable: boolean
   pickingMode: ViewerPickingMode
   showVertexGizmo: boolean
   hasSelectedVertex: boolean
@@ -3086,7 +3130,8 @@ function DesktopViewportToolbar({
   onCyclePickingMode: () => void
   onToggleVertexGizmo: () => void
   onToggleXray: () => void
-  onToggleSemanticSurfaces: () => void
+  onCycleAppearanceMode: () => void
+  onSelectAppearanceMode: (mode: ViewerAppearanceMode) => void
   onToggleIsolateSelectedFeature: () => void
   onSelectPickingMode: (mode: ViewerPickingMode) => void
   onCenterCurrentSelection: () => void
@@ -3095,7 +3140,8 @@ function DesktopViewportToolbar({
   onClearSelection: () => void
 }) {
   const [isPickingMenuOpen, setIsPickingMenuOpen] = useState(false)
-  const tooltipsVisible = showTooltips && !isPickingMenuOpen
+  const [isAppearanceMenuOpen, setIsAppearanceMenuOpen] = useState(false)
+  const tooltipsVisible = showTooltips && !isPickingMenuOpen && !isAppearanceMenuOpen
 
   return (
     <div className="floating-panel pointer-events-auto flex flex-col items-center gap-1 rounded-sm border p-1">
@@ -3146,16 +3192,15 @@ function DesktopViewportToolbar({
         </ToolbarToggleButton>
       </div>
       )}
-      <ToolbarToggleButton
-        active={showSemanticSurfaces}
-        onClick={onToggleSemanticSurfaces}
-        ariaLabel="Toggle semantic surface colors"
-        iconSrc={materialIconUrl}
+      <ToolbarAppearanceButton
+        mode={appearanceMode}
+        colormapAvailable={colormapAvailable}
+        onClick={onCycleAppearanceMode}
+        onSelectMode={onSelectAppearanceMode}
         showTooltip={tooltipsVisible}
-        tooltipHotkey="S"
-      >
-        Semantics
-      </ToolbarToggleButton>
+        isMenuOpen={isAppearanceMenuOpen}
+        onMenuOpenChange={setIsAppearanceMenuOpen}
+      />
       <ToolbarPickingButton
         mode={pickingMode}
         editMode={editMode}
@@ -4640,6 +4685,94 @@ function ToolbarPickingButton({
   )
 }
 
+function ToolbarAppearanceButton({
+  mode,
+  colormapAvailable,
+  onClick,
+  onSelectMode,
+  showTooltip = false,
+  isMenuOpen,
+  onMenuOpenChange,
+}: {
+  mode: ViewerAppearanceMode
+  colormapAvailable: boolean
+  onClick: () => void
+  onSelectMode: (mode: ViewerAppearanceMode) => void
+  showTooltip?: boolean
+  isMenuOpen: boolean
+  onMenuOpenChange: (open: boolean) => void
+}) {
+  const activeClassName = mode === 'regular'
+    ? 'border-border/70 bg-background/35 text-muted-foreground hover:bg-accent/8 hover:text-foreground'
+    : 'border-primary/35 bg-primary/14 text-primary hover:bg-primary/18 hover:text-primary'
+
+  return (
+    <ViewportControlTooltip show={showTooltip} label="Appearance" hotkey="S">
+      <div
+        className="relative inline-flex"
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) {
+            onMenuOpenChange(false)
+          }
+        }}
+      >
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={onClick}
+          aria-label={`Cycle appearance, currently ${getAppearanceModeLabel(mode).toLowerCase()}`}
+          title={`Appearance: ${getAppearanceModeLabel(mode)}`}
+          className={cn('size-7 justify-center rounded-r-none border p-0', activeClassName)}
+        >
+          {getAppearanceModeIcon(mode)}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={() => onMenuOpenChange(!isMenuOpen)}
+          aria-label="Choose appearance"
+          aria-expanded={isMenuOpen}
+          title="Choose appearance"
+          className={cn('h-7 w-5 justify-center rounded-l-none border border-l-0 p-0', activeClassName)}
+        >
+          <ChevronDown className={cn('size-3 transition-transform', isMenuOpen && 'rotate-180')} />
+        </Button>
+        {isMenuOpen && (
+          <div className="absolute bottom-full right-0 z-30 mb-1 min-w-40 rounded-sm border border-border bg-popover p-1 shadow-lg">
+            {VIEWER_APPEARANCE_MODES.map((entry) => {
+              const isSelected = entry === mode
+              const isAvailable = entry !== 'colormap' || colormapAvailable
+
+              return (
+                <button
+                  key={entry}
+                  type="button"
+                  disabled={!isAvailable}
+                  title={!isAvailable ? 'Select an attribute to enable colormap coloring' : undefined}
+                  onClick={() => {
+                    onSelectMode(entry)
+                    onMenuOpenChange(false)
+                  }}
+                  className={cn(
+                    'flex h-8 w-full items-center gap-2 rounded-sm px-2 text-left text-xs',
+                    isSelected ? 'bg-primary/14 text-primary' : 'text-foreground hover:bg-accent/10',
+                    !isAvailable && 'cursor-not-allowed text-muted-foreground/35 hover:bg-transparent',
+                  )}
+                >
+                  {getAppearanceModeIcon(entry)}
+                  <span>{getAppearanceModeLabel(entry)}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </ViewportControlTooltip>
+  )
+}
+
 const DetailAttributePanel = memo(function DetailAttributePanel({
   objectAttributes,
   canPinAttributes,
@@ -5958,6 +6091,32 @@ function getPickingModeDescription(mode: ViewerPickingMode) {
       return 'Pick face'
     case 'vertex':
       return 'Pick vertex'
+  }
+}
+
+function getAppearanceModeIcon(mode: ViewerAppearanceMode) {
+  switch (mode) {
+    case 'regular':
+      return <Box className="size-3.5" />
+    case 'normal':
+      return <Pyramid className="size-3.5" />
+    case 'semantic':
+      return <Layers className="size-3.5" />
+    case 'colormap':
+      return <Palette className="size-3.5" />
+  }
+}
+
+function getAppearanceModeLabel(mode: ViewerAppearanceMode) {
+  switch (mode) {
+    case 'regular':
+      return 'Basic meshes'
+    case 'normal':
+      return 'Face normals'
+    case 'semantic':
+      return 'Semantic coloring'
+    case 'colormap':
+      return 'Attribute colormap'
   }
 }
 

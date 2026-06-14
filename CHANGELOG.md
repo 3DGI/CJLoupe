@@ -11,6 +11,8 @@
 - Switch to orthographic projection when maxing out focal length slider, set 18 mm minimum focal length
 - Add button for top-down camera view
 - Make viewport center coordinates editable from the status bar
+- Add coloring mode by normal direction
+- Change semantic coloring button into a appearance mode selector
 
 ## 0.7.0 - 2026-05-12
 

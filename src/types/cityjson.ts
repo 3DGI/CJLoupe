@@ -11,6 +11,7 @@ export type ViewerGeometryDisplayMode =
     }
 
 export type ViewerPickingMode = 'none' | 'object' | 'face' | 'vertex'
+export type ViewerAppearanceMode = 'regular' | 'normal' | 'semantic' | 'colormap'
 
 export type ViewerAttributeColorState = {
   mode: 'continuous' | 'direct'
