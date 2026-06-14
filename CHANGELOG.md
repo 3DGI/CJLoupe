@@ -1,11 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 - 2026-06-14
+
 - Performance improvements for file loading
 - Fix an issue with the copy buttons that resulted in console errors
 - Simplify object list. Flatten it for regular CityJSON files (no feature containers)
 - Fix autoscroll in object list on object selection in 3D viewport
-- Add in-browser val3dity validation
+- Add experimental in-browser val3dity validation
 - Restore the previous inspect picking mode when centering validation errors
 - Disable clearing the selection while in inspect mode
 - Switch to orthographic projection when maxing out focal length slider, set 18 mm minimum focal length
