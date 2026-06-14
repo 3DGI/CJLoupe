@@ -4352,7 +4352,7 @@ const FeatureListPanel = memo(function FeatureListPanel({
                     className="size-8 rounded-none border-r border-border/55"
                     onClick={onValidate}
                     disabled={hasInvalidVal3dityParameters}
-                    aria-label="Run val3dity validation"
+                    aria-label="Run val3dity validation (experimental)"
                     title={hasInvalidVal3dityParameters ? 'Fix val3dity parameters' : 'Run val3dity validation'}
                   >
                     <SearchAlert className="size-4" />
@@ -6140,7 +6140,7 @@ function Val3dityParametersPopover({
     <div>
       <div className="border-b border-border/40 px-4 py-3">
         <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary">
-          Val3dity parameters
+          Val3dity parameters (experimental)
         </p>
       </div>
 
