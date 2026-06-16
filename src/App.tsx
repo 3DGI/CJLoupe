@@ -531,6 +531,10 @@ function App() {
   const hasDetailContent = availableDetailTabs.length > 0
   const resolvedDetailTab = availableDetailTabs.includes(detailTab) ? detailTab : (availableDetailTabs[0] ?? 'attributes')
   const detailSelectionKey = `${selectedFeature?.id ?? 'none'}::${activeObject?.id ?? 'none'}`
+  const selectedFaceSemanticSurface =
+    editMode && activeObjectGeometry && selectedFaceIndex != null
+      ? activeObjectGeometry.semanticSurfaces[selectedFaceIndex] ?? null
+      : null
   const activeSemanticSurface = selectedSemanticSurface?.surface
     ? {
         objectId: selectedSemanticSurface.objectId,
@@ -2528,6 +2532,7 @@ function App() {
             selectedFaceVertexCount={selectedFaceVertexCount}
             selectedFaceVertexEntryLabel={selectedFaceVertexEntryLabel}
             selectedFaceHoleCount={selectedFaceHoleCount}
+            selectedFaceSemanticType={selectedFaceSemanticSurface?.type ?? null}
             onCycleSelectedFaceRing={(direction) => cycleSelectedFaceRing(direction)}
             onCycleSelectedFaceVertex={cycleSelectedFaceVertex}
           />
@@ -2913,6 +2918,7 @@ function EditSelectionOverlay({
   selectedFaceVertexCount,
   selectedFaceVertexEntryLabel,
   selectedFaceHoleCount,
+  selectedFaceSemanticType,
   onCycleSelectedFaceRing,
   onCycleSelectedFaceVertex,
 }: {
@@ -2924,9 +2930,12 @@ function EditSelectionOverlay({
   selectedFaceVertexCount: number
   selectedFaceVertexEntryLabel: string | null
   selectedFaceHoleCount: number
+  selectedFaceSemanticType: string | null
   onCycleSelectedFaceRing: (direction: -1 | 1) => void
   onCycleSelectedFaceVertex: (direction: -1 | 1) => void
 }) {
+  const semanticColor = selectedFaceSemanticType ? semanticSurfaceColor(selectedFaceSemanticType) : null
+
   return (
     <div className={cn('pointer-events-none absolute z-10', positionClassName)}>
       <div className="floating-panel pointer-events-auto space-y-2 rounded-sm border p-3">
@@ -2934,6 +2943,19 @@ function EditSelectionOverlay({
             <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
               {selectedFaceIndex != null ? `Face ${selectedFaceIndex}` : 'No face selected'}
             </Badge>
+            {selectedFaceSemanticType && semanticColor && (
+              <Badge
+                variant="outline"
+                className="min-w-0 truncate"
+                style={{
+                  borderColor: `${semanticColor}66`,
+                  backgroundColor: `${semanticColor}22`,
+                  color: semanticColor,
+                }}
+              >
+                {selectedFaceSemanticType}
+              </Badge>
+            )}
             {selectedFaceRingCount > 0 && (
               <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
                 {selectedFaceRingLabel}

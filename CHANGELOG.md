@@ -2,6 +2,7 @@
 
 ## Unreleased
 - Reimplement normal coloring mode to calculate color in-shader
+- Add semantic surface type badge to face vertex circulator panel in edit mode
 
 ## 0.8.0 - 2026-06-14
 
