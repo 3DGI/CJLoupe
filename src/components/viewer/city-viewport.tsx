@@ -1382,8 +1382,7 @@ function CityViewport({
     }
 
     runtime.appearanceMode = appearanceMode
-    runtime.attributeColor = attributeColorRef.current
-    syncAttributeColorSharedUniforms(runtime.attributeColorSharedUniforms, runtime.attributeColor)
+    syncRuntimeAttributeColor(runtime, attributeColorRef.current)
 
     if (currentData) {
       const selection = selectionRef.current
@@ -1418,30 +1417,7 @@ function CityViewport({
       return
     }
 
-    const previousAttributeColor = runtime.attributeColor
-    const previousValuesByObjectKey = runtime.attributeColor?.valuesByObjectKey ?? null
-    runtime.attributeColor = attributeColor
-    syncAttributeColorSharedUniforms(runtime.attributeColorSharedUniforms, attributeColor)
-    syncBatchMaterials(runtime)
-    if (
-      attributeColor?.mode === 'continuous' &&
-      (
-        previousAttributeColor?.mode !== 'continuous' ||
-        previousValuesByObjectKey !== attributeColor.valuesByObjectKey
-      )
-    ) {
-      syncBatchedAttributeValueTexture(runtime, attributeColor)
-    }
-    if (
-      attributeColor &&
-      (
-        runtime.preparedAttributeColorValuesByObjectKey !== attributeColor.valuesByObjectKey ||
-        previousValuesByObjectKey == null
-      )
-    ) {
-      applyAttributeColorToScene(runtime)
-      runtime.preparedAttributeColorValuesByObjectKey = attributeColor.valuesByObjectKey
-    }
+    syncRuntimeAttributeColor(runtime, attributeColor)
     if (currentData) {
       applyBatchSelectionAppearance(
         runtime,
@@ -2104,6 +2080,38 @@ function syncBatchMaterials(runtime: Runtime) {
       runtime.selectionTintUniforms,
       runtime.normalColorUniforms,
     )
+  }
+}
+
+function syncRuntimeAttributeColor(
+  runtime: Runtime,
+  attributeColor: ViewerAttributeColorState | null,
+) {
+  const previousAttributeColor = runtime.attributeColor
+  const previousValuesByObjectKey = previousAttributeColor?.valuesByObjectKey ?? null
+  runtime.attributeColor = attributeColor
+  syncAttributeColorSharedUniforms(runtime.attributeColorSharedUniforms, attributeColor)
+  syncBatchMaterials(runtime)
+
+  if (
+    attributeColor?.mode === 'continuous' &&
+    (
+      previousAttributeColor?.mode !== 'continuous' ||
+      previousValuesByObjectKey !== attributeColor.valuesByObjectKey
+    )
+  ) {
+    syncBatchedAttributeValueTexture(runtime, attributeColor)
+  }
+
+  if (
+    attributeColor &&
+    (
+      runtime.preparedAttributeColorValuesByObjectKey !== attributeColor.valuesByObjectKey ||
+      previousValuesByObjectKey == null
+    )
+  ) {
+    applyAttributeColorToScene(runtime)
+    runtime.preparedAttributeColorValuesByObjectKey = attributeColor.valuesByObjectKey
   }
 }
 

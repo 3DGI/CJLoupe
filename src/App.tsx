@@ -1214,14 +1214,39 @@ function App() {
   }, [])
 
   const handleSelectAttributeColorKey = useCallback((key: string) => {
-    setAttributeColorKey(key)
-    setAppearanceMode('colormap')
-    setAttributeColorDomain(attributeColorDomainsByKeyRef.current.get(key) ?? null)
-    setAttributeColorMapId(
-      attributeColorMapIdsByKeyRef.current.get(key) ?? DEFAULT_ATTRIBUTE_COLOR_MAP_ID,
+    const cachedColorMapId = attributeColorMapIdsByKeyRef.current.get(key)
+    const colorMapId = cachedColorMapId ?? DEFAULT_ATTRIBUTE_COLOR_MAP_ID
+    const colorMapColors = getContinuousAttributeColorMapColors(colorMapId)
+    const model = buildAttributeColorModel(
+      dataset,
+      key,
+      attributeColorInheritsParent,
+      colorMapId,
+      colorMapColors,
+      attributeCategoricalColorSeed,
+      customCategoricalColorMaps[key] ?? EMPTY_ATTRIBUTES,
     )
+    const resolvedColorMapId = cachedColorMapId
+      ?? (model?.kind === 'categorical' ? DEFAULT_CATEGORICAL_COLOR_MAP_ID : DEFAULT_ATTRIBUTE_COLOR_MAP_ID)
+    const resolvedDomain = model?.kind === 'continuous'
+      ? clampAttributeColorDomain(
+        attributeColorDomainsByKeyRef.current.get(key) ?? getDefaultAttributeColorDomain(model),
+        model.dataMin,
+        model.dataMax,
+      )
+      : null
+
+    setAttributeColorKey(key)
+    setAttributeColorDomain(resolvedDomain)
+    setAttributeColorMapId(resolvedColorMapId)
     setAttributeColorMapReversed(attributeColorMapReversedByKeyRef.current.get(key) ?? false)
-  }, [])
+    setAppearanceMode('colormap')
+  }, [
+    attributeCategoricalColorSeed,
+    attributeColorInheritsParent,
+    customCategoricalColorMaps,
+    dataset,
+  ])
 
   const handleClearAttributeColor = useCallback(() => {
     setAttributeColorKey(null)
