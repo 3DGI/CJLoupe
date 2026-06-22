@@ -44,12 +44,25 @@ export function findObjectGeometryIndexByLod(object: ViewerCityObject, lod: stri
   return object.geometries.find((geometry) => geometry.lod === lod)?.index ?? null
 }
 
+export function getObjectGeometriesByLod(object: ViewerCityObject, lod: string) {
+  return object.geometries.filter((geometry) => geometry.lod === lod)
+}
+
 export function getBestGeometryIndex(object: ViewerCityObject) {
   if (object.bestGeometryIndex != null) {
     return object.bestGeometryIndex
   }
 
   return object.geometries[0]?.index ?? null
+}
+
+export function getBestObjectGeometries(object: ViewerCityObject) {
+  const bestGeometry = getObjectGeometryByIndex(object, getBestGeometryIndex(object))
+  if (!bestGeometry) {
+    return []
+  }
+
+  return bestGeometry.lod ? getObjectGeometriesByLod(object, bestGeometry.lod) : [bestGeometry]
 }
 
 export function normalizeObjectGeometryIndex(
@@ -68,13 +81,16 @@ export function resolveObjectGeometryIndex(
     return null
   }
 
-  if (mode.kind === 'lod') {
-    return findObjectGeometryIndexByLod(object, mode.lod)
-  }
-
   const normalizedOverride = normalizeObjectGeometryIndex(object, overrideGeometryIndex)
   if (normalizedOverride != null) {
-    return normalizedOverride
+    const geometry = getObjectGeometryByIndex(object, normalizedOverride)
+    if (mode.kind !== 'lod' || geometry?.lod === mode.lod) {
+      return normalizedOverride
+    }
+  }
+
+  if (mode.kind === 'lod') {
+    return findObjectGeometryIndexByLod(object, mode.lod)
   }
 
   return getBestGeometryIndex(object)
@@ -87,6 +103,21 @@ export function resolveObjectGeometry(
 ) {
   const geometryIndex = resolveObjectGeometryIndex(object, mode, overrideGeometryIndex)
   return getObjectGeometryByIndex(object, geometryIndex)
+}
+
+export function resolveObjectGeometries(
+  object: ViewerCityObject | null | undefined,
+  mode: ViewerGeometryDisplayMode,
+) {
+  if (!object) {
+    return []
+  }
+
+  if (mode.kind === 'lod') {
+    return getObjectGeometriesByLod(object, mode.lod)
+  }
+
+  return getBestObjectGeometries(object)
 }
 
 export function formatGeometryLabel(geometry: ViewerObjectGeometry) {

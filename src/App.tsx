@@ -1336,16 +1336,19 @@ function App() {
     faceIndex: number
     surface: ViewerSemanticSurface | null
   } | null) => {
-    if (surface) {
-      setSelectedFeatureId(surface.featureId)
-      setActiveObjectId(surface.objectId)
+    if (!surface) {
+      setSelectedSemanticSurface(null)
+      return
     }
-    setActiveGeometryIndex(surface?.geometryIndex ?? null)
-    setSelectedFaceIndex(surface?.faceIndex ?? null)
+
+    setSelectedFeatureId(surface.featureId)
+    setActiveObjectId(surface.objectId)
+    setActiveGeometryIndex(surface.geometryIndex)
+    setSelectedFaceIndex(surface.faceIndex)
     setSelectedFaceRingIndex(0)
     setSelectedVertexIndex(null)
     setSelectedFaceVertexEntryIndex(null)
-    setSelectedSemanticSurface(surface?.surface ? surface : null)
+    setSelectedSemanticSurface(surface.surface ? surface : null)
   }, [])
 
   const centerFeatureById = useCallback((featureId: string) => {
@@ -1540,7 +1543,7 @@ function App() {
   const handleSelectFeature = useCallback((
     featureId: string,
     objectId?: string | null,
-    options?: { preserveEditMode?: boolean },
+    options?: { preserveEditMode?: boolean; geometryIndex?: number | null },
   ) => {
     const feature = featureMap.get(featureId)
     if (!feature) {
@@ -1560,9 +1563,15 @@ function App() {
         setShowVertexGizmo(false)
       }
 
+      const nextObjectId = objectId ?? feature.objects[0]?.id ?? null
+      const nextObject = feature.objects.find((candidate) => candidate.id === nextObjectId) ?? null
+      const nextGeometryIndex = options?.geometryIndex != null
+        ? normalizeObjectGeometryIndex(nextObject, options.geometryIndex)
+        : null
+
       setSelectedFeatureId(featureId)
-      setActiveObjectId(objectId ?? feature.objects[0]?.id ?? null)
-      setActiveGeometryIndex(null)
+      setActiveObjectId(nextObjectId)
+      setActiveGeometryIndex(nextGeometryIndex)
       setSelectedFaceIndex(null)
       setSelectedFaceRingIndex(0)
       setSelectedVertexIndex(null)
@@ -1636,8 +1645,9 @@ function App() {
   const handleViewportSelectFeature = useCallback((
     featureId: string,
     objectId?: string | null,
+    geometryIndex?: number | null,
   ) => {
-    handleSelectFeature(featureId, objectId)
+    handleSelectFeature(featureId, objectId, { geometryIndex })
   }, [handleSelectFeature])
 
   const handleSelectFace = useCallback((faceIndex: number | null) => {

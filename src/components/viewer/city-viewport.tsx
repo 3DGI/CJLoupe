@@ -24,6 +24,7 @@ import type {
 } from '@/types/cityjson'
 import {
   getObjectGeometryByIndex,
+  resolveObjectGeometries,
   resolveObjectGeometry,
   resolveObjectGeometryIndex,
 } from '@/lib/object-geometry'
@@ -179,7 +180,7 @@ type CityViewportProps = {
   attributeColor: ViewerAttributeColorState | null
   mobileInteraction: boolean
   mobileSelectionMode: 'object' | 'surface'
-  onSelectFeature: (featureId: string, objectId?: string | null) => void
+  onSelectFeature: (featureId: string, objectId?: string | null, geometryIndex?: number | null) => void
   onClearSelection: () => void
   onSelectFace: (faceIndex: number | null) => void
   onSelectVertex: (vertexIndex: number | null) => void
@@ -218,10 +219,10 @@ type Runtime = {
   selectionOutlineTargetScale: number
   raycaster: THREE.Raycaster
   pointer: THREE.Vector2
-  meshesByObjectKey: Map<string, THREE.Mesh>
+  meshesByRenderKey: Map<string, THREE.Mesh>
   meshesByFeatureId: Map<string, THREE.Mesh[]>
   batchedMeshes: THREE.BatchedMesh[]
-  batchedObjectsByObjectKey: Map<string, BatchedObjectRecord>
+  batchedObjectsByRenderKey: Map<string, BatchedObjectRecord>
   batchedObjectsByFeatureId: Map<string, BatchedObjectRecord[]>
   editPoints: THREE.Points | null
   selectedEditPoint: THREE.Points | null
@@ -280,6 +281,7 @@ type BatchedObjectRecord = {
 }
 
 type BatchBuildItem = Omit<BatchedObjectRecord, 'batch' | 'instanceId' | 'geometryId'> & {
+  renderKey: string
   geometry: THREE.BufferGeometry
   tileKey: string
   vertexCount: number
@@ -773,10 +775,10 @@ function CityViewport({
       selectionOutlineTargetScale: 1,
       raycaster: new THREE.Raycaster(),
       pointer: new THREE.Vector2(),
-      meshesByObjectKey: new Map(),
+      meshesByRenderKey: new Map(),
       meshesByFeatureId: new Map(),
       batchedMeshes: [],
-      batchedObjectsByObjectKey: new Map(),
+      batchedObjectsByRenderKey: new Map(),
       batchedObjectsByFeatureId: new Map(),
       editPoints: null,
       selectedEditPoint: null,
@@ -1050,9 +1052,9 @@ function CityViewport({
       const meshHit = meshHits[0]
       const resolvedHit = meshHit ? resolveObjectHit(meshHit) : null
       if (resolvedHit) {
-        const { featureId, objectId } = resolvedHit
+        const { featureId, objectId, geometryIndex } = resolvedHit
         onSelectSemanticSurfaceRef.current(null)
-        onSelectFeatureRef.current(featureId, objectId)
+        onSelectFeatureRef.current(featureId, objectId, geometryIndex ?? null)
         return
       }
 
@@ -1282,6 +1284,34 @@ function CityViewport({
     const selection = selectionRef.current
     const previousSelection = previousSelectionRef.current
     const previousIsolateSelectedFeature = previousIsolateSelectedFeatureRef.current
+    const editDisplaySetChanged =
+      previousSelection.editMode !== selection.editMode ||
+      (
+        selection.editMode &&
+        (
+          previousSelection.selectedFeatureId !== selection.selectedFeatureId ||
+          previousSelection.activeObjectId !== selection.activeObjectId ||
+          previousSelection.activeGeometryIndex !== selection.activeGeometryIndex
+        )
+      )
+
+    if (editDisplaySetChanged) {
+      rebuildScene(runtime, currentData, selection)
+      rebuildAnnotations(runtime)
+      syncSelection(
+        runtime,
+        currentData,
+        selection,
+        hideOccludedEditEdgesRef.current,
+        isolateSelectedFeatureRef.current,
+        showVertexGizmoRef.current,
+      )
+      renderViewport(runtime)
+      reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
+      previousSelectionRef.current = selection
+      previousIsolateSelectedFeatureRef.current = isolateSelectedFeatureRef.current
+      return
+    }
 
     if (runtime.appearanceMode === 'semantic' && !editMode) {
       updateSelectionSurfacePresentation(runtime, currentData, previousSelection, selection)
@@ -1423,7 +1453,7 @@ function CityViewport({
         runtime,
         selectionRef.current,
         isolateSelectedFeatureRef.current,
-        runtime.batchedObjectsByObjectKey.values(),
+        runtime.batchedObjectsByRenderKey.values(),
       )
     }
     renderViewport(runtime)
@@ -1532,6 +1562,24 @@ function resolveDisplayedObjectGeometry(
   return resolveObjectGeometry(object, selection.geometryDisplayMode, activeGeometryOverride)
 }
 
+function resolveDisplayedObjectGeometries(
+  feature: ViewerFeature,
+  object: ViewerCityObject,
+  selection: ViewSelection,
+) {
+  const isActiveObject = selection.selectedFeatureId === feature.id && selection.activeObjectId === object.id
+  if (selection.editMode && isActiveObject) {
+    const geometry = resolveObjectGeometry(object, selection.geometryDisplayMode, selection.activeGeometryIndex)
+    return geometry ? [geometry] : []
+  }
+
+  return resolveObjectGeometries(object, selection.geometryDisplayMode)
+}
+
+function renderedGeometryKey(objectKey: string, geometryIndex: number) {
+  return `${objectKey}::geometry:${geometryIndex}`
+}
+
 function cloneFeatureVertices(feature: ViewerFeature) {
   return feature.vertices.map((vertex) => [...vertex] as Vec3)
 }
@@ -1580,62 +1628,67 @@ function rebuildScene(
         ]
 
         for (const object of feature.objects) {
-          const objectGeometry = resolveDisplayedObjectGeometry(feature, object, selection)
-          if (!objectGeometry) {
+          const objectGeometries = resolveDisplayedObjectGeometries(feature, object, selection)
+          if (objectGeometries.length === 0) {
             continue
           }
 
           const nextObjectKey = viewerObjectKey(feature.id, object.id)
 
-          if (canBatchObject(runtime, feature, object, objectGeometry)) {
-            const blueprint = buildObjectGeometryBlueprint(
-              objectGeometry.polygons,
-              vertices,
-              featureCenter,
-              collectObjectErrorFaceIndices(
-                feature.errors,
-                object.id,
-                objectGeometry.index,
-                objectGeometry.sourceFaceIndices,
-              ),
-            )
-            const geometry = buildUngroupedObjectGeometry(blueprint)
-            applyBatchGeometryAttributes(
-              geometry,
-              blueprint,
-              runtime,
-              objectGeometry,
-              nextObjectKey,
-            )
-            geometry.computeBoundingBox()
-            batchItems.push({
-              key: nextObjectKey,
-              featureId: feature.id,
-              objectId: object.id,
-              objectType: object.type,
-              hasRenderableChildren: object.hasRenderableChildren,
-              geometryIndex: objectGeometry.index,
-              featureCenter,
-              baseColorLight: baseColorForType(object.type, 'light'),
-              baseColorDark: baseColorForType(object.type, 'dark'),
-              triangleFaceIndices: geometry.userData.triangleFaceIndices,
-              blueprint,
-              geometry,
-              tileKey: getBatchTileKey(featureCenter, data),
-              vertexCount: geometry.getAttribute('position')?.count ?? 0,
-              indexCount: geometry.getIndex()?.count ?? 0,
-            })
-          } else {
-            addStandaloneObjectMesh(
-              runtime,
-              data,
-              feature,
-              object,
-              objectGeometry,
-              vertices,
-              featureCenter,
-              nextObjectKey,
-            )
+          for (const objectGeometry of objectGeometries) {
+            const nextRenderKey = renderedGeometryKey(nextObjectKey, objectGeometry.index)
+
+            if (canBatchObject(runtime, feature, object, objectGeometry)) {
+              const blueprint = buildObjectGeometryBlueprint(
+                objectGeometry.polygons,
+                vertices,
+                featureCenter,
+                collectObjectErrorFaceIndices(
+                  feature.errors,
+                  object.id,
+                  objectGeometry.index,
+                  objectGeometry.sourceFaceIndices,
+                ),
+              )
+              const geometry = buildUngroupedObjectGeometry(blueprint)
+              applyBatchGeometryAttributes(
+                geometry,
+                blueprint,
+                runtime,
+                objectGeometry,
+                nextObjectKey,
+              )
+              geometry.computeBoundingBox()
+              batchItems.push({
+                key: nextObjectKey,
+                renderKey: nextRenderKey,
+                featureId: feature.id,
+                objectId: object.id,
+                objectType: object.type,
+                hasRenderableChildren: object.hasRenderableChildren,
+                geometryIndex: objectGeometry.index,
+                featureCenter,
+                baseColorLight: baseColorForType(object.type, 'light'),
+                baseColorDark: baseColorForType(object.type, 'dark'),
+                triangleFaceIndices: geometry.userData.triangleFaceIndices,
+                blueprint,
+                geometry,
+                tileKey: getBatchTileKey(featureCenter, data),
+                vertexCount: geometry.getAttribute('position')?.count ?? 0,
+                indexCount: geometry.getIndex()?.count ?? 0,
+              })
+            } else {
+              addStandaloneObjectMesh(
+                runtime,
+                data,
+                feature,
+                object,
+                objectGeometry,
+                vertices,
+                featureCenter,
+                nextRenderKey,
+              )
+            }
           }
         }
       }
@@ -1680,24 +1733,26 @@ function shouldRebuildForSemanticModeToggle(
   nextShowSemanticSurfaces: boolean,
 ) {
   if (nextShowSemanticSurfaces) {
-    return runtime.meshesByObjectKey.size > 0
+    return runtime.meshesByRenderKey.size > 0
   }
 
   for (const feature of data.features) {
     for (const object of feature.objects) {
-      const objectGeometry = resolveDisplayedObjectGeometry(feature, object, selection)
-      if (!objectGeometry) {
+      const objectGeometries = resolveDisplayedObjectGeometries(feature, object, selection)
+      if (objectGeometries.length === 0) {
         continue
       }
 
-      const { faceGroups } = computeFaceErrorGroups(
-        feature.errors,
-        object.id,
-        objectGeometry.index,
-        objectGeometry.sourceFaceIndices,
-      )
-      if (faceGroups.size > 0) {
-        return true
+      for (const objectGeometry of objectGeometries) {
+        const { faceGroups } = computeFaceErrorGroups(
+          feature.errors,
+          object.id,
+          objectGeometry.index,
+          objectGeometry.sourceFaceIndices,
+        )
+        if (faceGroups.size > 0) {
+          return true
+        }
       }
     }
   }
@@ -1808,7 +1863,7 @@ function addStandaloneObjectMesh(
   objectGeometry: ViewerObjectGeometry,
   draftVertices: Vec3[],
   featureCenter: Vec3,
-  objectKey: string,
+  renderKey: string,
 ) {
   const { blueprint, geometry, material } = buildObjectMeshPresentation(
     runtime,
@@ -1836,7 +1891,7 @@ function addStandaloneObjectMesh(
     triangleFaceIndices: geometry.userData.triangleFaceIndices,
     geometryBlueprint: blueprint,
   }
-  runtime.meshesByObjectKey.set(objectKey, mesh)
+  runtime.meshesByRenderKey.set(renderKey, mesh)
   const featureMeshes = runtime.meshesByFeatureId.get(feature.id)
   if (featureMeshes) {
     featureMeshes.push(mesh)
@@ -1947,7 +2002,7 @@ function buildSpatialBatches(
         geometryId,
       }
       ;(batch.userData.recordsByInstanceId as Map<number, BatchedObjectRecord>).set(instanceId, record)
-      runtime.batchedObjectsByObjectKey.set(item.key, record)
+      runtime.batchedObjectsByRenderKey.set(item.renderKey, record)
       const featureRecords = runtime.batchedObjectsByFeatureId.get(item.featureId)
       if (featureRecords) {
         featureRecords.push(record)
@@ -1970,7 +2025,7 @@ function buildSpatialBatches(
   recordPerformanceMeasure('cjvis:viewport:batch:record-objects', recordBatchDuration)
   recordPerformanceMeasure('cjvis:viewport:batch:compute-bounds', computeBoundsDuration)
   measurePerformance('cjvis:viewport:batch:apply-selection-appearance', () =>
-    applyBatchSelectionAppearance(runtime, selection, false, runtime.batchedObjectsByObjectKey.values()),
+    applyBatchSelectionAppearance(runtime, selection, false, runtime.batchedObjectsByRenderKey.values()),
   )
 }
 
@@ -2115,6 +2170,45 @@ function syncRuntimeAttributeColor(
   }
 }
 
+function getRenderedGeometryTarget(
+  runtime: Runtime,
+  objectKey: string,
+  geometryIndex: number,
+) {
+  const renderKey = renderedGeometryKey(objectKey, geometryIndex)
+  return {
+    mesh: runtime.meshesByRenderKey.get(renderKey),
+    batchedRecord: runtime.batchedObjectsByRenderKey.get(renderKey),
+  }
+}
+
+function replaceBatchedRecordGeometry(
+  runtime: Runtime,
+  record: BatchedObjectRecord,
+  objectGeometry: ViewerObjectGeometry,
+  objectKey: string,
+  blueprint: ObjectGeometryBlueprint,
+) {
+  const nextGeometry = buildUngroupedObjectGeometry(blueprint)
+  applyBatchGeometryAttributes(
+    nextGeometry,
+    blueprint,
+    runtime,
+    objectGeometry,
+    objectKey,
+  )
+  try {
+    record.batch.setGeometryAt(record.geometryId, nextGeometry)
+    record.triangleFaceIndices = nextGeometry.userData.triangleFaceIndices
+    record.blueprint = blueprint
+    record.geometryIndex = objectGeometry.index
+    record.batch.computeBoundingSphere()
+    record.batch.computeBoundingBox()
+  } finally {
+    nextGeometry.dispose()
+  }
+}
+
 function rebuildFeatureGeometry(
   runtime: Runtime,
   data: ViewerDataset,
@@ -2129,67 +2223,51 @@ function rebuildFeatureGeometry(
   const vertices = getRenderableFeatureVertices(runtime, feature)
 
   for (const object of feature.objects) {
-    const objectGeometry = resolveDisplayedObjectGeometry(feature, object, selection)
-    if (!objectGeometry) {
+    const objectGeometries = resolveDisplayedObjectGeometries(feature, object, selection)
+    if (objectGeometries.length === 0) {
       continue
-    }
-
-    if (changedVertexIndex != null) {
-      let hasChangedVertex = false
-      for (const vertexIndex of objectGeometry.vertexIndices) {
-        if (vertexIndex === changedVertexIndex) {
-          hasChangedVertex = true
-          break
-        }
-      }
-      if (!hasChangedVertex) {
-        continue
-      }
     }
 
     const objectKey = viewerObjectKey(featureId, object.id)
-    const mesh = runtime.meshesByObjectKey.get(objectKey)
-    const batchedRecord = runtime.batchedObjectsByObjectKey.get(objectKey)
-    if (!mesh && !batchedRecord) {
-      continue
-    }
+    for (const objectGeometry of objectGeometries) {
+      if (changedVertexIndex != null) {
+        let hasChangedVertex = false
+        for (const vertexIndex of objectGeometry.vertexIndices) {
+          if (vertexIndex === changedVertexIndex) {
+            hasChangedVertex = true
+            break
+          }
+        }
+        if (!hasChangedVertex) {
+          continue
+        }
+      }
 
-    const center = (mesh?.userData.featureCenter as Vec3 | undefined) ?? batchedRecord?.featureCenter ?? data.center
-    const nextBlueprint = buildObjectGeometryBlueprint(
-      objectGeometry.polygons,
-      vertices,
-      center,
-      collectObjectErrorFaceIndices(
-        feature.errors,
-        object.id,
-        objectGeometry.index,
-        objectGeometry.sourceFaceIndices,
-      ),
-    )
-    if (mesh) {
-      const { faceGroups } = resolveObjectFaceGroups(runtime, feature, object, objectGeometry)
-      const nextGeometry = buildGroupedObjectGeometry(nextBlueprint, faceGroups)
-      replaceMeshGeometry(mesh, nextGeometry)
-      mesh.userData.geometryBlueprint = nextBlueprint
-      mesh.userData.geometryIndex = objectGeometry.index
-    } else if (batchedRecord) {
-      const nextGeometry = buildUngroupedObjectGeometry(nextBlueprint)
-      applyBatchGeometryAttributes(
-        nextGeometry,
-        nextBlueprint,
-        runtime,
-        objectGeometry,
-        objectKey,
+      const { mesh, batchedRecord } = getRenderedGeometryTarget(runtime, objectKey, objectGeometry.index)
+      if (!mesh && !batchedRecord) {
+        continue
+      }
+
+      const center = (mesh?.userData.featureCenter as Vec3 | undefined) ?? batchedRecord?.featureCenter ?? data.center
+      const nextBlueprint = buildObjectGeometryBlueprint(
+        objectGeometry.polygons,
+        vertices,
+        center,
+        collectObjectErrorFaceIndices(
+          feature.errors,
+          object.id,
+          objectGeometry.index,
+          objectGeometry.sourceFaceIndices,
+        ),
       )
-      try {
-        batchedRecord.batch.setGeometryAt(batchedRecord.geometryId, nextGeometry)
-        batchedRecord.triangleFaceIndices = nextGeometry.userData.triangleFaceIndices
-        batchedRecord.blueprint = nextBlueprint
-        batchedRecord.geometryIndex = objectGeometry.index
-        batchedRecord.batch.computeBoundingSphere()
-        batchedRecord.batch.computeBoundingBox()
-      } finally {
-        nextGeometry.dispose()
+      if (mesh) {
+        const { faceGroups } = resolveObjectFaceGroups(runtime, feature, object, objectGeometry)
+        const nextGeometry = buildGroupedObjectGeometry(nextBlueprint, faceGroups)
+        replaceMeshGeometry(mesh, nextGeometry)
+        mesh.userData.geometryBlueprint = nextBlueprint
+        mesh.userData.geometryIndex = objectGeometry.index
+      } else if (batchedRecord) {
+        replaceBatchedRecordGeometry(runtime, batchedRecord, objectGeometry, objectKey, nextBlueprint)
       }
     }
   }
@@ -2259,14 +2337,8 @@ function updateObjectSurfacePresentation(
   selection: ViewSelection,
 ) {
   const objectKey = viewerObjectKey(feature.id, object.id)
-  const mesh = runtime.meshesByObjectKey.get(objectKey)
-  const batchedRecord = runtime.batchedObjectsByObjectKey.get(objectKey)
-  if (!mesh && !batchedRecord) {
-    return
-  }
-
-  const objectGeometry = resolveDisplayedObjectGeometry(feature, object, selection)
-  if (!objectGeometry) {
+  const objectGeometries = resolveDisplayedObjectGeometries(feature, object, selection)
+  if (objectGeometries.length === 0) {
     return
   }
 
@@ -2276,48 +2348,45 @@ function updateObjectSurfacePresentation(
     (feature.extent[1] + feature.extent[4]) * 0.5,
     (feature.extent[2] + feature.extent[5]) * 0.5,
   ]
-  const existingBlueprint = mesh?.userData.geometryBlueprint as ObjectGeometryBlueprint | undefined
-  const { blueprint, geometry, material } = buildObjectMeshPresentation(
-    runtime,
-    feature,
-    object,
-    objectGeometry,
-    draftVertices,
-    featureCenter,
-    existingBlueprint,
-  )
-  if (mesh) {
-    replaceMeshGeometry(mesh, geometry)
-    replaceMeshMaterial(mesh, material)
-    mesh.userData.geometryBlueprint = blueprint
-    mesh.userData.geometryIndex = objectGeometry.index
-    mesh.userData.triangleFaceIndices = geometry.userData.triangleFaceIndices
-    return
-  }
 
-  if (batchedRecord) {
-    geometry.dispose()
-    const batchGeometry = buildUngroupedObjectGeometry(blueprint)
-    applyBatchGeometryAttributes(
-      batchGeometry,
-      blueprint,
-      runtime,
-      objectGeometry,
-      objectKey,
-    )
-    try {
-      batchedRecord.batch.setGeometryAt(batchedRecord.geometryId, batchGeometry)
-      batchedRecord.triangleFaceIndices = batchGeometry.userData.triangleFaceIndices
-      batchedRecord.blueprint = blueprint
-      batchedRecord.geometryIndex = objectGeometry.index
-      batchedRecord.batch.computeBoundingSphere()
-      batchedRecord.batch.computeBoundingBox()
-    } finally {
-      batchGeometry.dispose()
+  for (const objectGeometry of objectGeometries) {
+    const { mesh, batchedRecord } = getRenderedGeometryTarget(runtime, objectKey, objectGeometry.index)
+    if (!mesh && !batchedRecord) {
+      continue
     }
-    const materials = Array.isArray(material) ? material : [material]
-    for (const entry of materials) {
-      entry.dispose()
+
+    if (mesh) {
+      const existingBlueprint = mesh.userData.geometryBlueprint as ObjectGeometryBlueprint | undefined
+      const { blueprint, geometry, material } = buildObjectMeshPresentation(
+        runtime,
+        feature,
+        object,
+        objectGeometry,
+        draftVertices,
+        featureCenter,
+        existingBlueprint,
+      )
+      replaceMeshGeometry(mesh, geometry)
+      replaceMeshMaterial(mesh, material)
+      mesh.userData.geometryBlueprint = blueprint
+      mesh.userData.geometryIndex = objectGeometry.index
+      mesh.userData.triangleFaceIndices = geometry.userData.triangleFaceIndices
+      continue
+    }
+
+    if (batchedRecord) {
+      const blueprint = buildObjectGeometryBlueprint(
+        objectGeometry.polygons,
+        draftVertices,
+        featureCenter,
+        collectObjectErrorFaceIndices(
+          feature.errors,
+          object.id,
+          objectGeometry.index,
+          objectGeometry.sourceFaceIndices,
+        ),
+      )
+      replaceBatchedRecordGeometry(runtime, batchedRecord, objectGeometry, objectKey, blueprint)
     }
   }
 }
@@ -2886,8 +2955,8 @@ function syncSelection(
 ) {
   syncSelectionOutlineProxy(runtime, data, selection)
   syncSelectionTintUniforms(runtime, selection)
-  applySelectionAppearance(runtime, selection, isolateSelectedFeature, runtime.meshesByObjectKey.values())
-  applyBatchSelectionAppearance(runtime, selection, isolateSelectedFeature, runtime.batchedObjectsByObjectKey.values())
+  applySelectionAppearance(runtime, selection, isolateSelectedFeature, runtime.meshesByRenderKey.values())
+  applyBatchSelectionAppearance(runtime, selection, isolateSelectedFeature, runtime.batchedObjectsByRenderKey.values())
   rebuildHandles(runtime, data, selection, hideOccludedEditEdges, showVertexGizmo)
 }
 
@@ -2975,26 +3044,27 @@ function syncSelectionOutlineProxy(
 
   const feature = data.features.find((candidate) => candidate.id === selection.selectedFeatureId) ?? null
   const object = feature?.objects.find((candidate) => candidate.id === selection.activeObjectId) ?? null
-  const objectGeometry = feature && object
-    ? resolveDisplayedObjectGeometry(feature, object, selection)
-    : null
-  if (!feature || !object || !objectGeometry) {
+  if (!feature || !object) {
     return
   }
 
   const objectKey = viewerObjectKey(feature.id, object.id)
   runtime.selectionOutlineVisible = !(selection.editMode && selection.selectedFaceIndex != null)
 
-  const sourcePolygons = objectGeometry.polygons
+  const objectGeometry = resolveDisplayedObjectGeometry(feature, object, selection)
+  if (!objectGeometry) {
+    return
+  }
+
   const selectedFace = selection.selectedFaceIndex != null
-    ? sourcePolygons[selection.selectedFaceIndex] ?? null
+    ? objectGeometry.polygons[selection.selectedFaceIndex] ?? null
     : null
   const hasSelectedFace = selection.selectedFaceIndex != null && selectedFace != null
 
   const shouldBuildOutline =
     selection.selectedFaceIndex != null
       ? hasSelectedFace
-      : !selection.editMode && sourcePolygons.length > 0
+      : !selection.editMode && objectGeometry.polygons.length > 0
   if (!shouldBuildOutline) {
     return
   }
@@ -3010,49 +3080,40 @@ function syncSelectionOutlineProxy(
     featureCenter[2] - data.center[2],
   )
 
-  const standaloneMesh = runtime.meshesByObjectKey.get(objectKey)
-  if (standaloneMesh) {
-    const sourceGeometry = standaloneMesh.geometry
-    const triangleFaceIndices = standaloneMesh.userData.triangleFaceIndices
-
-    if (hasSelectedFace && triangleFaceIndices) {
-      const outlineGeometry = extractOutlineGeometrySubset(
-        sourceGeometry,
-        triangleFaceIndices,
-        (faceIndex) => faceIndex === selection.selectedFaceIndex,
-      )
-      const outlineMesh = new THREE.Mesh(outlineGeometry, runtime.selectionOutlineSeedMaterial)
-      outlineMesh.position.copy(meshPosition)
-      runtime.selectionOutlineGroup.add(outlineMesh)
-    } else {
-      const outlineGeometry = sourceGeometry.clone()
-      const outlineMesh = new THREE.Mesh(outlineGeometry, runtime.selectionOutlineSeedMaterial)
-      outlineMesh.position.copy(meshPosition)
-      runtime.selectionOutlineGroup.add(outlineMesh)
-    }
+  const { mesh, batchedRecord } = getRenderedGeometryTarget(runtime, objectKey, objectGeometry.index)
+  if (mesh) {
+    const sourceGeometry = mesh.geometry
+    const triangleFaceIndices = mesh.userData.triangleFaceIndices
+    const outlineGeometry =
+      hasSelectedFace && triangleFaceIndices
+        ? extractOutlineGeometrySubset(
+          sourceGeometry,
+          triangleFaceIndices,
+          (faceIndex) => faceIndex === selection.selectedFaceIndex,
+        )
+        : sourceGeometry.clone()
+    const outlineMesh = new THREE.Mesh(outlineGeometry, runtime.selectionOutlineSeedMaterial)
+    outlineMesh.position.copy(meshPosition)
+    runtime.selectionOutlineGroup.add(outlineMesh)
     return
   }
 
-  const batchedRecord = runtime.batchedObjectsByObjectKey.get(objectKey)
-  if (batchedRecord) {
-    const blueprint = batchedRecord.blueprint
+  if (!batchedRecord) {
+    return
+  }
 
-    if (hasSelectedFace) {
-      const outlineGeometry = buildUngroupedObjectGeometry({
+  const blueprint = batchedRecord.blueprint
+  const outlineGeometry =
+    hasSelectedFace
+      ? buildUngroupedObjectGeometry({
         positions: blueprint.positions,
         normals: blueprint.normals,
         polygonTriangleIndices: [blueprint.polygonTriangleIndices[selection.selectedFaceIndex!]],
       })
-      const outlineMesh = new THREE.Mesh(outlineGeometry, runtime.selectionOutlineSeedMaterial)
-      outlineMesh.position.copy(meshPosition)
-      runtime.selectionOutlineGroup.add(outlineMesh)
-    } else {
-      const outlineGeometry = buildUngroupedObjectGeometry(blueprint)
-      const outlineMesh = new THREE.Mesh(outlineGeometry, runtime.selectionOutlineSeedMaterial)
-      outlineMesh.position.copy(meshPosition)
-      runtime.selectionOutlineGroup.add(outlineMesh)
-    }
-  }
+      : buildUngroupedObjectGeometry(blueprint)
+  const outlineMesh = new THREE.Mesh(outlineGeometry, runtime.selectionOutlineSeedMaterial)
+  outlineMesh.position.copy(meshPosition)
+  runtime.selectionOutlineGroup.add(outlineMesh)
 }
 
 function clearSelectionOutlineProxy(runtime: Runtime) {
@@ -3207,8 +3268,12 @@ function applyMeshSelectionAppearance(
         baseColorForType(mesh.userData.objectType as string, 'dark'))
   const isSelectedFeature = featureId === selection.selectedFeatureId
   const isActiveObject = isSelectedFeature && objectId === selection.activeObjectId
+  const geometryIndex = mesh.userData.geometryIndex as number | undefined
+  const isActiveGeometry = geometryIndex == null ||
+    selection.activeGeometryIndex == null ||
+    geometryIndex === selection.activeGeometryIndex
   const tintWholeObject =
-    isActiveObject && selection.selectedFaceIndex == null && !selection.editMode
+    isActiveObject && isActiveGeometry && selection.selectedFaceIndex == null && !selection.editMode
   const hideParentMesh =
     selection.geometryDisplayMode.kind === 'best' && hasRenderableChildren && !isActiveObject
 
@@ -3274,8 +3339,11 @@ function applyBatchSelectionAppearance(
   for (const record of records) {
     const isSelectedFeature = record.featureId === selection.selectedFeatureId
     const isActiveObject = isSelectedFeature && record.objectId === selection.activeObjectId
+    const isActiveGeometry =
+      selection.activeGeometryIndex == null ||
+      record.geometryIndex === selection.activeGeometryIndex
     const tintWholeObject =
-      isActiveObject && selection.selectedFaceIndex == null && !selection.editMode
+      isActiveObject && isActiveGeometry && selection.selectedFaceIndex == null && !selection.editMode
     const hideParentMesh =
       selection.geometryDisplayMode.kind === 'best' &&
       record.hasRenderableChildren &&
@@ -4377,9 +4445,12 @@ function createMaterial(objectType: string, theme: Theme, semanticMode = false) 
 }
 
 function applyAttributeColorToScene(runtime: Runtime) {
-  for (const [key, mesh] of runtime.meshesByObjectKey.entries()) {
-    const value = runtime.attributeColor?.valuesByObjectKey[key] ?? null
-    const directColor = runtime.attributeColor?.directColorsByObjectKey?.[key] ?? null
+  for (const mesh of runtime.meshesByRenderKey.values()) {
+    const featureId = mesh.userData.featureId as string | undefined
+    const objectId = mesh.userData.objectId as string | undefined
+    const objectKey = featureId && objectId ? viewerObjectKey(featureId, objectId) : null
+    const value = objectKey ? runtime.attributeColor?.valuesByObjectKey[objectKey] ?? null : null
+    const directColor = objectKey ? runtime.attributeColor?.directColorsByObjectKey?.[objectKey] ?? null : null
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
     for (const material of materials) {
       if (material instanceof THREE.MeshStandardMaterial) {
@@ -5230,7 +5301,7 @@ function updateRaycastPointer(runtime: Runtime, event: MouseEvent) {
 
 function getPickableObjects(runtime: Runtime) {
   return [
-    ...[...runtime.meshesByObjectKey.values()].filter((mesh) => mesh.visible),
+    ...[...runtime.meshesByRenderKey.values()].filter((mesh) => mesh.visible),
     ...runtime.batchedMeshes.filter((batch) => batch.visible),
   ]
 }
@@ -5750,13 +5821,13 @@ function clearTransientGroup(group: THREE.Group) {
 }
 
 function disposeSceneContents(runtime: Runtime) {
-  for (const mesh of runtime.meshesByObjectKey.values()) {
+  for (const mesh of runtime.meshesByRenderKey.values()) {
     mesh.geometry.dispose()
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
     for (const mat of materials) mat.dispose()
     runtime.rootGroup.remove(mesh)
   }
-  runtime.meshesByObjectKey.clear()
+  runtime.meshesByRenderKey.clear()
   runtime.meshesByFeatureId.clear()
   clearSelectionOutlineProxy(runtime)
 
@@ -5767,7 +5838,7 @@ function disposeSceneContents(runtime: Runtime) {
     runtime.rootGroup.remove(batch)
   }
   runtime.batchedMeshes = []
-  runtime.batchedObjectsByObjectKey.clear()
+  runtime.batchedObjectsByRenderKey.clear()
   runtime.batchedObjectsByFeatureId.clear()
 
   clearEditPointOverlays(runtime)
