@@ -57,8 +57,8 @@ const EDIT_VERTEX_PICK_RADIUS_PIXELS = 14
 const SELECTION_OUTLINE_THICKNESS_PIXELS = 4
 const SELECTION_OUTLINE_INTERACTIVE_TARGET_SCALE = 0.25
 const SELECTION_TINT_COLOR = '#7ee7e7'
-const SELECTION_TINT_STRENGTH = 0.34
-const SEMANTIC_SELECTION_TINT_STRENGTH = 0.58
+const SELECTION_TINT_STRENGTH = 0.18
+const SEMANTIC_SELECTION_TINT_STRENGTH = 0.34
 const REFERENCE_VERTICAL_FOV_DEGREES = 50
 const REFERENCE_HALF_FOV_TANGENT = Math.tan(
   THREE.MathUtils.degToRad(REFERENCE_VERTICAL_FOV_DEGREES) / 2,
@@ -3364,7 +3364,7 @@ function applyMeshSelectionAppearance(
       mat.emissive.set(SELECTION_TINT_COLOR)
       mat.emissiveIntensity = Math.max(
         mat.emissiveIntensity,
-        mat.userData.isSemantic || mat.userData.isSemanticBase ? 0.22 : 0.16,
+        mat.userData.isSemantic || mat.userData.isSemanticBase ? 0.12 : 0.08,
       )
     }
   }
@@ -3402,7 +3402,7 @@ function applyBatchSelectionAppearance(
     if (tintWholeObject) {
       record.batch.setColorAt(
         record.instanceId,
-        color.lerp(new THREE.Color(SELECTION_TINT_COLOR), runtime.appearanceMode === 'semantic' ? 1 : 0.42),
+        color.lerp(new THREE.Color(SELECTION_TINT_COLOR), runtime.appearanceMode === 'semantic' ? 0.5 : 0.22),
       )
     }
   }
