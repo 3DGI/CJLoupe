@@ -4,6 +4,7 @@
 - Reimplement normal coloring mode to calculate color in-shader
 - Add semantic surface type badge to face vertex circulator panel in edit mode
 - Display all the geometries of the selected LoD, rahter than just the first geometry per object.
+- Display distance to previous center position in status bar
 
 ## 0.8.0 - 2026-06-14
 

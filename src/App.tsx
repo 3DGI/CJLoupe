@@ -273,6 +273,7 @@ function App() {
   const [loadingMessage, setLoadingMessage] = useState<string | null>(null)
   const [cameraFocalLength, setCameraFocalLength] = useState(DEFAULT_CAMERA_FOCAL_LENGTH)
   const [viewportCenter, setViewportCenter] = useState<Vec3 | null>(null)
+  const [viewportCenterDistance, setViewportCenterDistance] = useState<number | null>(null)
   const [hideOccludedEditEdges, setHideOccludedEditEdges] = useState(true)
   const [showOnlyInvalidFeatures, setShowOnlyInvalidFeatures] = useState(false)
   const [appearanceMode, setAppearanceMode] = useState<ViewerAppearanceMode>('regular')
@@ -1040,6 +1041,8 @@ function App() {
     attributeColorDomainsByKeyRef.current = new Map()
     attributeColorMapIdsByKeyRef.current = new Map()
     attributeColorMapReversedByKeyRef.current = new Map()
+    setViewportCenter(null)
+    setViewportCenterDistance(null)
     setViewportResetRevision((current) => current + 1)
   }, [])
 
@@ -1367,6 +1370,16 @@ function App() {
   const handleSetViewportCenter = useCallback((center: Vec3) => {
     setFocusTarget({ kind: 'location', location: center })
     setFocusRevision((current) => current + 1)
+  }, [])
+
+  const handleViewportCenterChange = useCallback((center: Vec3 | null) => {
+    if (!center) {
+      setViewportCenter(null)
+      setViewportCenterDistance(null)
+      return
+    }
+
+    setViewportCenter(center)
   }, [])
 
   const centerCurrentSelection = useCallback(() => {
@@ -2543,7 +2556,8 @@ function App() {
             onSelectVertex={handleSelectVertex}
             onSelectSemanticSurface={handleSelectSemanticSurface}
             onVertexCommit={applyFeatureVertices}
-            onViewportCenterChange={setViewportCenter}
+            onViewportCenterChange={handleViewportCenterChange}
+            onViewportCenterDistanceChange={setViewportCenterDistance}
             onDataRendered={handleViewportDataRendered}
             theme={theme}
           />
@@ -2691,6 +2705,7 @@ function App() {
               isPaneCollapsed={isPaneCollapsed}
               activeObjectId={activeObject?.id ?? null}
               viewportCenter={viewportCenter}
+              viewportCenterDistance={viewportCenterDistance}
               selectedVertexIndex={selectedVertexIndex}
               cameraFocalLength={cameraFocalLength}
               onCameraFocalLengthChange={setCameraFocalLength}
@@ -3330,6 +3345,7 @@ function DesktopViewportStatusBar({
   isPaneCollapsed,
   activeObjectId,
   viewportCenter,
+  viewportCenterDistance,
   selectedVertexIndex,
   cameraFocalLength,
   onCameraFocalLengthChange,
@@ -3342,6 +3358,7 @@ function DesktopViewportStatusBar({
   isPaneCollapsed: boolean
   activeObjectId: string | null
   viewportCenter: Vec3 | null
+  viewportCenterDistance: number | null
   selectedVertexIndex: number | null
   cameraFocalLength: number
   onCameraFocalLengthChange: (value: number) => void
@@ -3418,7 +3435,12 @@ function DesktopViewportStatusBar({
         <div className="flex h-6 min-w-0 items-center gap-1 overflow-hidden rounded-sm border border-border/70 bg-background/35 px-1.5 font-mono text-[10px] text-muted-foreground">
           <ViewportCenterEditor center={viewportCenter} onChange={onSetCenter} />
           {selectedVertexIndex != null && (
-            <span className="shrink-0 text-foreground/75">vtx {selectedVertexIndex}</span>
+            <span className="shrink-0 text-foreground/75">[vtx {selectedVertexIndex}]</span>
+          )}
+          {viewportCenterDistance != null && (
+            <span className="shrink-0 border-l border-border/70 pl-1 text-foreground/75">
+              dist {formatDistanceValue(viewportCenterDistance)}
+            </span>
           )}
         </div>
       </div>
@@ -6797,6 +6819,10 @@ function clonePolygonRingsList(polygons: PolygonRings[]) {
 
 function formatCoordinateTriple(coordinates: Vec3) {
   return `${coordinates[0].toFixed(3)}, ${coordinates[1].toFixed(3)}, ${coordinates[2].toFixed(3)}`
+}
+
+function formatDistanceValue(distance: number) {
+  return distance.toFixed(3)
 }
 
 function getFaceVertexCycle(rings: number[][] | null, ringIndex: number) {

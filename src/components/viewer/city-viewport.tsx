@@ -193,6 +193,7 @@ type CityViewportProps = {
   } | null) => void
   onVertexCommit: (featureId: string, vertices: Vec3[]) => void
   onViewportCenterChange: (center: Vec3 | null) => void
+  onViewportCenterDistanceChange: (distance: number | null) => void
   onDataRendered: (data: ViewerDataset) => void
   theme: Theme
 }
@@ -567,6 +568,7 @@ function CityViewport({
   onSelectSemanticSurface,
   onVertexCommit,
   onViewportCenterChange,
+  onViewportCenterDistanceChange,
   onDataRendered,
   theme,
 }: CityViewportProps) {
@@ -608,6 +610,7 @@ function CityViewport({
   const onSelectSemanticSurfaceRef = useRef(onSelectSemanticSurface)
   const onVertexCommitRef = useRef(onVertexCommit)
   const onViewportCenterChangeRef = useRef(onViewportCenterChange)
+  const onViewportCenterDistanceChangeRef = useRef(onViewportCenterDistanceChange)
   const onDataRenderedRef = useRef(onDataRendered)
   const themeRef = useRef(theme)
   const appearanceModeRef = useRef(appearanceMode)
@@ -616,7 +619,7 @@ function CityViewport({
   const showVertexGizmoRef = useRef(showVertexGizmo)
   const mobileInteractionRef = useRef(mobileInteraction)
   const mobileSelectionModeRef = useRef(mobileSelectionMode)
-  const pointerDownRef = useRef<{ x: number; y: number } | null>(null)
+  const pointerDownRef = useRef<{ x: number; y: number; translationStartCenter: Vec3 | null } | null>(null)
 
   useEffect(() => {
     dataRef.current = data
@@ -650,6 +653,7 @@ function CityViewport({
   useEffect(() => { onSelectSemanticSurfaceRef.current = onSelectSemanticSurface }, [onSelectSemanticSurface])
   useEffect(() => { onVertexCommitRef.current = onVertexCommit }, [onVertexCommit])
   useEffect(() => { onViewportCenterChangeRef.current = onViewportCenterChange }, [onViewportCenterChange])
+  useEffect(() => { onViewportCenterDistanceChangeRef.current = onViewportCenterDistanceChange }, [onViewportCenterDistanceChange])
   useEffect(() => { onDataRenderedRef.current = onDataRendered }, [onDataRendered])
   useEffect(() => { themeRef.current = theme }, [theme])
   useEffect(() => { appearanceModeRef.current = appearanceMode }, [appearanceMode])
@@ -892,10 +896,36 @@ function CityViewport({
     }
 
     const handlePointerDown = (event: PointerEvent) => {
+      const activeRuntime = runtimeRef.current
+      const translationStartCenter =
+        activeRuntime != null &&
+        isViewportTranslationPointer(event)
+          ? getViewportCenter(activeRuntime, dataRef.current)
+          : null
       pointerDownRef.current = {
         x: event.clientX,
         y: event.clientY,
+        translationStartCenter,
       }
+    }
+
+    const handlePointerUp = (event: PointerEvent) => {
+      const pointerDown = pointerDownRef.current
+      if (!pointerDown) {
+        return
+      }
+
+      const isDrag = Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y) > 4
+      if (!pointerDown.translationStartCenter || !isDrag) {
+        return
+      }
+
+      const activeRuntime = runtimeRef.current
+      commitViewportCenterDistance(
+        pointerDown.translationStartCenter,
+        activeRuntime ? getViewportCenter(activeRuntime, dataRef.current) : null,
+        onViewportCenterDistanceChangeRef.current,
+      )
     }
 
     const preventCanvasGesture = (event: Event) => {
@@ -1081,10 +1111,16 @@ function CityViewport({
         return
       }
 
+      const previousCenter = getViewportCenter(activeRuntime, dataRef.current)
       const center = getArcballCenter(activeRuntime.arcball).clone()
       const delta = new THREE.Vector3().subVectors(meshHit.point, center)
       const nextPosition = activeRuntime.camera.position.clone().add(delta)
       setArcballPose(activeRuntime, meshHit.point, nextPosition)
+      commitViewportCenterDistance(
+        previousCenter,
+        getViewportCenter(activeRuntime, dataRef.current),
+        onViewportCenterDistanceChangeRef.current,
+      )
       requestRender()
     }
 
@@ -1146,6 +1182,7 @@ function CityViewport({
     const resizeObserver = new ResizeObserver(handleResize)
     resizeObserver.observe(container)
     window.addEventListener('resize', handleResize)
+    window.addEventListener('pointerup', handlePointerUp)
     renderer.domElement.addEventListener('pointerdown', handlePointerDown)
     renderer.domElement.addEventListener('wheel', handleWheel, { passive: true })
     renderer.domElement.addEventListener('click', handleClick)
@@ -1165,6 +1202,7 @@ function CityViewport({
       arcball.removeEventListener('change', requestRender)
       arcball.removeEventListener('start', handleArcballStart)
       arcball.removeEventListener('end', handleArcballEnd)
+      window.removeEventListener('pointerup', handlePointerUp)
       renderer.domElement.removeEventListener('pointerdown', handlePointerDown)
       renderer.domElement.removeEventListener('wheel', handleWheel)
       renderer.domElement.removeEventListener('click', handleClick)
@@ -1340,6 +1378,8 @@ function CityViewport({
       return
     }
 
+    const previousCenter = getViewportCenter(runtime, currentData)
+
     if (focusTarget.kind === 'location') {
       const center = new THREE.Vector3(
         focusTarget.location[0] - currentData.center[0],
@@ -1361,6 +1401,11 @@ function CityViewport({
       centerViewOnFeature(runtime, currentData, feature)
     }
 
+    commitViewportCenterDistance(
+      previousCenter,
+      getViewportCenter(runtime, currentData),
+      onViewportCenterDistanceChangeRef.current,
+    )
     renderViewport(runtime)
     reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
   }, [focusRevision, focusTarget])
@@ -3948,17 +3993,37 @@ function reportViewportCenter(
   data: ViewerDataset | null,
   onViewportCenterChange: (center: Vec3 | null) => void,
 ) {
-  if (!data) {
-    onViewportCenterChange(null)
-    return
-  }
+  onViewportCenterChange(getViewportCenter(runtime, data))
+}
 
+function getViewportCenter(runtime: Runtime, data: ViewerDataset | null): Vec3 | null {
+  if (!data) {
+    return null
+  }
   const center = getArcballCenter(runtime.arcball)
-  onViewportCenterChange([
+  return [
     center.x + data.center[0],
     center.y + data.center[1],
     center.z + data.center[2],
-  ])
+  ]
+}
+
+function commitViewportCenterDistance(
+  startCenter: Vec3 | null,
+  endCenter: Vec3 | null,
+  onViewportCenterDistanceChange: (distance: number) => void,
+) {
+  if (!startCenter || !endCenter) {
+    return
+  }
+
+  onViewportCenterDistanceChange(
+    Math.hypot(
+      endCenter[0] - startCenter[0],
+      endCenter[1] - startCenter[1],
+      endCenter[2] - startCenter[2],
+    ),
+  )
 }
 
 function buildEdgeSegments(
@@ -5618,6 +5683,13 @@ function getArcballInternals(arcball: ArcballControls) {
     makeGizmos: (center: THREE.Vector3, radius: number) => void
     updateMatrixState: () => void
   }
+}
+
+function isViewportTranslationPointer(event: PointerEvent) {
+  return (
+    event.pointerType !== 'touch' &&
+    (event.button === 2 || (event.button === 0 && (event.ctrlKey || event.metaKey)))
+  )
 }
 
 function getArcballCenter(arcball: ArcballControls) {
