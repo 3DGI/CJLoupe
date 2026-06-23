@@ -3,8 +3,11 @@
 ## Unreleased
 - Reimplement normal coloring mode to calculate color in-shader
 - Add semantic surface type badge to face vertex circulator panel in edit mode
-- Display all the geometries of the selected LoD, rahter than just the first geometry per object.
-- Display distance to previous center position in status bar
+- Display all geometries of the selected LoD, rather than just the first geometry per object
+- Pick, outline, inspect, and edit individual geometries within multi-geometry objects
+- Display viewport-center movement distance in the status bar for pan, recenter, and focus actions
+- Allow clear selection in edit mode to deselect selected faces and vertices
+- Redesign the file metadata dialog with tabs for opened files, source locations, and val3dity summary counts
 
 ## 0.8.0 - 2026-06-14
 

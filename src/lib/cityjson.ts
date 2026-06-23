@@ -102,7 +102,10 @@ export async function loadCityJsonFromUrl(
     }
 
     const text = await measureAsyncPerformance('cjvis:cityjson:read-url-text', () => response.text())
-    return parseCityJsonForSource(text, sourceName, options?.cityJsonKind ?? inferCityJsonKindFromSource(url))
+    return {
+      ...parseCityJsonForSource(text, sourceName, options?.cityJsonKind ?? inferCityJsonKindFromSource(url)),
+      sourceLocation: url,
+    }
   })
 }
 
@@ -131,7 +134,10 @@ export async function loadCityJsonFromFile(
       )
     }
 
-    return parseCityJsonForSource(text, file.name, options?.cityJsonKind ?? inferCityJsonKindFromSource(file.name))
+    return {
+      ...parseCityJsonForSource(text, file.name, options?.cityJsonKind ?? inferCityJsonKindFromSource(file.name)),
+      sourceLocation: getFileSourceLocation(file),
+    }
   })
 }
 
@@ -423,6 +429,7 @@ function createViewerDataset(
 
   return {
     sourceName,
+    sourceLocation: sourceName,
     sourceText,
     center,
     extent,
@@ -430,6 +437,10 @@ function createViewerDataset(
     ...info,
     cityJsonKind,
   }
+}
+
+function getFileSourceLocation(file: File) {
+  return file.webkitRelativePath || file.name
 }
 
 function extractDatasetInfo(header: CityJsonHeader): ViewerDatasetInfo {

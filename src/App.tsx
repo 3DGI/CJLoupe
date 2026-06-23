@@ -270,6 +270,7 @@ function App() {
   const [focusRevision, setFocusRevision] = useState(0)
   const [focusTarget, setFocusTarget] = useState<ViewerFocusTarget>(null)
   const [annotationSourceName, setAnnotationSourceName] = useState<string | null>(null)
+  const [annotationSourceLocation, setAnnotationSourceLocation] = useState<string | null>(null)
   const [loadingMessage, setLoadingMessage] = useState<string | null>(null)
   const [cameraFocalLength, setCameraFocalLength] = useState(DEFAULT_CAMERA_FOCAL_LENGTH)
   const [viewportCenter, setViewportCenter] = useState<Vec3 | null>(null)
@@ -848,6 +849,7 @@ function App() {
       const nextDataset = await loadCityJsonFromFile(file)
       applyDataset(nextDataset)
       setAnnotationSourceName(null)
+      setAnnotationSourceLocation(null)
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to parse selected file.'
       setError(message)
@@ -860,6 +862,7 @@ function App() {
     currentDataset: ViewerDataset,
     annotations: Map<string, { validity: boolean; errors: ViewerValidationError[] }>,
     sourceName: string,
+    sourceLocation = sourceName,
   ) {
     assertValidationAnnotationsMatchDataset(currentDataset, annotations)
     setDataset((current) => {
@@ -873,6 +876,7 @@ function App() {
       return nextDataset
     })
     setAnnotationSourceName(sourceName)
+    setAnnotationSourceLocation(sourceLocation)
   }
 
   async function openAnnotationFile(file: File) {
@@ -887,7 +891,7 @@ function App() {
 
     try {
       const annotations = await loadValidationReportFromFile(file)
-      applyLoadedAnnotations(dataset, annotations, file.name)
+      applyLoadedAnnotations(dataset, annotations, file.name, getFileSourceLocation(file))
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to parse annotation report.'
       setError(message)
@@ -914,7 +918,7 @@ function App() {
 
     try {
       const annotations = await loadValidationReportFromUrl(trimmed)
-      applyLoadedAnnotations(dataset, annotations, deriveSourceNameFromUrl(trimmed))
+      applyLoadedAnnotations(dataset, annotations, deriveSourceNameFromUrl(trimmed), trimmed)
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to load val3dity report from URL.'
       setError(message)
@@ -1006,6 +1010,7 @@ function App() {
       const mergedDataset = mergeValidationAnnotations(nextDataset, annotations)
       applyDataset(mergedDataset)
       setAnnotationSourceName(reportFile.name)
+      setAnnotationSourceLocation(getFileSourceLocation(reportFile))
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to load dropped files.'
       setError(message)
@@ -1076,6 +1081,7 @@ function App() {
       const mergedDataset = mergeValidationAnnotations(nextDataset, annotations)
       applyDataset(mergedDataset)
       setAnnotationSourceName('val-report.json')
+      setAnnotationSourceLocation(SAMPLE_REPORT_URL)
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to load sample file.'
       setError(message)
@@ -1099,6 +1105,7 @@ function App() {
       const mergedDataset = mergeValidationAnnotations(nextDataset, annotations)
       applyDataset(mergedDataset)
       setAnnotationSourceName(deriveSourceNameFromUrl(cleanValUrl))
+      setAnnotationSourceLocation(cleanValUrl)
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to load files from URL parameters.'
       setError(message)
@@ -1123,6 +1130,7 @@ function App() {
       const nextDataset = await loadCityJsonFromUrl(trimmed, sourceName)
       applyDataset(nextDataset)
       setAnnotationSourceName(null)
+      setAnnotationSourceLocation(null)
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to load file from URL.'
       setError(message)
@@ -1168,6 +1176,7 @@ function App() {
   function clearAnnotations() {
     setDataset((current) => (current ? mergeValidationAnnotations(current, new Map()) : current))
     setAnnotationSourceName(null)
+    setAnnotationSourceLocation(null)
     setShowOnlyInvalidFeatures(false)
   }
 
@@ -1594,6 +1603,15 @@ function App() {
 
   const handleClearSelection = useCallback(() => {
     startTransition(() => {
+      if (editMode) {
+        setSelectedFaceIndex(null)
+        setSelectedFaceRingIndex(0)
+        setSelectedVertexIndex(null)
+        setSelectedFaceVertexEntryIndex(null)
+        setSelectedSemanticSurface(null)
+        return
+      }
+
       setSelectedFeatureId(null)
       setActiveObjectId(null)
       setActiveGeometryIndex(null)
@@ -1603,7 +1621,7 @@ function App() {
       setSelectedFaceVertexEntryIndex(null)
       setSelectedSemanticSurface(null)
     })
-  }, [])
+  }, [editMode])
 
   const handleSearchQueryChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(event.target.value)
@@ -2908,6 +2926,7 @@ function App() {
         <InfoDialog
           dataset={dataset}
           annotationSourceName={annotationSourceName}
+          annotationSourceLocation={annotationSourceLocation}
           onClose={() => setIsInfoDialogOpen(false)}
         />
       )}
@@ -3300,7 +3319,6 @@ function DesktopViewportToolbar({
               variant="ghost"
               size="icon"
               className="size-7"
-              disabled={editMode}
               onClick={onClearSelection}
               aria-label="Clear selection"
               title="Clear selection"
@@ -6246,25 +6264,29 @@ function getVal3dityErrorUrl(error: ViewerValidationError) {
 function InfoDialog({
   dataset,
   annotationSourceName,
+  annotationSourceLocation,
   onClose,
 }: {
   dataset: ViewerDataset
   annotationSourceName: string | null
+  annotationSourceLocation: string | null
   onClose: () => void
 }) {
   const metadataEntries = dataset.metadata
     ? Object.entries(dataset.metadata).filter(([, value]) => !isEmptyMetadataValue(value))
     : []
+  const validationSummary = annotationSourceName ? summarizeValidation(dataset) : null
 
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center overflow-y-auto bg-background/42 p-4 backdrop-blur-md">
-      <div
+      <Tabs
+        defaultValue="cityjson"
         role="dialog"
         aria-modal="true"
         aria-labelledby="info-dialog-title"
         className="flex min-h-0 max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-sm border border-border/45 bg-background shadow-[0_28px_100px_rgb(0_0_0_/_0.28)]"
       >
-        <div className="border-b border-border/40 bg-gradient-to-r from-primary/8 via-transparent to-transparent">
+        <div className="border-b border-border bg-gradient-to-r from-primary/8 via-transparent to-transparent">
           <div className="flex items-start justify-between gap-4 p-5">
             <div className="flex min-w-0 items-start gap-3">
               <div className="flex size-11 shrink-0 items-center justify-center rounded-sm border border-primary/20 bg-primary/10 text-primary">
@@ -6278,9 +6300,8 @@ function InfoDialog({
                   File information
                 </p>
                 <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                  <p className="min-w-0 max-w-full truncate text-sm text-muted-foreground">{dataset.sourceName}</p>
                   <Badge variant="secondary" className="border-primary/10 bg-primary/10 text-primary">
-                    {dataset.cityJsonKind}
+                    {annotationSourceName ? '2 files open' : '1 file open'}
                   </Badge>
                   {annotationSourceName && <Badge variant="outline">Validation loaded</Badge>}
                 </div>
@@ -6298,62 +6319,124 @@ function InfoDialog({
               <X className="size-4" />
             </Button>
           </div>
+
+          <TabsList className="-mb-px gap-0 px-5">
+            <TabsTrigger value="cityjson" className="detail-tab gap-1.5">
+              <span>CityJSON</span>
+            </TabsTrigger>
+            {annotationSourceName && (
+              <TabsTrigger value="val3dity" className="detail-tab gap-1.5">
+                <span>Val3dity</span>
+              </TabsTrigger>
+            )}
+          </TabsList>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="space-y-4 p-5">
-            <section>
-              <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                CityJSON
-              </p>
-              <dl className="mt-2.5 space-y-2 text-sm">
-                <InfoRow label="Version" value={dataset.cityJsonVersion ?? '—'} />
-                <InfoRow label="Features" value={dataset.features.length.toString()} mono />
-                {dataset.transform && (
-                  <>
-                    <InfoRow
-                      label="Scale"
-                      value={formatCoordinateTriple(dataset.transform.scale)}
-                      mono
-                    />
-                    <InfoRow
-                      label="Translate"
-                      value={formatCoordinateTriple(dataset.transform.translate)}
-                      mono
-                    />
-                  </>
-                )}
-              </dl>
-            </section>
-
-            {metadataEntries.length > 0 && (
+            <TabsContent value="cityjson" className="mt-0 space-y-4">
               <section>
                 <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                  Metadata
+                  CityJSON
                 </p>
                 <dl className="mt-2.5 space-y-2 text-sm">
-                  {metadataEntries.map(([key, value]) => (
-                    <InfoRow
-                      key={key}
-                      label={formatMetadataKey(key)}
-                      value={<MetadataValue metadataKey={key} value={value} />}
-                    />
-                  ))}
+                  <InfoRow label="Source" value={dataset.sourceLocation} mono />
+                  <InfoRow label="Type" value={dataset.cityJsonKind} />
+                  <InfoRow label="Version" value={dataset.cityJsonVersion ?? '—'} />
+                  <InfoRow label="Features" value={dataset.features.length.toString()} mono />
+                  {dataset.transform && (
+                    <>
+                      <InfoRow
+                        label="Scale"
+                        value={formatCoordinateTriple(dataset.transform.scale)}
+                        mono
+                      />
+                      <InfoRow
+                        label="Translate"
+                        value={formatCoordinateTriple(dataset.transform.translate)}
+                        mono
+                      />
+                    </>
+                  )}
                 </dl>
               </section>
-            )}
+
+              {metadataEntries.length > 0 && (
+                <section>
+                  <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                    Metadata
+                  </p>
+                  <dl className="mt-2.5 space-y-2 text-sm">
+                    {metadataEntries.map(([key, value]) => (
+                      <InfoRow
+                        key={key}
+                        label={formatMetadataKey(key)}
+                        value={<MetadataValue metadataKey={key} value={value} />}
+                      />
+                    ))}
+                  </dl>
+                </section>
+              )}
+            </TabsContent>
 
             {annotationSourceName && (
-              <section>
-                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                  Val3dity report
-                </p>
-                <p className="mt-2.5 truncate text-sm font-medium text-foreground">{annotationSourceName}</p>
-              </section>
+              <TabsContent value="val3dity" className="mt-0 space-y-4">
+                <section>
+                  <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                    Val3dity report
+                  </p>
+                  <dl className="mt-2.5 space-y-2 text-sm">
+                    <InfoRow label="Source" value={annotationSourceLocation ?? annotationSourceName} mono />
+                  </dl>
+                </section>
+                {validationSummary && (
+                  <>
+                    <section>
+                      <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                        Summary
+                      </p>
+                      <dl className="mt-2.5 grid gap-2 text-sm sm:grid-cols-3">
+                        <InfoRow label="Valid" value={validationSummary.validCount.toString()} mono />
+                        <InfoRow label="Invalid" value={validationSummary.invalidCount.toString()} mono />
+                        <InfoRow label="Errors" value={validationSummary.totalErrorCount.toString()} mono />
+                      </dl>
+                    </section>
+                    <section>
+                      <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                        Errors
+                      </p>
+                      {validationSummary.errorCounts.length > 0 ? (
+                        <div className="mt-2.5 space-y-2">
+                          {validationSummary.errorCounts.map((error) => (
+                            <div
+                              key={`${error.code}:${error.description}`}
+                              className="flex min-w-0 items-start justify-between gap-3 rounded-sm border border-border/45 bg-foreground/[0.03] px-2.5 py-2"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium text-foreground">{error.description}</p>
+                                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                                  code {error.code}
+                                </p>
+                              </div>
+                              <span className="shrink-0 rounded-sm bg-foreground/8 px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+                                {error.count}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-2.5 rounded-sm border border-border/45 bg-foreground/[0.03] px-2.5 py-2 text-sm text-muted-foreground">
+                          No validation errors.
+                        </p>
+                      )}
+                    </section>
+                  </>
+                )}
+              </TabsContent>
             )}
           </div>
         </div>
-      </div>
+      </Tabs>
     </div>
   )
 }
@@ -6579,6 +6662,51 @@ function InfoRow({
       </dd>
     </div>
   )
+}
+
+function summarizeValidation(dataset: ViewerDataset) {
+  const errorCountsByKey = new Map<string, {
+    code: number
+    description: string
+    count: number
+  }>()
+  let validCount = 0
+  let invalidCount = 0
+  let totalErrorCount = 0
+
+  for (const feature of dataset.features) {
+    if (feature.validity === true) {
+      validCount += 1
+    } else if (feature.validity === false) {
+      invalidCount += 1
+    }
+
+    for (const error of feature.errors) {
+      totalErrorCount += 1
+      const key = `${error.code}:${error.description}`
+      const entry = errorCountsByKey.get(key)
+      if (entry) {
+        entry.count += 1
+      } else {
+        errorCountsByKey.set(key, {
+          code: error.code,
+          description: error.description,
+          count: 1,
+        })
+      }
+    }
+  }
+
+  return {
+    validCount,
+    invalidCount,
+    totalErrorCount,
+    errorCounts: Array.from(errorCountsByKey.values()).toSorted((left, right) =>
+      right.count - left.count ||
+      left.code - right.code ||
+      left.description.localeCompare(right.description),
+    ),
+  }
 }
 
 function MetadataValue({
@@ -6823,6 +6951,10 @@ function formatCoordinateTriple(coordinates: Vec3) {
 
 function formatDistanceValue(distance: number) {
   return distance.toFixed(3)
+}
+
+function getFileSourceLocation(file: File) {
+  return file.webkitRelativePath || file.name
 }
 
 function getFaceVertexCycle(rings: number[][] | null, ringIndex: number) {
