@@ -285,6 +285,7 @@ function App() {
   const [cameraFocalLength, setCameraFocalLength] = useState(DEFAULT_CAMERA_FOCAL_LENGTH)
   const [viewportCenter, setViewportCenter] = useState<Vec3 | null>(null)
   const [viewportCenterDistance, setViewportCenterDistance] = useState<number | null>(null)
+  const [selectedVertexPairDistance, setSelectedVertexPairDistance] = useState<number | null>(null)
   const [hideOccludedEditEdges, setHideOccludedEditEdges] = useState(true)
   const [showOnlyInvalidFeatures, setShowOnlyInvalidFeatures] = useState(false)
   const [selectedErrorCodes, setSelectedErrorCodes] = useState<number[] | null>(null)
@@ -374,6 +375,22 @@ function App() {
     activeSelectedFaceVertexEntryIndex != null
       ? `vtx entry   ${activeSelectedFaceVertexEntryIndex + 1}/${selectedFaceVertexCount}`
       : null
+  const selectedVertexCursorDistance = useMemo(() => {
+    if (!editMode || selectedVertexIndex == null || !selectedFeature || !viewportCenter) {
+      return null
+    }
+
+    const vertex = selectedFeature.vertices[selectedVertexIndex]
+    if (!vertex) {
+      return null
+    }
+
+    return distanceBetweenPoints(vertex, viewportCenter)
+  }, [editMode, selectedFeature, selectedVertexIndex, viewportCenter])
+  const displayedViewportCenterDistance =
+    editMode && selectedVertexIndex != null
+      ? selectedVertexPairDistance ?? selectedVertexCursorDistance
+      : viewportCenterDistance
   const selectedFaceRingLabel =
     selectedFaceRingCount === 0
       ? 'No ring selected'
@@ -1788,6 +1805,14 @@ function App() {
     ringIndex?: number
     entryIndex?: number | null
   }) => {
+    const previousVertex =
+      selectedFeature && selectedVertexIndex != null
+        ? selectedFeature.vertices[selectedVertexIndex]
+        : null
+    const nextVertex = selectedFeature && vertexIndex != null ? selectedFeature.vertices[vertexIndex] : null
+    setSelectedVertexPairDistance(
+      previousVertex && nextVertex ? distanceBetweenPoints(previousVertex, nextVertex) : null,
+    )
     setSelectedVertexIndex(vertexIndex)
     let nextEntryIndex = options?.entryIndex ?? null
 
@@ -1802,7 +1827,7 @@ function App() {
       }
     }
     setSelectedFaceVertexEntryIndex(nextEntryIndex)
-  }, [selectedFace])
+  }, [selectedFace, selectedFeature, selectedVertexIndex])
 
   const handleSelectVertex = useCallback((vertexIndex: number | null) => {
     selectFaceVertex(vertexIndex)
@@ -2823,7 +2848,7 @@ function App() {
               isPaneCollapsed={isPaneCollapsed}
               activeObjectId={activeObject?.id ?? null}
               viewportCenter={viewportCenter}
-              viewportCenterDistance={viewportCenterDistance}
+              viewportCenterDistance={displayedViewportCenterDistance}
               selectedVertexIndex={selectedVertexIndex}
               cameraFocalLength={cameraFocalLength}
               onCameraFocalLengthChange={setCameraFocalLength}
@@ -7167,6 +7192,14 @@ function formatCoordinateTriple(coordinates: Vec3) {
 
 function formatDistanceValue(distance: number) {
   return distance.toFixed(3)
+}
+
+function distanceBetweenPoints(left: Vec3, right: Vec3) {
+  return Math.hypot(
+    right[0] - left[0],
+    right[1] - left[1],
+    right[2] - left[2],
+  )
 }
 
 function getFileSourceLocation(file: File) {
