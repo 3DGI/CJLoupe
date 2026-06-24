@@ -10,6 +10,7 @@ import {
   CircleHelp,
   Copy,
   Crosshair,
+  Filter,
   FolderOpen,
   FileText,
   Layers,
@@ -41,6 +42,7 @@ import { Suspense, lazy, memo, startTransition, useCallback, useEffect, useMemo,
 import type { ChangeEvent, ReactNode } from 'react'
 
 import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
 import { ColorPicker, ColorPickerHex, ColorPickerInput } from '@/components/ui/color-picker'
 import { Kbd } from '@/components/ui/kbd'
 import {
@@ -233,9 +235,17 @@ const CityViewport = lazy(() =>
 
 type FeatureListItem = {
   feature: ViewerFeature
+  objects: ViewerCityObject[]
+  errorCountsByObjectId: Map<string, number>
   errorCount: number
   isInvalid: boolean
   searchText: string
+}
+
+type ErrorCodeFilterOption = {
+  code: number
+  description: string
+  count: number
 }
 
 function App() {
@@ -277,6 +287,7 @@ function App() {
   const [viewportCenterDistance, setViewportCenterDistance] = useState<number | null>(null)
   const [hideOccludedEditEdges, setHideOccludedEditEdges] = useState(true)
   const [showOnlyInvalidFeatures, setShowOnlyInvalidFeatures] = useState(false)
+  const [selectedErrorCodes, setSelectedErrorCodes] = useState<number[] | null>(null)
   const [appearanceMode, setAppearanceMode] = useState<ViewerAppearanceMode>('regular')
   const [isolateSelectedFeature, setIsolateSelectedFeature] = useState(false)
   const [pinnedAttributeKeys, setPinnedAttributeKeys] = useState<string[]>([])
@@ -551,39 +562,97 @@ function App() {
       return []
     }
 
-    return dataset.features.map((feature) => ({
-      feature,
-      errorCount: feature.errors.length,
-      isInvalid: feature.validity === false,
-      searchText: [
-        feature.id,
-        feature.label,
-        ...feature.objects.map((object) => object.id),
-        ...feature.objects.map((object) => object.type),
-        ...Object.values(feature.attributes),
-        ...feature.objects.flatMap((object) => Object.values(object.attributes)),
-      ]
-        .filter((value): value is string => typeof value === 'string')
-        .join(' ')
-        .toLowerCase(),
-    }))
+    return dataset.features.map((feature) => {
+      const errorCountsByObjectId = countErrorsByObjectId(feature.errors)
+
+      return {
+        feature,
+        objects: feature.objects,
+        errorCountsByObjectId,
+        errorCount: feature.errors.length,
+        isInvalid: feature.validity === false,
+        searchText: [
+          feature.id,
+          feature.label,
+          ...feature.objects.map((object) => object.id),
+          ...feature.objects.map((object) => object.type),
+          ...Object.values(feature.attributes),
+          ...feature.objects.flatMap((object) => Object.values(object.attributes)),
+        ]
+          .filter((value): value is string => typeof value === 'string')
+          .join(' ')
+          .toLowerCase(),
+      }
+    })
   }, [dataset])
+
+  const availableErrorCodeFilters = useMemo<ErrorCodeFilterOption[]>(() => {
+    if (!dataset) {
+      return []
+    }
+
+    const optionsByCode = new Map<number, ErrorCodeFilterOption>()
+    for (const feature of dataset.features) {
+      for (const error of feature.errors) {
+        if (!error.cityObjectId) {
+          continue
+        }
+
+        const option = optionsByCode.get(error.code)
+        if (option) {
+          option.count += 1
+        } else {
+          optionsByCode.set(error.code, {
+            code: error.code,
+            description: error.description,
+            count: 1,
+          })
+        }
+      }
+    }
+
+    return Array.from(optionsByCode.values()).toSorted((left, right) => left.code - right.code)
+  }, [dataset])
+
+  const selectedErrorCodeSet = useMemo(
+    () => selectedErrorCodes === null ? null : new Set(selectedErrorCodes),
+    [selectedErrorCodes],
+  )
 
   const filteredFeatureItems = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
 
-    return featureListItems.filter((item) => {
-      if (showOnlyInvalidFeatures && item.errorCount === 0) {
-        return false
-      }
-
+    return featureListItems.flatMap((item) => {
       if (!query) {
-        return true
+        if (!showOnlyInvalidFeatures) {
+          return [item]
+        }
+      } else if (!item.searchText.includes(query)) {
+        return []
       }
 
-      return item.searchText.includes(query)
+      if (!showOnlyInvalidFeatures) {
+        return [item]
+      }
+
+      const errorCountsByObjectId = countErrorsByObjectId(item.feature.errors, selectedErrorCodeSet)
+      if (errorCountsByObjectId.size === 0) {
+        return []
+      }
+
+      const objects = item.objects.filter((object) => errorCountsByObjectId.has(object.id))
+      if (objects.length === 0) {
+        return []
+      }
+
+      return [{
+        ...item,
+        objects,
+        errorCountsByObjectId,
+        errorCount: Array.from(errorCountsByObjectId.values()).reduce((total, count) => total + count, 0),
+      }]
     })
-  }, [featureListItems, searchQuery, showOnlyInvalidFeatures])
+  }, [featureListItems, searchQuery, selectedErrorCodeSet, showOnlyInvalidFeatures])
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(max-width: 900px)')
@@ -873,6 +942,7 @@ function App() {
       const nextDataset = mergeValidationAnnotations(current, annotations)
       waitForViewportDataset(nextDataset)
       setShowOnlyInvalidFeatures(nextDataset.features.some((feature) => feature.errors.length > 0))
+      setSelectedErrorCodes(null)
       return nextDataset
     })
     setAnnotationSourceName(sourceName)
@@ -1025,6 +1095,7 @@ function App() {
     setActiveGeometryIndex(null)
     setHideOccludedEditEdges(true)
     setShowOnlyInvalidFeatures(false)
+    setSelectedErrorCodes(null)
     setAppearanceMode('regular')
     setIsolateSelectedFeature(false)
     setDetailTab('errors')
@@ -1178,6 +1249,7 @@ function App() {
     setAnnotationSourceName(null)
     setAnnotationSourceLocation(null)
     setShowOnlyInvalidFeatures(false)
+    setSelectedErrorCodes(null)
   }
 
   function triggerCityJsonInput() {
@@ -1630,6 +1702,30 @@ function App() {
   const handleShowOnlyInvalidFeaturesChange = useCallback((checked: boolean) => {
     setShowOnlyInvalidFeatures(checked)
   }, [])
+
+  const handleToggleErrorCodeFilter = useCallback((code: number) => {
+    setSelectedErrorCodes((current) => {
+      const availableCodes = availableErrorCodeFilters.map((option) => option.code)
+      const currentSet = new Set(current ?? availableCodes)
+
+      if (currentSet.has(code)) {
+        currentSet.delete(code)
+      } else {
+        currentSet.add(code)
+      }
+
+      const nextCodes = availableCodes.filter((availableCode) => currentSet.has(availableCode))
+      return nextCodes.length === availableCodes.length ? null : nextCodes
+    })
+  }, [availableErrorCodeFilters])
+
+  const handleToggleAllErrorCodeFilters = useCallback(() => {
+    setSelectedErrorCodes((current) => {
+      const availableCodes = availableErrorCodeFilters.map((option) => option.code)
+      const selectedCount = current?.length ?? availableCodes.length
+      return selectedCount === availableCodes.length ? [] : null
+    })
+  }, [availableErrorCodeFilters])
 
   const handleCenterObject = useCallback((
     featureId: string,
@@ -2308,8 +2404,12 @@ function App() {
                     searchQuery={searchQuery}
                     selectedFeatureId={selectedFeatureId}
                     showOnlyInvalidFeatures={showOnlyInvalidFeatures}
+                    errorCodeFilters={availableErrorCodeFilters}
+                    selectedErrorCodes={selectedErrorCodes}
                     onSearchQueryChange={handleSearchQueryChange}
                     onShowOnlyInvalidFeaturesChange={handleShowOnlyInvalidFeaturesChange}
+                    onToggleErrorCodeFilter={handleToggleErrorCodeFilter}
+                    onToggleAllErrorCodeFilters={handleToggleAllErrorCodeFilters}
                     val3dityParameters={val3dityParameters}
                     onVal3dityParametersChange={setVal3dityParameters}
                     onValidate={dataset ? () => void validateCurrentDatasetWithVal3dity() : null}
@@ -3629,10 +3729,31 @@ function objectSelectionKey(featureId: string, objectId?: string | null) {
 }
 
 function estimateFeatureListRowHeight(item: FeatureListItem, showFeatureSeparator: boolean) {
-  const objectRowsHeight = Math.max(item.feature.objects.length, 1) * CITY_OBJECT_TREE_ROW_ESTIMATE
+  const objectRowsHeight = Math.max(item.objects.length, 1) * CITY_OBJECT_TREE_ROW_ESTIMATE
   return showFeatureSeparator
     ? Math.max(FEATURE_LIST_ROW_HEIGHT, objectRowsHeight + FEATURE_SEPARATOR_HEIGHT_ESTIMATE)
     : objectRowsHeight
+}
+
+function featureListRowHeightKey(item: FeatureListItem) {
+  return `${item.feature.id}::${item.objects.length}::${item.errorCount}`
+}
+
+function countErrorsByObjectId(
+  errors: ViewerValidationError[],
+  selectedErrorCodeSet: Set<number> | null = null,
+) {
+  const counts = new Map<string, number>()
+
+  for (const error of errors) {
+    if (!error.cityObjectId || (selectedErrorCodeSet !== null && !selectedErrorCodeSet.has(error.code))) {
+      continue
+    }
+
+    counts.set(error.cityObjectId, (counts.get(error.cityObjectId) ?? 0) + 1)
+  }
+
+  return counts
 }
 
 function collectTreeRootIds(objects: ViewerCityObject[], objectById: Map<string, ViewerCityObject>) {
@@ -4123,23 +4244,11 @@ const FeatureListRow = memo(function FeatureListRow({
   activeObjectId: string | null
   onSelectFeature: (featureId: string, objectId?: string | null) => void
   onCenterObject: (featureId: string, objectId: string) => void
-  onHeightChange: (featureId: string, height: number) => void
+  onHeightChange: (rowHeightKey: string, height: number) => void
 }) {
   const { feature, isInvalid } = item
   const rowRef = useRef<HTMLDivElement | null>(null)
-  const errorCountsByObjectId = useMemo(() => {
-    const counts = new Map<string, number>()
-
-    for (const error of feature.errors) {
-      if (!error.cityObjectId) {
-        continue
-      }
-
-      counts.set(error.cityObjectId, (counts.get(error.cityObjectId) ?? 0) + 1)
-    }
-
-    return counts
-  }, [feature.errors])
+  const rowHeightKey = featureListRowHeightKey(item)
 
   useEffect(() => {
     const element = rowRef.current
@@ -4150,7 +4259,7 @@ const FeatureListRow = memo(function FeatureListRow({
     const reportHeight = () => {
       const measuredHeight = Math.ceil(element.getBoundingClientRect().height)
       onHeightChange(
-        feature.id,
+        rowHeightKey,
         showFeatureSeparator
           ? Math.max(measuredHeight, FEATURE_LIST_ROW_HEIGHT)
           : measuredHeight,
@@ -4162,7 +4271,7 @@ const FeatureListRow = memo(function FeatureListRow({
     resizeObserver.observe(element)
 
     return () => resizeObserver.disconnect()
-  }, [feature.id, onHeightChange, showFeatureSeparator])
+  }, [onHeightChange, rowHeightKey, showFeatureSeparator])
 
   return (
     <div
@@ -4193,9 +4302,9 @@ const FeatureListRow = memo(function FeatureListRow({
       >
         <FeatureObjectTree
           featureId={feature.id}
-          objects={feature.objects}
+          objects={item.objects}
           activeObjectId={activeObjectId}
-          errorCountsByObjectId={errorCountsByObjectId}
+          errorCountsByObjectId={item.errorCountsByObjectId}
           onSelectObject={(objectId) => onSelectFeature(feature.id, objectId)}
           onCenterObject={onCenterObject}
         />
@@ -4214,8 +4323,12 @@ const FeatureListPanel = memo(function FeatureListPanel({
   searchQuery,
   selectedFeatureId,
   showOnlyInvalidFeatures,
+  errorCodeFilters,
+  selectedErrorCodes,
   onSearchQueryChange,
   onShowOnlyInvalidFeaturesChange,
+  onToggleErrorCodeFilter,
+  onToggleAllErrorCodeFilters,
   val3dityParameters,
   onVal3dityParametersChange,
   onValidate,
@@ -4233,8 +4346,12 @@ const FeatureListPanel = memo(function FeatureListPanel({
   searchQuery: string
   selectedFeatureId: string | null
   showOnlyInvalidFeatures: boolean
+  errorCodeFilters: ErrorCodeFilterOption[]
+  selectedErrorCodes: number[] | null
   onSearchQueryChange: (event: ChangeEvent<HTMLInputElement>) => void
   onShowOnlyInvalidFeaturesChange: (checked: boolean) => void
+  onToggleErrorCodeFilter: (code: number) => void
+  onToggleAllErrorCodeFilters: () => void
   val3dityParameters: Val3dityParameterForm
   onVal3dityParametersChange: (parameters: Val3dityParameterForm) => void
   onValidate: (() => void) | null
@@ -4248,6 +4365,11 @@ const FeatureListPanel = memo(function FeatureListPanel({
   const [scrollTop, setScrollTop] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(0)
   const [rowHeights, setRowHeights] = useState<Map<string, number>>(() => new Map())
+  const selectedErrorCodeSet = useMemo(
+    () => selectedErrorCodes === null ? null : new Set(selectedErrorCodes),
+    [selectedErrorCodes],
+  )
+  const selectedErrorCodeCount = selectedErrorCodeSet?.size ?? errorCodeFilters.length
 
   const selectedIndex = useMemo(
     () => filteredFeatureItems.findIndex((item) => item.feature.id === selectedFeatureId),
@@ -4283,7 +4405,7 @@ const FeatureListPanel = memo(function FeatureListPanel({
     const rowGap = showFeatureSeparators ? FEATURE_LIST_ROW_GAP : 0
 
     for (const item of filteredFeatureItems) {
-      const height = rowHeights.get(item.feature.id) ?? estimateFeatureListRowHeight(item, showFeatureSeparators)
+      const height = rowHeights.get(featureListRowHeightKey(item)) ?? estimateFeatureListRowHeight(item, showFeatureSeparators)
       rows.push({ top: nextTop, height })
       nextTop += height + rowGap
     }
@@ -4297,18 +4419,18 @@ const FeatureListPanel = memo(function FeatureListPanel({
   }, [filteredFeatureItems, rowHeights, showFeatureSeparators])
 
   const filteredObjectCount = useMemo(
-    () => filteredFeatureItems.reduce((count, item) => count + item.feature.objects.length, 0),
+    () => filteredFeatureItems.reduce((count, item) => count + item.objects.length, 0),
     [filteredFeatureItems],
   )
 
-  const handleRowHeightChange = useCallback((featureId: string, height: number) => {
+  const handleRowHeightChange = useCallback((rowHeightKey: string, height: number) => {
     setRowHeights((current) => {
-      if (current.get(featureId) === height) {
+      if (current.get(rowHeightKey) === height) {
         return current
       }
 
       const next = new Map(current)
-      next.set(featureId, height)
+      next.set(rowHeightKey, height)
       return next
     })
   }, [])
@@ -4550,19 +4672,113 @@ const FeatureListPanel = memo(function FeatureListPanel({
         </div>
 
         {annotationSourceName && (
-          <div className="flex items-center justify-between rounded-sm bg-foreground/4 px-3 py-2">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Show errors only</p>
-              <p className="text-xs text-foreground/60">
-                Showing {filteredObjectCount} of {datasetFeatureCount}
-              </p>
+          <div className="rounded-sm bg-foreground/4 px-3 py-2">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Show errors only</p>
+                <p className="text-xs text-foreground/60">
+                  Showing {filteredObjectCount} of {datasetFeatureCount}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                {showOnlyInvalidFeatures && errorCodeFilters.length > 0 && (
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        size="icon"
+                        variant={selectedErrorCodeCount === errorCodeFilters.length ? 'ghost' : 'outline'}
+                        className="size-8"
+                        aria-label="Filter validation error codes"
+                        title="Filter validation error codes"
+                      >
+                        <Filter className="size-4" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent align="end" className="w-80 p-0">
+                      <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                            Error codes
+                          </p>
+                          <p className="text-xs text-foreground/60">
+                            {selectedErrorCodeCount} of {errorCodeFilters.length} selected
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 shrink-0 px-2 text-xs"
+                          onClick={onToggleAllErrorCodeFilters}
+                        >
+                          {selectedErrorCodeCount === errorCodeFilters.length ? 'None' : 'All'}
+                        </Button>
+                      </div>
+                      <div className="max-h-80 overflow-y-auto p-1.5">
+                        {errorCodeFilters.map((option) => {
+                          const isSelected = selectedErrorCodeSet === null || selectedErrorCodeSet.has(option.code)
+
+                          return (
+                            <div
+                              key={option.code}
+                              role="checkbox"
+                              tabIndex={0}
+                              aria-checked={isSelected}
+                              onClick={() => onToggleErrorCodeFilter(option.code)}
+                              onKeyDown={(event) => {
+                                if (event.target !== event.currentTarget) {
+                                  return
+                                }
+
+                                if (event.key !== 'Enter' && event.key !== ' ') {
+                                  return
+                                }
+
+                                event.preventDefault()
+                                onToggleErrorCodeFilter(option.code)
+                              }}
+                              className="flex min-w-0 cursor-pointer items-start gap-2 rounded-sm px-2 py-1.5 transition outline-none hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-ring/60"
+                            >
+                              <Checkbox
+                                checked={isSelected}
+                                onCheckedChange={() => onToggleErrorCodeFilter(option.code)}
+                                onClick={(event) => event.stopPropagation()}
+                                className="mt-0.5"
+                                aria-label={`Filter code ${option.code}`}
+                              />
+                              <div className="min-w-0 flex-1">
+                                <div className="flex min-w-0 items-center gap-1.5">
+                                  <span
+                                    aria-hidden="true"
+                                    className="size-2 shrink-0 rounded-full"
+                                    style={{ backgroundColor: errorColor(option.code) }}
+                                  />
+                                  <span className="shrink-0 text-xs font-medium tabular-nums text-foreground">
+                                    code {option.code}
+                                  </span>
+                                  <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+                                    {option.count}
+                                  </span>
+                                </div>
+                                <p className="mt-0.5 truncate text-xs text-foreground/62" title={option.description}>
+                                  {option.description}
+                                </p>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                )}
+                <Switch
+                  checked={showOnlyInvalidFeatures}
+                  onCheckedChange={onShowOnlyInvalidFeaturesChange}
+                  className="shrink-0"
+                  aria-label="Show only objects with validation errors"
+                />
+              </div>
             </div>
-            <Switch
-              checked={showOnlyInvalidFeatures}
-              onCheckedChange={onShowOnlyInvalidFeaturesChange}
-              className="shrink-0"
-              aria-label="Show only objects with validation errors"
-            />
           </div>
         )}
       </div>

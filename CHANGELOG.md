@@ -8,6 +8,7 @@
 - Display viewport-center movement distance in the status bar for pan, recenter, and focus actions
 - Allow clear selection in edit mode to deselect selected faces and vertices
 - Redesign the file metadata dialog with tabs for opened files, source locations, and val3dity summary counts
+- Add CityObjects error-code filtering with a popover of checkbox toggles when showing validation errors only
 
 ## 0.8.0 - 2026-06-14
 
