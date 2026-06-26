@@ -9,6 +9,7 @@
 - Allow clear selection in edit mode to deselect selected faces and vertices
 - Redesign the file metadata dialog with tabs for opened files, source locations, and val3dity summary counts
 - Add CityObjects error-code filtering with a popover of checkbox toggles when showing validation errors only
+- Add option to synchronised camera's between different CJLoupe tabs, use button in bottom right to launch such a camera synchronised tab.
 
 ## 0.8.0 - 2026-06-14
 

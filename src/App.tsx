@@ -10,10 +10,13 @@ import {
   CircleHelp,
   Copy,
   Crosshair,
+  ExternalLink,
   Filter,
   FolderOpen,
   FileText,
   Layers,
+  Link2,
+  Link2Off,
   Maximize2,
   Minimize2,
   Moon,
@@ -117,6 +120,7 @@ const SAMPLE_REPORT_URL = `${import.meta.env.BASE_URL}samples/val-report.json`
 const VAL3DITY_ERRORS_URL = 'https://val3dity.readthedocs.io/2.6.0/errors/'
 const GITHUB_REPO_URL = 'https://github.com/3DGI/CJLoupe'
 const APP_VERSION = packageJson.version
+const CAMERA_FOLLOW_QUERY_PARAM = 'cameraFollow'
 const DEFAULT_CAMERA_FOCAL_LENGTH = 50
 const BAG_BUILDING_ID_PREFIX = 'NL.IMBAG.Pand.'
 const DEFAULT_VAL3DITY_PARAMETERS: Val3dityParameterForm = {
@@ -260,6 +264,8 @@ function App() {
   const inspectPickingModeRef = useRef<ViewerPickingMode>('face')
   const pendingViewportDatasetRef = useRef<ViewerDataset | null>(null)
 
+  const [cameraFollowChannel, setCameraFollowChannel] = useState(() => getCameraFollowChannelFromUrl())
+  const [cameraPublishChannel, setCameraPublishChannel] = useState<string | null>(null)
   const [dataset, setDataset] = useState<ViewerDataset | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -1281,6 +1287,34 @@ function App() {
     setIsFileDialogOpen(true)
   }
 
+  const openCameraFollower = useCallback(() => {
+    if (cameraFollowChannel) {
+      return
+    }
+
+    const channel = cameraPublishChannel ?? createCameraSyncChannelId()
+    const followerUrl = buildCameraFollowerUrl(channel)
+
+    const openedWindow = window.open(followerUrl, '_blank')
+    if (!openedWindow) {
+      setError('The browser blocked the synced follower tab.')
+      return
+    }
+
+    if (!cameraPublishChannel) {
+      setCameraPublishChannel(channel)
+    }
+    openedWindow.focus()
+  }, [cameraFollowChannel, cameraPublishChannel])
+
+  const breakCameraFollow = useCallback(() => {
+    setCameraFollowChannel(null)
+
+    const url = new URL(window.location.href)
+    url.searchParams.delete(CAMERA_FOLLOW_QUERY_PARAM)
+    window.history.replaceState(null, '', url)
+  }, [])
+
   function toggleDetailPaneCollapse() {
     startTransition(() => {
       setDetailPaneMode((current) => (current === 'collapsed' ? 'split' : 'collapsed'))
@@ -2193,6 +2227,12 @@ function App() {
     ? 'bottom-3 left-3'
     : 'right-4'
   const showViewportTooltips = !isMobileLayout && !isHelpCollapsed && !hasModalScrim
+  const cameraSyncChannel = cameraFollowChannel ?? cameraPublishChannel
+  const cameraSyncRole: 'publish' | 'follow' | null = cameraFollowChannel
+    ? 'follow'
+    : cameraPublishChannel
+      ? 'publish'
+      : null
   const mobilePanelTabs: Array<{ view: MobilePanelView; label: string; disabled?: boolean }> = [
     { view: 'features', label: 'Objects' },
     { view: 'details', label: 'Details', disabled: !selectedFeature },
@@ -2693,12 +2733,15 @@ function App() {
             showVertexGizmo={showVertexGizmo}
             mobileInteraction={isMobileLayout}
             mobileSelectionMode={mobileInspectMode}
+            cameraSyncChannel={cameraSyncChannel}
+            cameraSyncRole={cameraSyncRole}
             onSelectFeature={handleViewportSelectFeature}
             onClearSelection={handleClearSelection}
             onSelectFace={handleSelectFace}
             onSelectVertex={handleSelectVertex}
             onSelectSemanticSurface={handleSelectSemanticSurface}
             onVertexCommit={applyFeatureVertices}
+            onCameraFocalLengthSync={setCameraFocalLength}
             onViewportCenterChange={handleViewportCenterChange}
             onViewportCenterDistanceChange={setViewportCenterDistance}
             onDataRendered={handleViewportDataRendered}
@@ -2855,6 +2898,10 @@ function App() {
               onSetTopDownView={() => setTopDownViewRevision((current) => current + 1)}
               onSetCenter={handleSetViewportCenter}
               onTogglePinnedAttributesOpen={() => setIsPinnedAttributesOpen((current) => !current)}
+              cameraFollowerActive={Boolean(cameraPublishChannel)}
+              isCameraFollower={Boolean(cameraFollowChannel)}
+              onOpenCameraFollower={openCameraFollower}
+              onBreakCameraFollow={breakCameraFollow}
             />
           </div>
         )}
@@ -3495,6 +3542,10 @@ function DesktopViewportStatusBar({
   onSetTopDownView,
   onSetCenter,
   onTogglePinnedAttributesOpen,
+  cameraFollowerActive,
+  isCameraFollower,
+  onOpenCameraFollower,
+  onBreakCameraFollow,
 }: {
   isPinnedAttributesOpen: boolean
   pinnedAttributeCount: number
@@ -3508,6 +3559,10 @@ function DesktopViewportStatusBar({
   onSetTopDownView: () => void
   onSetCenter: (center: Vec3) => void
   onTogglePinnedAttributesOpen: () => void
+  cameraFollowerActive: boolean
+  isCameraFollower: boolean
+  onOpenCameraFollower: () => void
+  onBreakCameraFollow: () => void
 }) {
   const [didCopyObjectId, setDidCopyObjectId] = useState(false)
   const isOrthographicCamera = isOrthographicCameraValue(cameraFocalLength)
@@ -3587,36 +3642,85 @@ function DesktopViewportStatusBar({
           )}
         </div>
       </div>
-      <div className="floating-chip flex h-6 shrink-0 items-center gap-1.5 rounded-sm border px-1.5">
-        <Camera className="size-3 text-muted-foreground" />
-        <span className="font-mono text-[10px] text-muted-foreground">
-          {isOrthographicCamera ? 'Ortho' : `${cameraFocalLength}mm`}
-        </span>
-        <input
-          type="range"
-          min={CAMERA_FOCAL_LENGTH_MIN}
-          max={ORTHOGRAPHIC_CAMERA_VALUE}
-          step={1}
-          value={cameraFocalLength}
-          onChange={(event) => onCameraFocalLengthChange(Number(event.target.value))}
-          className="slider-accent h-2 w-20 cursor-pointer appearance-none rounded-none bg-input"
-          aria-label="Camera projection and focal length"
-          aria-valuetext={isOrthographicCamera ? 'Orthographic' : `${cameraFocalLength} millimeters`}
+      <div className="flex h-6 shrink-0 items-center gap-1">
+        <div className="floating-chip flex h-6 shrink-0 items-center gap-1.5 rounded-sm border px-1.5">
+          <Camera className="size-3 text-muted-foreground" />
+          <span className="font-mono text-[10px] text-muted-foreground">
+            {isOrthographicCamera ? 'Ortho' : `${cameraFocalLength}mm`}
+          </span>
+          <input
+            type="range"
+            min={CAMERA_FOCAL_LENGTH_MIN}
+            max={ORTHOGRAPHIC_CAMERA_VALUE}
+            step={1}
+            value={cameraFocalLength}
+            onChange={(event) => onCameraFocalLengthChange(Number(event.target.value))}
+            className="slider-accent h-2 w-20 cursor-pointer appearance-none rounded-none bg-input"
+            aria-label="Camera projection and focal length"
+            aria-valuetext={isOrthographicCamera ? 'Orthographic' : `${cameraFocalLength} millimeters`}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-5 shrink-0 rounded-[3px] p-0"
+            disabled={!viewportCenter}
+            onClick={onSetTopDownView}
+            aria-label="Set top-down view"
+            title="Top-down view"
+          >
+            <ArrowDown className="size-3" />
+          </Button>
+        </div>
+        <CameraFollowStatusButton
+          isFollower={isCameraFollower}
+          active={cameraFollowerActive}
+          onOpenFollower={onOpenCameraFollower}
+          onBreakFollow={onBreakCameraFollow}
         />
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-5 shrink-0 rounded-[3px] p-0"
-          disabled={!viewportCenter}
-          onClick={onSetTopDownView}
-          aria-label="Set top-down view"
-          title="Top-down view"
-        >
-          <ArrowDown className="size-3" />
-        </Button>
       </div>
     </div>
+  )
+}
+
+function CameraFollowStatusButton({
+  isFollower,
+  active,
+  onOpenFollower,
+  onBreakFollow,
+}: {
+  isFollower: boolean
+  active: boolean
+  onOpenFollower: () => void
+  onBreakFollow: () => void
+}) {
+  const label = isFollower ? 'Break camera follow' : 'Open synced viewport tab'
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className={cn(
+        'group size-6 shrink-0 rounded-[3px] border p-0',
+        isFollower || active
+          ? 'border-primary/35 bg-primary/10 text-primary hover:bg-primary/14 hover:text-primary'
+          : 'border-border/70 bg-background/35 text-muted-foreground hover:bg-accent/8 hover:text-foreground',
+      )}
+      onClick={isFollower ? onBreakFollow : onOpenFollower}
+      aria-label={label}
+      aria-pressed={isFollower || active}
+      title={label}
+    >
+      {isFollower ? (
+        <>
+          <Link2 className="size-3 group-hover:hidden" />
+          <Link2Off className="hidden size-3 group-hover:block" />
+        </>
+      ) : (
+        <ExternalLink className="size-3" />
+      )}
+    </Button>
   )
 }
 
@@ -6392,6 +6496,27 @@ function deriveSourceNameFromUrl(url: string) {
   } catch {
     return url
   }
+}
+
+function getCameraFollowChannelFromUrl() {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  const channel = new URLSearchParams(window.location.search).get(CAMERA_FOLLOW_QUERY_PARAM)
+  return channel && /^[a-zA-Z0-9._-]+$/.test(channel) ? channel : null
+}
+
+function createCameraSyncChannelId() {
+  return globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+}
+
+function buildCameraFollowerUrl(channel: string) {
+  const url = new URL(window.location.href)
+  url.searchParams.delete('cj')
+  url.searchParams.delete('val')
+  url.searchParams.set(CAMERA_FOLLOW_QUERY_PARAM, channel)
+  return url.toString()
 }
 
 function getPickingModeIconUrl(mode: ViewerPickingMode) {
