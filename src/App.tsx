@@ -6659,9 +6659,14 @@ function InfoDialog({
                                   code {error.code}
                                 </p>
                               </div>
-                              <span className="shrink-0 rounded-sm bg-foreground/8 px-1.5 py-0.5 font-mono text-[11px] text-foreground">
-                                {error.count}
-                              </span>
+                              <div className="flex shrink-0 flex-col items-end gap-1">
+                                <span className="rounded-sm bg-foreground/8 px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+                                  {formatCountLabel(error.count, 'error')}
+                                </span>
+                                <span className="rounded-sm bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] text-primary">
+                                  {formatCountLabel(error.objectCount, 'object')}
+                                </span>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -6905,11 +6910,16 @@ function InfoRow({
   )
 }
 
+function formatCountLabel(count: number, singular: string) {
+  return `${count} ${count === 1 ? singular : `${singular}s`}`
+}
+
 function summarizeValidation(dataset: ViewerDataset) {
   const errorCountsByKey = new Map<string, {
     code: number
     description: string
     count: number
+    objectIds: Set<string>
   }>()
   let validCount = 0
   let invalidCount = 0
@@ -6926,13 +6936,16 @@ function summarizeValidation(dataset: ViewerDataset) {
       totalErrorCount += 1
       const key = `${error.code}:${error.description}`
       const entry = errorCountsByKey.get(key)
+      const objectId = error.cityObjectId ?? feature.rootObjectId
       if (entry) {
         entry.count += 1
+        entry.objectIds.add(objectId)
       } else {
         errorCountsByKey.set(key, {
           code: error.code,
           description: error.description,
           count: 1,
+          objectIds: new Set([objectId]),
         })
       }
     }
@@ -6942,11 +6955,17 @@ function summarizeValidation(dataset: ViewerDataset) {
     validCount,
     invalidCount,
     totalErrorCount,
-    errorCounts: Array.from(errorCountsByKey.values()).toSorted((left, right) =>
-      right.count - left.count ||
-      left.code - right.code ||
-      left.description.localeCompare(right.description),
-    ),
+    errorCounts: Array.from(errorCountsByKey.values())
+      .map(({ objectIds, ...entry }) => ({
+        ...entry,
+        objectCount: objectIds.size,
+      }))
+      .toSorted((left, right) =>
+        right.count - left.count ||
+        right.objectCount - left.objectCount ||
+        left.code - right.code ||
+        left.description.localeCompare(right.description),
+      ),
   }
 }
 
