@@ -90,6 +90,7 @@ import changelogText from '../CHANGELOG.md?raw'
 import packageJson from '../package.json'
 import {
   assertValidationAnnotationsMatchDataset,
+  combineViewerDatasets,
   loadCityJsonFromFile,
   loadCityJsonFromUrl,
   loadValidationReportFromFile,
@@ -263,6 +264,8 @@ function App() {
   const preInspectPickingModeRef = useRef<ViewerPickingMode>('object')
   const inspectPickingModeRef = useRef<ViewerPickingMode>('face')
   const pendingViewportDatasetRef = useRef<ViewerDataset | null>(null)
+  const appendNextCityJsonFileSelectionRef = useRef(false)
+  const datasetRef = useRef<ViewerDataset | null>(null)
 
   const [cameraFollowChannel, setCameraFollowChannel] = useState(() => getCameraFollowChannelFromUrl())
   const [cameraPublishChannel, setCameraPublishChannel] = useState<string | null>(null)
@@ -340,6 +343,10 @@ function App() {
   const featureMap = useMemo(() => {
     return new Map(dataset?.features.map((feature) => [feature.id, feature]) ?? [])
   }, [dataset, geometryRevision])
+
+  useEffect(() => {
+    datasetRef.current = dataset
+  }, [dataset])
 
   const selectedFeature = selectedFeatureId ? featureMap.get(selectedFeatureId) ?? null : null
   const availableLods = useMemo(() => collectAvailableLods(dataset), [dataset])
@@ -932,22 +939,37 @@ function App() {
     setIsLoading(false)
   }, [])
 
-  async function openCityJsonFile(file: File) {
+  async function openCityJsonFiles(files: File[], appendToCurrentScene = false) {
+    if (files.length === 0) {
+      return
+    }
+
     setIsLoading(true)
+    setLoadingMessage(files.length > 1 ? `Loading ${files.length} CityJSON files…` : null)
     setError(null)
     setIsFileDialogOpen(false)
 
     try {
-      const nextDataset = await loadCityJsonFromFile(file)
+      const loadedDatasets = await Promise.all(files.map((file) => loadCityJsonFromFile(file)))
+      const nextDataset = combineViewerDatasets(
+        appendToCurrentScene && dataset ? [dataset, ...loadedDatasets] : loadedDatasets,
+      )
       applyDataset(nextDataset)
-      setAnnotationSourceName(null)
-      setAnnotationSourceLocation(null)
+      if (!appendToCurrentScene) {
+        setAnnotationSourceName(null)
+        setAnnotationSourceLocation(null)
+      }
     } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : 'Failed to parse selected file.'
+      const message = caughtError instanceof Error ? caughtError.message : 'Failed to parse selected files.'
       setError(message)
     } finally {
+      setLoadingMessage(null)
       finishLoadingIfViewportIsReady()
     }
+  }
+
+  async function openCityJsonFile(file: File, appendToCurrentScene = false) {
+    await openCityJsonFiles([file], appendToCurrentScene)
   }
 
   function applyLoadedAnnotations(
@@ -1047,8 +1069,11 @@ function App() {
   }
 
   function handleFileSelection(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    if (file) void openCityJsonFile(file)
+    const files = Array.from(event.target.files ?? [])
+    if (files.length > 0) {
+      void openCityJsonFiles(files, appendNextCityJsonFileSelectionRef.current)
+    }
+    appendNextCityJsonFileSelectionRef.current = false
     event.target.value = ''
   }
 
@@ -1063,42 +1088,45 @@ function App() {
     setIsDragging(false)
     const files = Array.from(event.dataTransfer.files)
     if (files.length === 0) return
+    const appendToCurrentScene = event.shiftKey
 
-    let cityFile: File | null = null
+    const cityFiles: File[] = []
     let reportFile: File | null = null
 
     for (const file of files) {
       const name = file.name.toLowerCase()
       if (isCityJsonFileName(name)) {
-        cityFile = file
+        cityFiles.push(file)
       } else if (name.endsWith('.json')) {
         reportFile = file
       }
     }
 
-    if (cityFile && reportFile) {
-      void openCityJsonAndReport(cityFile, reportFile)
-    } else if (cityFile) {
-      void openCityJsonFile(cityFile)
+    if (cityFiles.length > 0 && reportFile && !appendToCurrentScene) {
+      void openCityJsonFilesAndReport(cityFiles, reportFile)
+    } else if (cityFiles.length > 0) {
+      void openCityJsonFiles(cityFiles, appendToCurrentScene)
     } else if (reportFile) {
       if (dataset) {
         void openAnnotationFile(reportFile)
       } else {
-        void openCityJsonFile(reportFile)
+        void openCityJsonFile(reportFile, appendToCurrentScene)
       }
     }
   }
 
-  async function openCityJsonAndReport(cityFile: File, reportFile: File) {
+  async function openCityJsonFilesAndReport(cityFiles: File[], reportFile: File) {
     setIsLoading(true)
+    setLoadingMessage(cityFiles.length > 1 ? `Loading ${cityFiles.length} CityJSON files…` : null)
     setError(null)
     setIsFileDialogOpen(false)
 
     try {
-      const [nextDataset, annotations] = await Promise.all([
-        loadCityJsonFromFile(cityFile),
+      const [loadedDatasets, annotations] = await Promise.all([
+        Promise.all(cityFiles.map((file) => loadCityJsonFromFile(file))),
         loadValidationReportFromFile(reportFile),
       ])
+      const nextDataset = combineViewerDatasets(loadedDatasets)
       assertValidationAnnotationsMatchDataset(nextDataset, annotations)
       const mergedDataset = mergeValidationAnnotations(nextDataset, annotations)
       applyDataset(mergedDataset)
@@ -1108,6 +1136,7 @@ function App() {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to load dropped files.'
       setError(message)
     } finally {
+      setLoadingMessage(null)
       finishLoadingIfViewportIsReady()
     }
   }
@@ -1146,6 +1175,7 @@ function App() {
   }, [])
 
   const applyDataset = useCallback((nextDataset: ViewerDataset) => {
+    datasetRef.current = nextDataset
     originalVerticesRef.current = new Map()
     originalObjectGeometriesRef.current = new Map()
     waitForViewportDataset(nextDataset)
@@ -1184,17 +1214,23 @@ function App() {
     }
   }, [applyDataset, finishLoadingIfViewportIsReady])
 
-  const loadFromUrlParams = useCallback(async (cjUrl: string, valUrl: string) => {
+  const loadFromUrlParams = useCallback(async (cjUrls: string[], valUrl: string) => {
+    if (cjUrls.length === 0) {
+      return
+    }
+
     setIsLoading(true)
+    setLoadingMessage(cjUrls.length > 1 ? `Loading ${cjUrls.length} CityJSON URLs…` : null)
     setError(null)
 
     try {
-      const cleanCjUrl = stripGzSuffix(cjUrl.trim())
+      const cleanCjUrls = cjUrls.map((url) => stripGzSuffix(url.trim())).filter(Boolean)
       const cleanValUrl = stripGzSuffix(valUrl.trim())
-      const [nextDataset, annotations] = await Promise.all([
-        loadCityJsonFromUrl(cleanCjUrl, deriveSourceNameFromUrl(cleanCjUrl)),
+      const [loadedDatasets, annotations] = await Promise.all([
+        Promise.all(cleanCjUrls.map((url) => loadCityJsonFromUrl(url, deriveSourceNameFromUrl(url)))),
         loadValidationReportFromUrl(cleanValUrl),
       ])
+      const nextDataset = combineViewerDatasets(loadedDatasets)
       assertValidationAnnotationsMatchDataset(nextDataset, annotations)
       const mergedDataset = mergeValidationAnnotations(nextDataset, annotations)
       applyDataset(mergedDataset)
@@ -1204,48 +1240,62 @@ function App() {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to load files from URL parameters.'
       setError(message)
     } finally {
+      setLoadingMessage(null)
       finishLoadingIfViewportIsReady()
     }
   }, [applyDataset, finishLoadingIfViewportIsReady])
 
-  const openCityJsonFromUrl = useCallback(async (url: string) => {
-    const trimmed = stripGzSuffix(url.trim())
-    if (!trimmed) {
+  const openCityJsonFromUrls = useCallback(async (urls: string[], appendToCurrentScene = false) => {
+    const trimmedUrls = urls.map((url) => stripGzSuffix(url.trim())).filter(Boolean)
+    if (trimmedUrls.length === 0) {
       return
     }
 
     setIsLoading(true)
+    setLoadingMessage(trimmedUrls.length > 1 ? `Loading ${trimmedUrls.length} CityJSON URLs…` : null)
     setError(null)
     setIsFileDialogOpen(false)
     setCityJsonUrlInput('')
 
     try {
-      const sourceName = deriveSourceNameFromUrl(trimmed)
-      const nextDataset = await loadCityJsonFromUrl(trimmed, sourceName)
+      const loadedDatasets = await Promise.all(
+        trimmedUrls.map((url) => loadCityJsonFromUrl(url, deriveSourceNameFromUrl(url))),
+      )
+      const currentDataset = datasetRef.current
+      const nextDataset = combineViewerDatasets(
+        appendToCurrentScene && currentDataset ? [currentDataset, ...loadedDatasets] : loadedDatasets,
+      )
       applyDataset(nextDataset)
-      setAnnotationSourceName(null)
-      setAnnotationSourceLocation(null)
+      if (!appendToCurrentScene) {
+        setAnnotationSourceName(null)
+        setAnnotationSourceLocation(null)
+      }
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to load file from URL.'
       setError(message)
     } finally {
+      setLoadingMessage(null)
       finishLoadingIfViewportIsReady()
     }
   }, [applyDataset, finishLoadingIfViewportIsReady])
 
+  const openCityJsonFromUrl = useCallback(async (url: string, appendToCurrentScene = false) => {
+    await openCityJsonFromUrls([url], appendToCurrentScene)
+  }, [openCityJsonFromUrls])
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    const cjParam = params.get('cj')
+    const cjParams = params.getAll('cj')
     const valParam = params.get('val')
 
-    if (cjParam && valParam) {
-      void loadFromUrlParams(cjParam, valParam)
-    } else if (cjParam) {
-      void openCityJsonFromUrl(cjParam)
+    if (cjParams.length > 0 && valParam) {
+      void loadFromUrlParams(cjParams, valParam)
+    } else if (cjParams.length > 0) {
+      void openCityJsonFromUrls(cjParams)
     } else {
       void loadFromSample()
     }
-  }, [loadFromSample, loadFromUrlParams, openCityJsonFromUrl])
+  }, [loadFromSample, loadFromUrlParams, openCityJsonFromUrls])
 
   useEffect(() => {
     const handlePaste = (event: ClipboardEvent) => {
@@ -1275,7 +1325,8 @@ function App() {
     setSelectedErrorCodes(null)
   }
 
-  function triggerCityJsonInput() {
+  function triggerCityJsonInput(appendToCurrentScene = false) {
+    appendNextCityJsonFileSelectionRef.current = appendToCurrentScene
     fileInputRef.current?.click()
   }
 
@@ -2935,6 +2986,7 @@ function App() {
         ref={fileInputRef}
         type="file"
         accept=".json,.city.json,.cityjson,.jsonl,.city.jsonl"
+        multiple
         className="hidden"
         onChange={handleFileSelection}
       />
@@ -3006,9 +3058,9 @@ function App() {
                     type="button"
                     variant="outline"
                     size="icon"
-                    onClick={triggerCityJsonInput}
+                    onClick={(event) => triggerCityJsonInput(event.shiftKey)}
                     aria-label={dataset ? 'Upload a CityJSON file to replace the current one' : 'Upload a CityJSON file'}
-                    title="Upload file"
+                    title="Upload files"
                   >
                     <Upload className="size-4" />
                   </Button>
@@ -3070,7 +3122,7 @@ function App() {
               </section>
 
               <p className="text-xs text-muted-foreground">
-                Tip: drop files or paste URLs anywhere in the window.
+                Tip: select or drop multiple CityJSON files. Hold Shift while dropping or pressing upload to add to the current scene.
               </p>
             </div>
           </div>
@@ -3139,9 +3191,9 @@ function App() {
       {isDragging && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm">
           <div className="rounded-sm border-2 border-dashed border-accent/35 bg-card px-10 py-8 text-center shadow-2xl">
-            <p className="text-lg font-semibold text-foreground">Drop file to open</p>
+            <p className="text-lg font-semibold text-foreground">Drop files to open</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              .city.json, .city.jsonl, or a val3dity report
+              Hold Shift to add to the current scene
             </p>
           </div>
         </div>
@@ -6638,15 +6690,22 @@ function InfoDialog({
   annotationSourceLocation: string | null
   onClose: () => void
 }) {
-  const metadataEntries = dataset.metadata
-    ? Object.entries(dataset.metadata).filter(([, value]) => !isEmptyMetadataValue(value))
-    : []
   const validationSummary = annotationSourceName ? summarizeValidation(dataset) : null
+  const cityJsonTabs = dataset.sources.map((source, index) => ({
+    source,
+    index,
+    value: `cityjson-${index}`,
+    metadataEntries: source.metadata
+      ? Object.entries(source.metadata).filter(([, value]) => !isEmptyMetadataValue(value))
+      : [],
+  }))
+  const cityJsonSourceCount = cityJsonTabs.length
+  const defaultInfoTab = cityJsonTabs[0]?.value ?? 'cityjson'
 
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center overflow-y-auto bg-background/42 p-4 backdrop-blur-md">
       <Tabs
-        defaultValue="cityjson"
+        defaultValue={defaultInfoTab}
         role="dialog"
         aria-modal="true"
         aria-labelledby="info-dialog-title"
@@ -6667,7 +6726,7 @@ function InfoDialog({
                 </p>
                 <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                   <Badge variant="secondary" className="border-primary/10 bg-primary/10 text-primary">
-                    {annotationSourceName ? '2 files open' : '1 file open'}
+                    {formatOpenFileCount(cityJsonSourceCount + (annotationSourceName ? 1 : 0))}
                   </Badge>
                   {annotationSourceName && <Badge variant="outline">Validation loaded</Badge>}
                 </div>
@@ -6686,67 +6745,80 @@ function InfoDialog({
             </Button>
           </div>
 
-          <TabsList className="-mb-px gap-0 px-5">
-            <TabsTrigger value="cityjson" className="detail-tab gap-1.5">
-              <span>CityJSON</span>
-            </TabsTrigger>
+          <TabsList className="-mb-px max-w-full gap-0 overflow-x-auto px-5">
+            {cityJsonTabs.map(({ source, index, value }) => (
+              <TabsTrigger
+                key={value}
+                value={value}
+                className="detail-tab max-w-48 shrink-0 gap-1.5"
+                title={source.name}
+              >
+                <span className="truncate">{formatCityJsonFileTabLabel(source.name, index, cityJsonSourceCount)}</span>
+              </TabsTrigger>
+            ))}
             {annotationSourceName && (
-              <TabsTrigger value="val3dity" className="detail-tab gap-1.5">
-                <span>Val3dity</span>
+              <TabsTrigger
+                value="val3dity"
+                className="detail-tab max-w-48 shrink-0 gap-1.5"
+                title={annotationSourceName}
+              >
+                <span className="truncate">{annotationSourceName}</span>
               </TabsTrigger>
             )}
           </TabsList>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="space-y-4 p-5">
-            <TabsContent value="cityjson" className="mt-0 space-y-4">
-              <section>
-                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                  CityJSON
-                </p>
-                <dl className="mt-2.5 space-y-2 text-sm">
-                  <InfoRow label="Source" value={dataset.sourceLocation} mono />
-                  <InfoRow label="Type" value={dataset.cityJsonKind} />
-                  <InfoRow label="Version" value={dataset.cityJsonVersion ?? '—'} />
-                  <InfoRow label="Features" value={dataset.features.length.toString()} mono />
-                  {dataset.transform && (
-                    <>
-                      <InfoRow
-                        label="Scale"
-                        value={formatCoordinateTriple(dataset.transform.scale)}
-                        mono
-                      />
-                      <InfoRow
-                        label="Translate"
-                        value={formatCoordinateTriple(dataset.transform.translate)}
-                        mono
-                      />
-                    </>
-                  )}
-                </dl>
-              </section>
-
-              {metadataEntries.length > 0 && (
+          <div className="p-5">
+            {cityJsonTabs.map(({ source, value, metadataEntries }) => (
+              <TabsContent key={value} value={value} className="mt-0 block space-y-4 data-[state=inactive]:hidden">
                 <section>
                   <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                    Metadata
+                    CityJSON
                   </p>
                   <dl className="mt-2.5 space-y-2 text-sm">
-                    {metadataEntries.map(([key, value]) => (
-                      <InfoRow
-                        key={key}
-                        label={formatMetadataKey(key)}
-                        value={<MetadataValue metadataKey={key} value={value} />}
-                      />
-                    ))}
+                    <InfoRow label="Source" value={source.location} mono />
+                    <InfoRow label="Type" value={source.cityJsonKind} />
+                    <InfoRow label="Version" value={source.cityJsonVersion ?? '—'} />
+                    <InfoRow label="Features" value={source.featureCount.toString()} mono />
+                    {source.transform && (
+                      <>
+                        <InfoRow
+                          label="Scale"
+                          value={formatCoordinateTriple(source.transform.scale)}
+                          mono
+                        />
+                        <InfoRow
+                          label="Translate"
+                          value={formatCoordinateTriple(source.transform.translate)}
+                          mono
+                        />
+                      </>
+                    )}
                   </dl>
                 </section>
-              )}
-            </TabsContent>
+
+                {metadataEntries.length > 0 && (
+                  <section>
+                    <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                      Metadata
+                    </p>
+                    <dl className="mt-2.5 space-y-2 text-sm">
+                      {metadataEntries.map(([key, metadataValue]) => (
+                        <InfoRow
+                          key={key}
+                          label={formatMetadataKey(key)}
+                          value={<MetadataValue metadataKey={key} value={metadataValue} />}
+                        />
+                      ))}
+                    </dl>
+                  </section>
+                )}
+              </TabsContent>
+            ))}
 
             {annotationSourceName && (
-              <TabsContent value="val3dity" className="mt-0 space-y-4">
+              <TabsContent value="val3dity" className="mt-0 block space-y-4 data-[state=inactive]:hidden">
                 <section>
                   <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                     Val3dity report
@@ -7239,6 +7311,18 @@ function isEmptyMetadataValue(value: unknown): boolean {
 function formatMetadataKey(key: string) {
   const withSpaces = key.replace(/[_-]+/g, ' ').replace(/([a-z0-9])([A-Z])/g, '$1 $2')
   return withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1).toLowerCase()
+}
+
+function formatOpenFileCount(count: number) {
+  return `${count} ${count === 1 ? 'file' : 'files'} open`
+}
+
+function formatCityJsonFileTabLabel(sourceName: string, index: number, sourceCount: number) {
+  if (sourceCount === 1) {
+    return 'CityJSON'
+  }
+
+  return sourceName.trim() || `File ${index + 1}`
 }
 
 function isGeographicalExtentKey(key: string | undefined) {

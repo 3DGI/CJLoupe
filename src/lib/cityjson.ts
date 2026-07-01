@@ -3,6 +3,7 @@ import type {
   Vec3,
   ViewerCityObject,
   ViewerDataset,
+  ViewerDatasetSource,
   ViewerFeature,
   ViewerObjectGeometry,
   ViewerSemanticSurface,
@@ -102,10 +103,10 @@ export async function loadCityJsonFromUrl(
     }
 
     const text = await measureAsyncPerformance('cjvis:cityjson:read-url-text', () => response.text())
-    return {
-      ...parseCityJsonForSource(text, sourceName, options?.cityJsonKind ?? inferCityJsonKindFromSource(url)),
-      sourceLocation: url,
-    }
+    return withDatasetSourceLocation(
+      parseCityJsonForSource(text, sourceName, options?.cityJsonKind ?? inferCityJsonKindFromSource(url)),
+      url,
+    )
   })
 }
 
@@ -134,10 +135,10 @@ export async function loadCityJsonFromFile(
       )
     }
 
-    return {
-      ...parseCityJsonForSource(text, file.name, options?.cityJsonKind ?? inferCityJsonKindFromSource(file.name)),
-      sourceLocation: getFileSourceLocation(file),
-    }
+    return withDatasetSourceLocation(
+      parseCityJsonForSource(text, file.name, options?.cityJsonKind ?? inferCityJsonKindFromSource(file.name)),
+      getFileSourceLocation(file),
+    )
   })
 }
 
@@ -154,6 +155,63 @@ export async function loadValidationReportFromUrl(url: string) {
 export async function loadValidationReportFromFile(file: File) {
   const text = await file.text()
   return parseValidationReport(text)
+}
+
+export function combineViewerDatasets(datasets: ViewerDataset[]): ViewerDataset {
+  if (datasets.length === 0) {
+    throw new Error('No CityJSON files were loaded.')
+  }
+
+  if (datasets.length === 1) {
+    return datasets[0]
+  }
+
+  const featureIdCounts = new Map<string, number>()
+  for (const dataset of datasets) {
+    for (const feature of dataset.features) {
+      featureIdCounts.set(feature.id, (featureIdCounts.get(feature.id) ?? 0) + 1)
+    }
+  }
+
+  const usedFeatureIds = new Set<string>()
+  const features: ViewerFeature[] = []
+  for (const dataset of datasets) {
+    for (const feature of dataset.features) {
+      const duplicateFeatureId = (featureIdCounts.get(feature.id) ?? 0) > 1
+      const nextFeatureId = duplicateFeatureId
+        ? createUniqueCombinedFeatureId(feature.id, dataset.sourceName, usedFeatureIds)
+        : createUniqueFeatureId(feature.id, usedFeatureIds)
+      features.push(nextFeatureId === feature.id ? feature : renameViewerFeature(feature, nextFeatureId, dataset.sourceName))
+    }
+  }
+
+  features.sort((left, right) => left.label.localeCompare(right.label, undefined, { numeric: true }))
+
+  const extent = calculateCombinedExtent(features)
+  const center: Vec3 = [
+    (extent[0] + extent[3]) / 2,
+    (extent[1] + extent[4]) / 2,
+    (extent[2] + extent[5]) / 2,
+  ]
+  const sources = datasets.flatMap(getDatasetSources)
+  const sourceName = `${sources.length} CityJSON files`
+  const sourceLocation = sources.map((source) => source.location).join('\n')
+  const cityJsonKinds = new Set(sources.map((source) => source.cityJsonKind))
+  const cityJsonVersions = new Set(sources.map((source) => source.cityJsonVersion).filter((version) => version != null))
+
+  return {
+    sourceName,
+    sourceLocation,
+    sourceText: '',
+    sources,
+    center,
+    extent,
+    features,
+    cityJsonVersion: cityJsonVersions.size === 1 ? [...cityJsonVersions][0] ?? null : null,
+    cityJsonKind: cityJsonKinds.size === 1 ? [...cityJsonKinds][0] ?? 'Multiple' : 'Multiple',
+    transform: null,
+    metadata: null,
+  }
 }
 
 function formatByteSize(bytes: number) {
@@ -431,11 +489,105 @@ function createViewerDataset(
     sourceName,
     sourceLocation: sourceName,
     sourceText,
+    sources: [
+      {
+        name: sourceName,
+        location: sourceName,
+        cityJsonKind,
+        cityJsonVersion: info.cityJsonVersion,
+        featureCount: features.length,
+        transform: info.transform,
+        metadata: info.metadata,
+      },
+    ],
     center,
     extent,
     features,
     ...info,
     cityJsonKind,
+  }
+}
+
+function getDatasetSources(dataset: ViewerDataset): ViewerDatasetSource[] {
+  return dataset.sources.length > 0
+    ? dataset.sources
+    : [
+        {
+          name: dataset.sourceName,
+          location: dataset.sourceLocation,
+          cityJsonKind: dataset.cityJsonKind === 'Multiple' ? 'CityJSONFeatures' : dataset.cityJsonKind,
+          cityJsonVersion: dataset.cityJsonVersion,
+          featureCount: dataset.features.length,
+          transform: dataset.transform,
+          metadata: dataset.metadata,
+        },
+      ]
+}
+
+function withDatasetSourceLocation(dataset: ViewerDataset, sourceLocation: string): ViewerDataset {
+  return {
+    ...dataset,
+    sourceLocation,
+    sources: dataset.sources.map((source, index) =>
+      index === 0 ? { ...source, location: sourceLocation } : source,
+    ),
+  }
+}
+
+function calculateCombinedExtent(features: ViewerFeature[]): ViewerDataset['extent'] {
+  const globalMin: Vec3 = [Infinity, Infinity, Infinity]
+  const globalMax: Vec3 = [-Infinity, -Infinity, -Infinity]
+
+  for (const feature of features) {
+    updateGlobalExtent(globalMin, globalMax, feature.extent)
+  }
+
+  return [
+    globalMin[0],
+    globalMin[1],
+    globalMin[2],
+    globalMax[0],
+    globalMax[1],
+    globalMax[2],
+  ]
+}
+
+function createUniqueFeatureId(featureId: string, usedFeatureIds: Set<string>) {
+  if (!usedFeatureIds.has(featureId)) {
+    usedFeatureIds.add(featureId)
+    return featureId
+  }
+
+  return createUniqueCombinedFeatureId(featureId, 'source', usedFeatureIds)
+}
+
+function createUniqueCombinedFeatureId(
+  featureId: string,
+  sourceName: string,
+  usedFeatureIds: Set<string>,
+) {
+  const baseFeatureId = `${sanitizeCombinedFeatureIdPart(sourceName)}#${featureId}`
+  let nextFeatureId = baseFeatureId
+  let suffix = 2
+
+  while (usedFeatureIds.has(nextFeatureId)) {
+    nextFeatureId = `${baseFeatureId}#${suffix}`
+    suffix += 1
+  }
+
+  usedFeatureIds.add(nextFeatureId)
+  return nextFeatureId
+}
+
+function sanitizeCombinedFeatureIdPart(value: string) {
+  return value.trim().replace(/::/g, ':') || 'source'
+}
+
+function renameViewerFeature(feature: ViewerFeature, featureId: string, sourceName: string): ViewerFeature {
+  return {
+    ...feature,
+    id: featureId,
+    label: `${sourceName} / ${feature.label}`,
   }
 }
 

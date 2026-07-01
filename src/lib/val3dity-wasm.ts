@@ -30,6 +30,9 @@ export async function validateDatasetWithVal3dity(
   dataset: ViewerDataset,
   validationOptions: Val3dityValidationOptions = {},
 ): Promise<ValidationAnnotations> {
+  if (dataset.cityJsonKind === 'Multiple') {
+    throw new Error('Combined CityJSON scenes cannot be validated as a single source file.')
+  }
   if (!dataset.sourceText.trim()) {
     throw new Error('The original CityJSON source text is not available for validation.')
   }

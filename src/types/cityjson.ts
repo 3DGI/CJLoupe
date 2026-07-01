@@ -73,11 +73,22 @@ export interface ViewerDataset {
   sourceName: string
   sourceLocation: string
   sourceText: string
+  sources: ViewerDatasetSource[]
   center: Vec3
   extent: [number, number, number, number, number, number]
   features: ViewerFeature[]
   cityJsonVersion: string | null
+  cityJsonKind: 'CityJSON' | 'CityJSONFeatures' | 'Multiple'
+  transform: { scale: Vec3; translate: Vec3 } | null
+  metadata: Record<string, unknown> | null
+}
+
+export interface ViewerDatasetSource {
+  name: string
+  location: string
   cityJsonKind: 'CityJSON' | 'CityJSONFeatures'
+  cityJsonVersion: string | null
+  featureCount: number
   transform: { scale: Vec3; translate: Vec3 } | null
   metadata: Record<string, unknown> | null
 }
