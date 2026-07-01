@@ -50,6 +50,7 @@ type CityJsonHeader = {
   version?: string
   transform?: CityJsonTransform
   metadata?: Record<string, unknown>
+  '+val3dity-report'?: Val3dityExtensionReport
 }
 
 type CityJsonDocument = CityJsonHeader & {
@@ -85,6 +86,44 @@ type Val3dityFeature = {
 
 type Val3dityReport = {
   features?: Val3dityFeature[]
+}
+
+type Val3dityExtensionReport = {
+  type?: string
+  val3dityVersion?: string
+  inputFile?: string
+  inputFileType?: string
+  validity?: boolean
+}
+
+type Val3dityExtensionValidation = {
+  validity?: boolean
+  reportFeatureId?: string
+  geometries?: Val3dityExtensionGeometryValidation[]
+}
+
+type Val3dityExtensionGeometryValidation = {
+  geometryIndex?: number
+  validity?: boolean
+  errors?: Val3dityExtensionError[]
+}
+
+type Val3dityExtensionError = {
+  code?: number
+  description?: string
+  info?: string
+  sourceId?: string
+  location?: Val3dityExtensionErrorLocation
+}
+
+type Val3dityExtensionErrorLocation = {
+  cityObjectId?: string
+  geometryIndex?: number
+  shellIndex?: number
+  faceIndex?: number
+  point?: {
+    coordinates?: unknown
+  }
 }
 
 export async function loadCityJsonSequenceFromUrl(url: string, sourceName: string) {
@@ -198,12 +237,19 @@ export function combineViewerDatasets(datasets: ViewerDataset[]): ViewerDataset 
   const sourceLocation = sources.map((source) => source.location).join('\n')
   const cityJsonKinds = new Set(sources.map((source) => source.cityJsonKind))
   const cityJsonVersions = new Set(sources.map((source) => source.cityJsonVersion).filter((version) => version != null))
+  const validationSources = datasets.flatMap((dataset) => dataset.validationSource ? [dataset.validationSource] : [])
 
   return {
     sourceName,
     sourceLocation,
     sourceText: '',
     sources,
+    validationSource: validationSources.length > 0
+      ? {
+          name: validationSources.length === 1 ? validationSources[0].name : 'embedded val3dity reports',
+          location: validationSources.map((source) => source.location).join('\n'),
+        }
+      : null,
     center,
     extent,
     features,
@@ -306,6 +352,7 @@ export function parseCityJsonSequence(text: string, sourceName: string): ViewerD
     const header = measurePerformance('cjvis:cityjsonseq:parse-header', () => JSON.parse(lines[headerLineIndex]) as CityJsonHeader)
     const transform = header.transform ?? {}
     const info = extractDatasetInfo(header)
+    const hasVal3dityExtensionReport = hasVal3dityReport(header)
 
     const features: ViewerFeature[] = []
 
@@ -360,7 +407,7 @@ export function parseCityJsonSequence(text: string, sourceName: string): ViewerD
         viewerFeatureDuration += nowPerformance() - startedAt
 
         if (viewerFeature) {
-          features.push(viewerFeature)
+          features.push(applyVal3dityExtensionValidation(viewerFeature, feature.CityObjects, feature.id ?? rootObjectId, hasVal3dityExtensionReport))
         }
       }
 
@@ -371,7 +418,7 @@ export function parseCityJsonSequence(text: string, sourceName: string): ViewerD
     })
 
     return measurePerformance('cjvis:cityjson:create-viewer-dataset', () =>
-      createViewerDataset(sourceName, text, features, info, 'CityJSONFeatures'),
+      createViewerDataset(sourceName, text, features, info, 'CityJSONFeatures', createVal3dityExtensionSource(header, features, sourceName)),
     )
   })
 }
@@ -390,6 +437,7 @@ function parseCityJsonDocument(document: CityJsonDocument, sourceName: string, s
     const vertices = document.vertices
     const transform = document.transform ?? {}
     const info = extractDatasetInfo(document)
+    const hasVal3dityExtensionReport = hasVal3dityReport(document)
     const worldVertices = measurePerformance('cjvis:cityjson:transform-document-vertices', () =>
       transformVerticesInPlace(vertices, transform),
     )
@@ -421,7 +469,7 @@ function parseCityJsonDocument(document: CityJsonDocument, sourceName: string, s
         })
 
         if (viewerFeature) {
-          features.push(viewerFeature)
+          features.push(applyVal3dityExtensionValidation(viewerFeature, localized.cityObjects, rootObjectId, hasVal3dityExtensionReport))
         }
       }
 
@@ -440,13 +488,13 @@ function parseCityJsonDocument(document: CityJsonDocument, sourceName: string, s
         })
 
         if (viewerFeature) {
-          features.push(viewerFeature)
+          features.push(applyVal3dityExtensionValidation(viewerFeature, localized.cityObjects, objectId, hasVal3dityExtensionReport))
         }
       }
     })
 
     return measurePerformance('cjvis:cityjson:create-viewer-dataset', () =>
-      createViewerDataset(sourceName, sourceText, features, info, 'CityJSON'),
+      createViewerDataset(sourceName, sourceText, features, info, 'CityJSON', createVal3dityExtensionSource(document, features, sourceName)),
     )
   })
 }
@@ -457,6 +505,7 @@ function createViewerDataset(
   features: ViewerFeature[],
   info: ViewerDatasetInfo,
   cityJsonKind: 'CityJSON' | 'CityJSONFeatures',
+  validationSource: ViewerDataset['validationSource'] = null,
 ): ViewerDataset {
   if (features.length === 0) {
     throw new Error('No renderable CityJSON features were found.')
@@ -489,6 +538,7 @@ function createViewerDataset(
     sourceName,
     sourceLocation: sourceName,
     sourceText,
+    validationSource,
     sources: [
       {
         name: sourceName,
@@ -528,9 +578,123 @@ function withDatasetSourceLocation(dataset: ViewerDataset, sourceLocation: strin
   return {
     ...dataset,
     sourceLocation,
+    validationSource: dataset.validationSource
+      ? { ...dataset.validationSource, location: sourceLocation }
+      : null,
     sources: dataset.sources.map((source, index) =>
       index === 0 ? { ...source, location: sourceLocation } : source,
     ),
+  }
+}
+
+function createVal3dityExtensionSource(
+  header: CityJsonHeader,
+  features: ViewerFeature[],
+  sourceName: string,
+): ViewerDataset['validationSource'] {
+  const report = getVal3dityReport(header)
+  const hasEmbeddedValidation = features.some((feature) => feature.validity != null || feature.errors.length > 0)
+  if (!report && !hasEmbeddedValidation) {
+    return null
+  }
+
+  const versionLabel = typeof report?.val3dityVersion === 'string' && report.val3dityVersion.trim()
+    ? `val3dity ${report.val3dityVersion.trim()}`
+    : 'val3dity'
+
+  return {
+    name: `embedded ${versionLabel} report`,
+    location: sourceName,
+  }
+}
+
+function hasVal3dityReport(header: CityJsonHeader) {
+  return getVal3dityReport(header) != null
+}
+
+function getVal3dityReport(header: CityJsonHeader) {
+  const report = header['+val3dity-report']
+  return isRecord(report) && report.type === 'val3dity_report'
+    ? (report as Val3dityExtensionReport)
+    : null
+}
+
+function applyVal3dityExtensionValidation(
+  feature: ViewerFeature,
+  cityObjects: Record<string, CityJsonObject>,
+  fallbackFeatureId: string,
+  hasVal3dityExtensionReport: boolean,
+): ViewerFeature {
+  let validity: boolean | null = null
+  const errors: ViewerValidationError[] = []
+
+  for (const [cityObjectId, cityObject] of Object.entries(cityObjects)) {
+    const validation = getVal3dityExtensionValidation(cityObject)
+    if (!validation) {
+      continue
+    }
+
+    const reportFeatureId = typeof validation.reportFeatureId === 'string' && validation.reportFeatureId.trim()
+      ? validation.reportFeatureId.trim()
+      : fallbackFeatureId
+    if (reportFeatureId !== feature.id) {
+      continue
+    }
+
+    if (typeof validation.validity === 'boolean') {
+      validity = validation.validity === false ? false : validity ?? true
+    }
+
+    for (const geometryValidation of validation.geometries ?? []) {
+      if (typeof geometryValidation.validity === 'boolean') {
+        validity = geometryValidation.validity === false ? false : validity ?? true
+      }
+      for (const error of geometryValidation.errors ?? []) {
+        errors.push(parseVal3dityExtensionError(error, cityObjectId, geometryValidation.geometryIndex))
+      }
+    }
+  }
+
+  if (validity == null && errors.length === 0 && !hasVal3dityExtensionReport) {
+    return feature
+  }
+
+  return {
+    ...feature,
+    validity: errors.length > 0 ? false : validity ?? true,
+    errors,
+  }
+}
+
+function getVal3dityExtensionValidation(cityObject: CityJsonObject): Val3dityExtensionValidation | null {
+  const validation = cityObject.attributes?.['+val3dity-validation']
+  return isRecord(validation) ? (validation as Val3dityExtensionValidation) : null
+}
+
+function parseVal3dityExtensionError(
+  error: Val3dityExtensionError,
+  fallbackCityObjectId: string,
+  fallbackGeometryIndex: number | undefined,
+): ViewerValidationError {
+  const rawId = error.sourceId ?? ''
+  const parts = parseValidationIdParts(rawId)
+  const location = isRecord(error.location) ? error.location : null
+  const pointCoordinates = Array.isArray(location?.point?.coordinates)
+    ? location.point.coordinates
+    : null
+
+  return {
+    code: error.code ?? -1,
+    description: error.description ?? 'UNKNOWN',
+    id: rawId,
+    info: error.info ?? '',
+    cityObjectId: typeof location?.cityObjectId === 'string'
+      ? location.cityObjectId
+      : parts.coid ?? fallbackCityObjectId,
+    geometryIndex: parseNullableIntegerValue(location?.geometryIndex) ?? parseNullableInteger(parts.geom) ?? parseNullableIntegerValue(fallbackGeometryIndex),
+    shellIndex: parseNullableIntegerValue(location?.shellIndex) ?? parseNullableInteger(parts.shell),
+    faceIndex: parseNullableIntegerValue(location?.faceIndex) ?? parseNullableInteger(parts.face),
+    location: parseValidationPoint(pointCoordinates) ?? parseValidationLocation(error.info, error.description),
   }
 }
 
@@ -647,7 +811,7 @@ function createViewerFeature({
     type: rootObject.type ?? 'CityObject',
     validity: null,
     errors: [],
-    attributes: rootObject.attributes ?? {},
+    attributes: getDisplayCityObjectAttributes(rootObject),
     vertices,
     objects,
     extent,
@@ -756,7 +920,7 @@ function createViewerObjects(cityObjects: Record<string, CityJsonObject>) {
       parsed: {
         id,
         type: object.type ?? 'CityObject',
-        attributes: object.attributes ?? {},
+        attributes: getDisplayCityObjectAttributes(object),
         geometries,
         bestGeometryIndex: pickBestGeometryIndex(geometries),
         hasRenderableChildren: false,
@@ -779,6 +943,16 @@ function createViewerObjects(cityObjects: Record<string, CityJsonObject>) {
   }
 
   return viewerObjects
+}
+
+function getDisplayCityObjectAttributes(object: CityJsonObject) {
+  if (!object.attributes?.['+val3dity-validation']) {
+    return object.attributes ?? {}
+  }
+
+  const attributes = { ...object.attributes }
+  delete attributes['+val3dity-validation']
+  return attributes
 }
 
 function collectFeatureRootIds(cityObjects: Record<string, CityJsonObject>) {
@@ -1078,12 +1252,7 @@ function deriveFeatureLabel(featureId: string) {
 
 function parseValidationError(error: Val3dityError): ViewerValidationError {
   const rawId = error.id ?? ''
-  const parts = Object.fromEntries(
-    rawId.split('|').map((part) => {
-      const [key, value] = part.split('=')
-      return [key, value]
-    }),
-  )
+  const parts = parseValidationIdParts(rawId)
 
   return {
     code: error.code ?? -1,
@@ -1098,6 +1267,15 @@ function parseValidationError(error: Val3dityError): ViewerValidationError {
   }
 }
 
+function parseValidationIdParts(rawId: string) {
+  return Object.fromEntries(
+    rawId.split('|').map((part) => {
+      const [key, value] = part.split('=')
+      return [key, value]
+    }),
+  )
+}
+
 function parseNullableInteger(value: string | undefined) {
   if (!value) {
     return null
@@ -1105,6 +1283,23 @@ function parseNullableInteger(value: string | undefined) {
 
   const parsed = Number.parseInt(value, 10)
   return Number.isNaN(parsed) ? null : parsed
+}
+
+function parseNullableIntegerValue(value: unknown) {
+  return typeof value === 'number' && Number.isInteger(value) ? value : null
+}
+
+function parseValidationPoint(coordinates: unknown[] | null) {
+  if (!coordinates || coordinates.length < 3) {
+    return null
+  }
+
+  const parsed = coordinates.slice(0, 3)
+  if (!parsed.every((value): value is number => typeof value === 'number' && Number.isFinite(value))) {
+    return null
+  }
+
+  return parsed as Vec3
 }
 
 function parseValidationLocation(...sources: Array<string | undefined>) {

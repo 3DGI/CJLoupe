@@ -955,7 +955,12 @@ function App() {
         appendToCurrentScene && dataset ? [dataset, ...loadedDatasets] : loadedDatasets,
       )
       applyDataset(nextDataset)
-      if (!appendToCurrentScene) {
+      if (nextDataset.validationSource) {
+        setAnnotationSourceName(nextDataset.validationSource.name)
+        setAnnotationSourceLocation(nextDataset.validationSource.location)
+        setShowOnlyInvalidFeatures(nextDataset.features.some((feature) => feature.errors.length > 0))
+        setSelectedErrorCodes(null)
+      } else if (!appendToCurrentScene) {
         setAnnotationSourceName(null)
         setAnnotationSourceLocation(null)
       }
@@ -1266,7 +1271,12 @@ function App() {
         appendToCurrentScene && currentDataset ? [currentDataset, ...loadedDatasets] : loadedDatasets,
       )
       applyDataset(nextDataset)
-      if (!appendToCurrentScene) {
+      if (nextDataset.validationSource) {
+        setAnnotationSourceName(nextDataset.validationSource.name)
+        setAnnotationSourceLocation(nextDataset.validationSource.location)
+        setShowOnlyInvalidFeatures(nextDataset.features.some((feature) => feature.errors.length > 0))
+        setSelectedErrorCodes(null)
+      } else if (!appendToCurrentScene) {
         setAnnotationSourceName(null)
         setAnnotationSourceLocation(null)
       }
@@ -1318,7 +1328,7 @@ function App() {
   }, [openCityJsonFromUrl])
 
   function clearAnnotations() {
-    setDataset((current) => (current ? mergeValidationAnnotations(current, new Map()) : current))
+    setDataset((current) => (current ? { ...mergeValidationAnnotations(current, new Map()), validationSource: null } : current))
     setAnnotationSourceName(null)
     setAnnotationSourceLocation(null)
     setShowOnlyInvalidFeatures(false)

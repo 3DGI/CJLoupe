@@ -74,6 +74,7 @@ export interface ViewerDataset {
   sourceLocation: string
   sourceText: string
   sources: ViewerDatasetSource[]
+  validationSource: ViewerValidationSource | null
   center: Vec3
   extent: [number, number, number, number, number, number]
   features: ViewerFeature[]
@@ -91,6 +92,11 @@ export interface ViewerDatasetSource {
   featureCount: number
   transform: { scale: Vec3; translate: Vec3 } | null
   metadata: Record<string, unknown> | null
+}
+
+export interface ViewerValidationSource {
+  name: string
+  location: string
 }
 
 export interface ViewerFeature {

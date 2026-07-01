@@ -11,6 +11,7 @@
 - Add CityObjects error-code filtering with a popover of checkbox toggles when showing validation errors only
 - Add option to synchronised camera's between different CJLoupe tabs, use button in bottom right to launch such a camera synchronised tab.
 - Allow opening multiple files at once
+- Add support for experimental val3dity cityjson extension
 
 ## 0.8.0 - 2026-06-14
 
