@@ -12,6 +12,7 @@
 - Add option to synchronised camera's between different CJLoupe tabs, use button in bottom right to launch such a camera synchronised tab.
 - Allow opening multiple files at once
 - Add support for experimental val3dity cityjson extension
+- Put the val3dity errors under relvant geometry in geometry tab
 
 ## 0.8.0 - 2026-06-14
 

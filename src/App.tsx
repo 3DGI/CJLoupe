@@ -314,7 +314,7 @@ function App() {
   const [attributeColorMapReversed, setAttributeColorMapReversed] = useState(false)
   const [attributeCategoricalColorSeed, setAttributeCategoricalColorSeed] = useState(0)
   const [customCategoricalColorMaps, setCustomCategoricalColorMaps] = useState<Record<string, Record<string, string>>>({})
-  const [detailTab, setDetailTab] = useState('errors')
+  const [detailTab, setDetailTab] = useState('geometries')
   const [detailPaneMode, setDetailPaneMode] = useState<DetailPaneMode>('split')
   const [isDragging, setIsDragging] = useState(false)
   const [isHelpCollapsed, setIsHelpCollapsed] = useState(true)
@@ -428,6 +428,7 @@ function App() {
   const hasDetailErrors = visibleDetailErrorCount > 0
   const hasDetailAttributes = activeObjectAttributeCount > 0
   const hasDetailGeometries = activeObjectGeometryCount > 0
+  const hasDetailGeometryInfo = hasDetailGeometries || hasDetailErrors
   const pinnableAttributeOptions = useMemo(() => {
     if (!activeObject) {
       return []
@@ -567,9 +568,8 @@ function App() {
     : null
   const showSemanticSurfaces = appearanceMode === 'semantic'
   const availableDetailTabs = [
-    hasDetailErrors ? 'errors' : null,
+    hasDetailGeometryInfo ? 'geometries' : null,
     hasDetailAttributes ? 'attributes' : null,
-    hasDetailGeometries ? 'geometries' : null,
   ].filter((value): value is string => value !== null)
   const hasDetailContent = availableDetailTabs.length > 0
   const resolvedDetailTab = availableDetailTabs.includes(detailTab) ? detailTab : (availableDetailTabs[0] ?? 'attributes')
@@ -1155,7 +1155,7 @@ function App() {
     setSelectedErrorCodes(null)
     setAppearanceMode('regular')
     setIsolateSelectedFeature(false)
-    setDetailTab('errors')
+    setDetailTab('geometries')
     setDetailPaneMode('split')
     setSearchQuery('')
     setFocusTarget(null)
@@ -2611,12 +2611,18 @@ function App() {
                     {detailPaneMode !== 'collapsed' && selectedFeature && hasDetailContent && (
                       <div className="-mx-4 -mb-2.5 border-b border-border px-4">
                         <TabsList className="gap-0">
-                          {hasDetailErrors && (
-                            <TabsTrigger value="errors" className="detail-tab gap-1.5">
-                              <span>Errors</span>
+                          {hasDetailGeometryInfo && (
+                            <TabsTrigger value="geometries" className="detail-tab gap-1.5">
+                              <span>Geometries</span>
                               <span className="rounded-sm bg-foreground/8 px-1.5 py-0 text-[10px] text-muted-foreground">
-                                {visibleDetailErrorCount}
+                                {activeObjectGeometryCount}
                               </span>
+                              {visibleDetailErrorCount > 0 && (
+                                <span className="inline-flex items-center gap-1 rounded-sm bg-destructive/10 px-1.5 py-0 text-[10px] font-medium text-destructive">
+                                  <TriangleAlert className="size-3" />
+                                  <span>{visibleDetailErrorCount}</span>
+                                </span>
+                              )}
                             </TabsTrigger>
                           )}
                           {hasDetailAttributes && (
@@ -2624,14 +2630,6 @@ function App() {
                               <span>Attributes</span>
                               <span className="rounded-sm bg-foreground/8 px-1.5 py-0 text-[10px] text-muted-foreground">
                                 {activeObjectAttributeCount}
-                              </span>
-                            </TabsTrigger>
-                          )}
-                          {hasDetailGeometries && (
-                            <TabsTrigger value="geometries" className="detail-tab gap-1.5">
-                              <span>Geometries</span>
-                              <span className="rounded-sm bg-foreground/8 px-1.5 py-0 text-[10px] text-muted-foreground">
-                                {activeObjectGeometryCount}
                               </span>
                             </TabsTrigger>
                           )}
@@ -2647,78 +2645,6 @@ function App() {
                           <>
                             {hasDetailContent ? (
                               <>
-                                {hasDetailErrors && (
-                                  <TabsContent key={`${detailSelectionKey}::errors`} value="errors">
-                                    <div className="space-y-3">
-                                      {visibleDetailErrorCount > 0 ? (
-                                        <div className="grid gap-2">
-                                          {visibleDetailErrors.map((error, errorIndex) => {
-                                            const color = errorColor(error.code)
-                                            return (
-                                              <div
-                                                key={`${error.id}-${error.code}-${errorIndex}`}
-                                                className="flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-sm border px-3 py-2.5 text-left transition"
-                                                style={{
-                                                  borderColor: `${color}30`,
-                                                  backgroundColor: `${color}18`,
-                                                }}
-                                              >
-                                                <div className="min-w-0 flex-1 overflow-hidden">
-                                                  <div className="flex min-w-0 items-start justify-between gap-3">
-                                                    <div className="flex min-w-0 items-start gap-2.5">
-                                                      <span
-                                                        className="mt-1 size-3 shrink-0 rounded-sm"
-                                                        style={{ backgroundColor: color }}
-                                                      />
-                                                      <div className="min-w-0 overflow-hidden">
-                                                        <p className="truncate text-sm font-semibold text-foreground/90">{error.description}</p>
-                                                        <a
-                                                          href={getVal3dityErrorUrl(error)}
-                                                          target="_blank"
-                                                          rel="noreferrer"
-                                                          className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground underline decoration-muted-foreground/35 underline-offset-3 transition hover:text-foreground"
-                                                        >
-                                                          code {error.code}
-                                                        </a>
-                                                      </div>
-                                                    </div>
-                                                    {error.faceIndex != null && (
-                                                      <Badge
-                                                        variant="outline"
-                                                        className="shrink-0 text-foreground/70"
-                                                        style={{ borderColor: `${color}50`, backgroundColor: `${color}20` }}
-                                                      >
-                                                        face {error.faceIndex}
-                                                      </Badge>
-                                                    )}
-                                                  </div>
-                                                  <p className="mt-1.5 break-words font-mono text-[10px] text-muted-foreground">
-                                                    {error.id}
-                                                  </p>
-                                                  {error.info && (
-                                                    <p className="mt-1.5 text-sm text-foreground/65">{error.info}</p>
-                                                  )}
-                                                </div>
-                                                <Button
-                                                  type="button"
-                                                  variant="ghost"
-                                                  size="icon"
-                                                  className="size-8 shrink-0 self-center"
-                                                  aria-label={`Center ${error.description}`}
-                                                  title={`Center ${error.description}`}
-                                                  onClick={() => centerValidationError(error)}
-                                                >
-                                                  <Crosshair className="size-4" />
-                                                </Button>
-                                              </div>
-                                            )
-                                          })}
-                                        </div>
-                                      ) : null}
-                                    </div>
-                                  </TabsContent>
-                                )}
-
                                 {hasDetailAttributes && (
                                   <TabsContent key={`${detailSelectionKey}::attributes`} value="attributes">
                                     <DetailAttributePanel
@@ -2731,11 +2657,13 @@ function App() {
                                   </TabsContent>
                                 )}
 
-                                {hasDetailGeometries && (
+                                {hasDetailGeometryInfo && (
                                   <TabsContent key={`${detailSelectionKey}::geometries`} value="geometries">
                                     <DetailGeometryPanel
                                       geometries={activeObject?.geometries ?? []}
+                                      errors={visibleDetailErrors}
                                       activeGeometryIndex={resolvedActiveGeometryIndex}
+                                      onCenterError={centerValidationError}
                                     />
                                   </TabsContent>
                                 )}
@@ -5315,12 +5243,31 @@ const DetailAttributePanel = memo(function DetailAttributePanel({
 
 const DetailGeometryPanel = memo(function DetailGeometryPanel({
   geometries,
+  errors,
   activeGeometryIndex,
+  onCenterError,
 }: {
   geometries: ViewerObjectGeometry[]
+  errors: ViewerValidationError[]
   activeGeometryIndex: number | null
+  onCenterError: (error: ViewerValidationError) => void
 }) {
-  if (geometries.length === 0) {
+  const geometryIndexSet = new Set(geometries.map((geometry) => geometry.index))
+  const errorsByGeometryIndex = new Map<number, ViewerValidationError[]>()
+  const unassignedErrors: ViewerValidationError[] = []
+
+  for (const error of errors) {
+    if (error.geometryIndex != null && geometryIndexSet.has(error.geometryIndex)) {
+      const geometryErrors = errorsByGeometryIndex.get(error.geometryIndex) ?? []
+      geometryErrors.push(error)
+      errorsByGeometryIndex.set(error.geometryIndex, geometryErrors)
+      continue
+    }
+
+    unassignedErrors.push(error)
+  }
+
+  if (geometries.length === 0 && errors.length === 0) {
     return (
       <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-4 py-6 text-sm text-muted-foreground">
         No geometries available for the selected object.
@@ -5330,9 +5277,15 @@ const DetailGeometryPanel = memo(function DetailGeometryPanel({
 
   return (
     <div className="grid gap-2">
+      {geometries.length === 0 && (
+        <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-4 py-4 text-sm text-muted-foreground">
+          No geometries available for the selected object.
+        </div>
+      )}
       {geometries.map((geometry) => {
         const hasSemantics = geometry.semanticSurfaces.some((surface) => surface != null)
         const isActive = geometry.index === activeGeometryIndex
+        const geometryErrors = errorsByGeometryIndex.get(geometry.index) ?? []
         const lodChip = {
           key: `lod:${geometry.index}:${geometry.lod ?? 'none'}`,
           label: geometry.lod ? `LoD ${geometry.lod}` : 'No LoD',
@@ -5353,6 +5306,16 @@ const DetailGeometryPanel = memo(function DetailGeometryPanel({
                 <p className="flex items-center gap-1.5 text-sm font-medium text-foreground/90">
                   <Pyramid className="size-3.5 text-muted-foreground" />
                   geom {geometry.index}
+                  {geometryErrors.length > 0 && (
+                    <span
+                      title={`${geometryErrors.length} errors`}
+                      aria-label={`${geometryErrors.length} errors`}
+                      className="inline-flex items-center gap-1 rounded-sm bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
+                    >
+                      <TriangleAlert className="size-3" />
+                      <span>{geometryErrors.length}</span>
+                    </span>
+                  )}
                 </p>
                 <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
                   <span>{geometry.vertexIndices.length} vtx</span>
@@ -5363,12 +5326,121 @@ const DetailGeometryPanel = memo(function DetailGeometryPanel({
                 <ObjectTreeGeometrySummary geometryTypeLabel={geometry.geometryType} chips={[lodChip]} />
               </div>
             </div>
+            {geometryErrors.length > 0 && (
+              <DetailValidationErrorList
+                className="mt-2.5"
+                errors={geometryErrors}
+                onCenterError={onCenterError}
+              />
+            )}
           </div>
         )
       })}
+      {unassignedErrors.length > 0 && (
+        <div className="rounded-sm border border-destructive/20 bg-destructive/5 px-3 py-2.5">
+          <div className="mb-2 flex items-center gap-1.5 text-sm font-medium text-destructive">
+            <TriangleAlert className="size-3.5" />
+            <span>Other validation errors</span>
+            <span className="rounded-sm bg-destructive/10 px-1.5 py-0.5 text-[10px]">
+              {unassignedErrors.length}
+            </span>
+          </div>
+          <DetailValidationErrorList errors={unassignedErrors} onCenterError={onCenterError} />
+        </div>
+      )}
     </div>
   )
 })
+
+function DetailValidationErrorList({
+  errors,
+  className,
+  onCenterError,
+}: {
+  errors: ViewerValidationError[]
+  className?: string
+  onCenterError: (error: ViewerValidationError) => void
+}) {
+  return (
+    <div className={cn('grid gap-2', className)}>
+      {errors.map((error, errorIndex) => (
+        <DetailValidationErrorCard
+          key={`${error.id}-${error.code}-${errorIndex}`}
+          error={error}
+          onCenterError={onCenterError}
+        />
+      ))}
+    </div>
+  )
+}
+
+function DetailValidationErrorCard({
+  error,
+  onCenterError,
+}: {
+  error: ViewerValidationError
+  onCenterError: (error: ViewerValidationError) => void
+}) {
+  const color = errorColor(error.code)
+
+  return (
+    <div
+      className="flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-sm border px-3 py-2.5 text-left transition"
+      style={{
+        borderColor: `${color}30`,
+        backgroundColor: `${color}18`,
+      }}
+    >
+      <div className="min-w-0 flex-1 overflow-hidden">
+        <div className="flex min-w-0 items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-2.5">
+            <span
+              className="mt-1 size-3 shrink-0 rounded-sm"
+              style={{ backgroundColor: color }}
+            />
+            <div className="min-w-0 overflow-hidden">
+              <p className="truncate text-sm font-semibold text-foreground/90">{error.description}</p>
+              <a
+                href={getVal3dityErrorUrl(error)}
+                target="_blank"
+                rel="noreferrer"
+                className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground underline decoration-muted-foreground/35 underline-offset-3 transition hover:text-foreground"
+              >
+                code {error.code}
+              </a>
+            </div>
+          </div>
+          {error.faceIndex != null && (
+            <Badge
+              variant="outline"
+              className="shrink-0 text-foreground/70"
+              style={{ borderColor: `${color}50`, backgroundColor: `${color}20` }}
+            >
+              face {error.faceIndex}
+            </Badge>
+          )}
+        </div>
+        <p className="mt-1.5 break-words font-mono text-[10px] text-muted-foreground">
+          {error.id}
+        </p>
+        {error.info && (
+          <p className="mt-1.5 text-sm text-foreground/65">{error.info}</p>
+        )}
+      </div>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="size-8 shrink-0 self-center"
+        aria-label={`Center ${error.description}`}
+        title={`Center ${error.description}`}
+        onClick={() => onCenterError(error)}
+      >
+        <Crosshair className="size-4" />
+      </Button>
+    </div>
+  )
+}
 
 function AttributeSection({
   attributes,
