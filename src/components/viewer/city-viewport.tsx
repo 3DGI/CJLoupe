@@ -269,6 +269,7 @@ type Runtime = {
   annotationVertexMarkers: THREE.Points[]
   featureDrafts: Map<string, Vec3[]>
   sceneScale: number
+  isArcballInteracting: boolean
   editPivot: Vec3 | null
   theme: Theme
   appearanceMode: ViewerAppearanceMode
@@ -863,6 +864,7 @@ function CityViewport({
       annotationVertexMarkers: [],
       featureDrafts: new Map(),
       sceneScale: 1,
+      isArcballInteracting: false,
       editPivot: null,
       theme: themeRef.current,
       appearanceMode: appearanceModeRef.current === 'normal' ? 'regular' : appearanceModeRef.current,
@@ -942,10 +944,18 @@ function CityViewport({
     }
 
     const handleArcballStart = () => {
+      const activeRuntime = runtimeRef.current
+      if (activeRuntime) {
+        activeRuntime.isArcballInteracting = true
+      }
       setSelectionOutlineInteractive(true)
     }
 
     const handleArcballEnd = () => {
+      const activeRuntime = runtimeRef.current
+      if (activeRuntime) {
+        activeRuntime.isArcballInteracting = false
+      }
       setSelectionOutlineInteractive(false)
     }
 
@@ -6100,21 +6110,22 @@ function updateCameraClipping(runtime: Runtime) {
   const sceneScale = Math.max(runtime.sceneScale, 1)
 
   if (isOrthographicCamera(runtime.camera)) {
-    const depthBounds = getOrthographicSceneDepthBounds(runtime)
+    const depthBounds = getOrthographicSceneDepthBounds(runtime, center)
     if (depthBounds) {
       const depthSpan = Math.max(depthBounds.far - depthBounds.near, 0)
       const depthMargin = Math.max(depthSpan * 0.02, sceneScale * 1e-6, 0.001)
-      const minimumClearance = depthMargin * 2
+      const distanceMargin = Math.max(depthBounds.targetRadius * 0.02, sceneScale * 1e-6, 0.001)
+      const minimumDistance = depthBounds.targetRadius + distanceMargin
       let nearestDepth = depthBounds.near
       let farthestDepth = depthBounds.far
 
       // Orthographic zoom changes only the frustum size, so a camera switched
-      // from a very close perspective view can remain inside the scene. Move it
-      // backwards without changing the framing so every rendered mesh is in
-      // front of the near clipping plane.
-      if (nearestDepth < minimumClearance) {
+      // from a very close perspective view can remain inside the scene. Use a
+      // rotation-invariant distance around the arcball target so this adjustment
+      // happens once instead of repeatedly while the camera is rotating.
+      if (!runtime.isArcballInteracting && distance < minimumDistance) {
         const backward = new THREE.Vector3(0, 0, 1).applyQuaternion(runtime.camera.quaternion)
-        const backwardDistance = minimumClearance - nearestDepth
+        const backwardDistance = minimumDistance - distance
         runtime.camera.position.addScaledVector(backward, backwardDistance)
         runtime.camera.updateMatrix()
         runtime.camera.updateMatrixWorld(true)
@@ -6136,7 +6147,7 @@ function updateCameraClipping(runtime: Runtime) {
   updateCameraClippingPlanes(runtime.camera, nextNear, nextFar)
 }
 
-function getOrthographicSceneDepthBounds(runtime: Runtime) {
+function getOrthographicSceneDepthBounds(runtime: Runtime, target: THREE.Vector3) {
   const bounds = new THREE.Box3().setFromObject(runtime.rootGroup)
   if (bounds.isEmpty()) {
     return null
@@ -6147,11 +6158,14 @@ function getOrthographicSceneDepthBounds(runtime: Runtime) {
   const corner = new THREE.Vector3()
   let nearestDepth = Infinity
   let farthestDepth = -Infinity
+  let targetRadiusSquared = 0
 
   for (const x of [bounds.min.x, bounds.max.x]) {
     for (const y of [bounds.min.y, bounds.max.y]) {
       for (const z of [bounds.min.z, bounds.max.z]) {
-        corner.set(x, y, z).applyMatrix4(inverseCameraMatrix)
+        corner.set(x, y, z)
+        targetRadiusSquared = Math.max(targetRadiusSquared, corner.distanceToSquared(target))
+        corner.applyMatrix4(inverseCameraMatrix)
         const depth = -corner.z
         nearestDepth = Math.min(nearestDepth, depth)
         farthestDepth = Math.max(farthestDepth, depth)
@@ -6160,7 +6174,7 @@ function getOrthographicSceneDepthBounds(runtime: Runtime) {
   }
 
   return Number.isFinite(nearestDepth) && Number.isFinite(farthestDepth)
-    ? { near: nearestDepth, far: farthestDepth }
+    ? { near: nearestDepth, far: farthestDepth, targetRadius: Math.sqrt(targetRadiusSquared) }
     : null
 }
 
