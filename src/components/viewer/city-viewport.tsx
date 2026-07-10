@@ -60,6 +60,8 @@ const SELECTION_OUTLINE_INTERACTIVE_TARGET_SCALE = 0.25
 const SELECTION_TINT_COLOR = '#7ee7e7'
 const SELECTION_TINT_STRENGTH = 0.18
 const SEMANTIC_SELECTION_TINT_STRENGTH = 0.34
+const MEASUREMENT_LINE_RENDER_ORDER = 10000
+const MEASUREMENT_MARKER_RENDER_ORDER = MEASUREMENT_LINE_RENDER_ORDER + 1
 const REFERENCE_VERTICAL_FOV_DEGREES = 50
 const REFERENCE_HALF_FOV_TANGENT = Math.tan(
   THREE.MathUtils.degToRad(REFERENCE_VERTICAL_FOV_DEGREES) / 2,
@@ -205,6 +207,8 @@ type CityViewportProps = {
   selectedVertexIndex: number | null
   appearanceMode: ViewerAppearanceMode
   pickingMode: ViewerPickingMode
+  measurementActive: boolean
+  measurementPoints: Vec3[]
   showVertexGizmo: boolean
   attributeColor: ViewerAttributeColorState | null
   mobileInteraction: boolean
@@ -225,7 +229,7 @@ type CityViewportProps = {
   onVertexCommit: (featureId: string, vertices: Vec3[]) => void
   onCameraFocalLengthSync: (value: number) => void
   onViewportCenterChange: (center: Vec3 | null) => void
-  onViewportCenterDistanceChange: (distance: number | null) => void
+  onMeasurePoint: (point: Vec3) => void
   onDataRendered: (data: ViewerDataset) => void
   theme: Theme
 }
@@ -241,6 +245,7 @@ type Runtime = {
   handleGroup: THREE.Group
   edgeGroup: THREE.Group
   annotationGroup: THREE.Group
+  measurementGroup: THREE.Group
   selectionOutlineScene: THREE.Scene
   selectionOutlineGroup: THREE.Group
   selectionOutlineTargets: [THREE.WebGLRenderTarget, THREE.WebGLRenderTarget]
@@ -590,6 +595,8 @@ function CityViewport({
   selectedVertexIndex,
   appearanceMode,
   pickingMode,
+  measurementActive,
+  measurementPoints,
   showVertexGizmo,
   attributeColor,
   mobileInteraction,
@@ -604,7 +611,7 @@ function CityViewport({
   onVertexCommit,
   onCameraFocalLengthSync,
   onViewportCenterChange,
-  onViewportCenterDistanceChange,
+  onMeasurePoint,
   onDataRendered,
   theme,
 }: CityViewportProps) {
@@ -647,16 +654,17 @@ function CityViewport({
   const onVertexCommitRef = useRef(onVertexCommit)
   const onCameraFocalLengthSyncRef = useRef(onCameraFocalLengthSync)
   const onViewportCenterChangeRef = useRef(onViewportCenterChange)
-  const onViewportCenterDistanceChangeRef = useRef(onViewportCenterDistanceChange)
+  const onMeasurePointRef = useRef(onMeasurePoint)
   const onDataRenderedRef = useRef(onDataRendered)
   const themeRef = useRef(theme)
   const appearanceModeRef = useRef(appearanceMode)
   const attributeColorRef = useRef(attributeColor)
   const pickingModeRef = useRef(pickingMode)
+  const measurementActiveRef = useRef(measurementActive)
   const showVertexGizmoRef = useRef(showVertexGizmo)
   const mobileInteractionRef = useRef(mobileInteraction)
   const mobileSelectionModeRef = useRef(mobileSelectionMode)
-  const pointerDownRef = useRef<{ x: number; y: number; translationStartCenter: Vec3 | null } | null>(null)
+  const pointerDownRef = useRef<{ x: number; y: number } | null>(null)
   const cameraSyncClientIdRef = useRef(createCameraSyncClientId())
   const cameraSyncTransportRef = useRef<CameraSyncTransport | null>(null)
   const lastCameraSyncPoseRef = useRef<CameraSyncPose | null>(null)
@@ -695,12 +703,13 @@ function CityViewport({
   useEffect(() => { onVertexCommitRef.current = onVertexCommit }, [onVertexCommit])
   useEffect(() => { onCameraFocalLengthSyncRef.current = onCameraFocalLengthSync }, [onCameraFocalLengthSync])
   useEffect(() => { onViewportCenterChangeRef.current = onViewportCenterChange }, [onViewportCenterChange])
-  useEffect(() => { onViewportCenterDistanceChangeRef.current = onViewportCenterDistanceChange }, [onViewportCenterDistanceChange])
+  useEffect(() => { onMeasurePointRef.current = onMeasurePoint }, [onMeasurePoint])
   useEffect(() => { onDataRenderedRef.current = onDataRendered }, [onDataRendered])
   useEffect(() => { themeRef.current = theme }, [theme])
   useEffect(() => { appearanceModeRef.current = appearanceMode }, [appearanceMode])
   useEffect(() => { attributeColorRef.current = attributeColor }, [attributeColor])
   useEffect(() => { pickingModeRef.current = pickingMode }, [pickingMode])
+  useEffect(() => { measurementActiveRef.current = measurementActive }, [measurementActive])
   useEffect(() => { showVertexGizmoRef.current = showVertexGizmo }, [showVertexGizmo])
   useEffect(() => { mobileInteractionRef.current = mobileInteraction }, [mobileInteraction])
   useEffect(() => { mobileSelectionModeRef.current = mobileSelectionMode }, [mobileSelectionMode])
@@ -812,6 +821,9 @@ function CityViewport({
     const annotationGroup = new THREE.Group()
     scene.add(annotationGroup)
 
+    const measurementGroup = new THREE.Group()
+    scene.add(measurementGroup)
+
     const selectionOutlineScene = new THREE.Scene()
     const selectionOutlineGroup = new THREE.Group()
     selectionOutlineScene.add(selectionOutlineGroup)
@@ -836,6 +848,7 @@ function CityViewport({
       handleGroup,
       edgeGroup,
       annotationGroup,
+      measurementGroup,
       selectionOutlineScene,
       selectionOutlineGroup,
       selectionOutlineTargets,
@@ -973,36 +986,10 @@ function CityViewport({
     }
 
     const handlePointerDown = (event: PointerEvent) => {
-      const activeRuntime = runtimeRef.current
-      const translationStartCenter =
-        activeRuntime != null &&
-        isViewportTranslationPointer(event)
-          ? getViewportCenter(activeRuntime, dataRef.current)
-          : null
       pointerDownRef.current = {
         x: event.clientX,
         y: event.clientY,
-        translationStartCenter,
       }
-    }
-
-    const handlePointerUp = (event: PointerEvent) => {
-      const pointerDown = pointerDownRef.current
-      if (!pointerDown) {
-        return
-      }
-
-      const isDrag = Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y) > 4
-      if (!pointerDown.translationStartCenter || !isDrag) {
-        return
-      }
-
-      const activeRuntime = runtimeRef.current
-      commitViewportCenterDistance(
-        pointerDown.translationStartCenter,
-        activeRuntime ? getViewportCenter(activeRuntime, dataRef.current) : null,
-        onViewportCenterDistanceChangeRef.current,
-      )
     }
 
     const preventCanvasGesture = (event: Event) => {
@@ -1034,6 +1021,20 @@ function CityViewport({
       updateRaycastPointer(activeRuntime, event)
 
       const selection = selectionRef.current
+      if (measurementActiveRef.current) {
+        const point = getMeasurementPoint(
+          activeRuntime,
+          currentData,
+          selection,
+          event,
+          hideOccludedEditEdgesRef.current,
+        )
+        if (point) {
+          onMeasurePointRef.current(point)
+        }
+        return
+      }
+
       const usesMobileTapSelection = mobileInteractionRef.current
       const mobileSurfaceSelection =
         usesMobileTapSelection &&
@@ -1174,7 +1175,7 @@ function CityViewport({
 
     const handleDoubleClick = (event: MouseEvent) => {
       const activeRuntime = runtimeRef.current
-      if (!activeRuntime) {
+      if (!activeRuntime || measurementActiveRef.current) {
         return
       }
 
@@ -1188,16 +1189,10 @@ function CityViewport({
         return
       }
 
-      const previousCenter = getViewportCenter(activeRuntime, dataRef.current)
       const center = getArcballCenter(activeRuntime.arcball).clone()
       const delta = new THREE.Vector3().subVectors(meshHit.point, center)
       const nextPosition = activeRuntime.camera.position.clone().add(delta)
       setArcballPose(activeRuntime, meshHit.point, nextPosition)
-      commitViewportCenterDistance(
-        previousCenter,
-        getViewportCenter(activeRuntime, dataRef.current),
-        onViewportCenterDistanceChangeRef.current,
-      )
       requestRender()
       scheduleCameraSyncPose()
     }
@@ -1265,7 +1260,6 @@ function CityViewport({
     const resizeObserver = new ResizeObserver(handleResize)
     resizeObserver.observe(container)
     window.addEventListener('resize', handleResize)
-    window.addEventListener('pointerup', handlePointerUp)
     renderer.domElement.addEventListener('pointerdown', handlePointerDown)
     renderer.domElement.addEventListener('wheel', handleWheel, { passive: true })
     renderer.domElement.addEventListener('click', handleClick)
@@ -1289,7 +1283,6 @@ function CityViewport({
       arcball.removeEventListener('change', handleArcballChange)
       arcball.removeEventListener('start', handleArcballStart)
       arcball.removeEventListener('end', handleArcballEnd)
-      window.removeEventListener('pointerup', handlePointerUp)
       renderer.domElement.removeEventListener('pointerdown', handlePointerDown)
       renderer.domElement.removeEventListener('wheel', handleWheel)
       renderer.domElement.removeEventListener('click', handleClick)
@@ -1300,6 +1293,7 @@ function CityViewport({
       resizeObserver.disconnect()
       window.removeEventListener('resize', handleResize)
       disposeSceneContents(runtime)
+      clearTransientGroup(runtime.measurementGroup)
       disposeSelectionOutlineResources(runtime)
       runtime.attributeColorSharedUniforms.valueMap.value.dispose()
       transform.dispose()
@@ -1430,6 +1424,16 @@ function CityViewport({
 
   useEffect(() => {
     const runtime = runtimeRef.current
+    if (!runtime || !data) {
+      return
+    }
+
+    rebuildMeasurementOverlay(runtime, data, measurementPoints, theme)
+    renderViewport(runtime)
+  }, [data, measurementPoints, theme])
+
+  useEffect(() => {
+    const runtime = runtimeRef.current
     const currentData = dataRef.current
     if (!runtime || !currentData) {
       return
@@ -1549,8 +1553,6 @@ function CityViewport({
       return
     }
 
-    const previousCenter = getViewportCenter(runtime, currentData)
-
     if (focusTarget.kind === 'location') {
       const center = new THREE.Vector3(
         focusTarget.location[0] - currentData.center[0],
@@ -1572,11 +1574,6 @@ function CityViewport({
       centerViewOnFeature(runtime, currentData, feature)
     }
 
-    commitViewportCenterDistance(
-      previousCenter,
-      getViewportCenter(runtime, currentData),
-      onViewportCenterDistanceChangeRef.current,
-    )
     renderViewport(runtime)
     reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
     scheduleCameraSyncPose()
@@ -1766,7 +1763,12 @@ function CityViewport({
     scheduleCameraSyncPose()
   }, [cameraFocalLength, scheduleCameraSyncPose])
 
-  return <div ref={containerRef} className="absolute inset-0 touch-none select-none" />
+  return (
+    <div
+      ref={containerRef}
+      className={`absolute inset-0 touch-none select-none${measurementActive ? ' cursor-crosshair' : ''}`}
+    />
+  )
 }
 
 function resolveDisplayedObjectGeometry(
@@ -3165,6 +3167,59 @@ function rebuildAnnotations(runtime: Runtime) {
   runtime.annotationVertexMarkers = []
 }
 
+function rebuildMeasurementOverlay(
+  runtime: Runtime,
+  data: ViewerDataset,
+  points: Vec3[],
+  theme: Theme,
+) {
+  clearTransientGroup(runtime.measurementGroup)
+  if (points.length === 0) {
+    return
+  }
+
+  const positions = new Float32Array(points.length * 3)
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index]
+    positions[index * 3] = point[0] - data.center[0]
+    positions[index * 3 + 1] = point[1] - data.center[1]
+    positions[index * 3 + 2] = point[2] - data.center[2]
+  }
+
+  const color = theme === 'dark' ? '#38bdf8' : '#0284c7'
+  const markerGeometry = new THREE.BufferGeometry()
+  markerGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+  const markers = new THREE.Points(
+    markerGeometry,
+    new THREE.PointsMaterial({
+      color,
+      size: 7,
+      sizeAttenuation: false,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+    }),
+  )
+  markers.renderOrder = MEASUREMENT_MARKER_RENDER_ORDER
+  runtime.measurementGroup.add(markers)
+
+  if (points.length === 2) {
+    const lineGeometry = new THREE.BufferGeometry()
+    lineGeometry.setAttribute('position', new THREE.BufferAttribute(positions.slice(), 3))
+    const line = new THREE.LineSegments(
+      lineGeometry,
+      new THREE.LineBasicMaterial({
+        color,
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    )
+    line.renderOrder = MEASUREMENT_LINE_RENDER_ORDER
+    runtime.measurementGroup.add(line)
+  }
+}
+
 function syncSelection(
   runtime: Runtime,
   data: ViewerDataset,
@@ -4181,24 +4236,6 @@ function getViewportCenter(runtime: Runtime, data: ViewerDataset | null): Vec3 |
     center.y + data.center[1],
     center.z + data.center[2],
   ]
-}
-
-function commitViewportCenterDistance(
-  startCenter: Vec3 | null,
-  endCenter: Vec3 | null,
-  onViewportCenterDistanceChange: (distance: number) => void,
-) {
-  if (!startCenter || !endCenter) {
-    return
-  }
-
-  onViewportCenterDistanceChange(
-    Math.hypot(
-      endCenter[0] - startCenter[0],
-      endCenter[1] - startCenter[1],
-      endCenter[2] - startCenter[2],
-    ),
-  )
 }
 
 function buildEdgeSegments(
@@ -5997,13 +6034,6 @@ function getArcballInternals(arcball: ArcballControls) {
   }
 }
 
-function isViewportTranslationPointer(event: PointerEvent) {
-  return (
-    event.pointerType !== 'touch' &&
-    (event.button === 2 || (event.button === 0 && (event.ctrlKey || event.metaKey)))
-  )
-}
-
 function getArcballCenter(arcball: ArcballControls) {
   return getArcballInternals(arcball)._gizmos.position
 }
@@ -6011,6 +6041,42 @@ function getArcballCenter(arcball: ArcballControls) {
 function lensDistanceScale(verticalFovDegrees: number) {
   const currentFovRadians = THREE.MathUtils.degToRad(verticalFovDegrees)
   return REFERENCE_HALF_FOV_TANGENT / Math.tan(currentFovRadians / 2)
+}
+
+function getMeasurementPoint(
+  runtime: Runtime,
+  data: ViewerDataset,
+  selection: ViewSelection,
+  event: MouseEvent,
+  respectVertexOcclusion: boolean,
+): Vec3 | null {
+  if (selection.editMode) {
+    const vertexIndex = findNearestEditVertexIndexOnScreen(
+      runtime,
+      data,
+      selection,
+      event,
+      respectVertexOcclusion,
+    )
+    const feature = selection.selectedFeatureId
+      ? data.features.find((candidate) => candidate.id === selection.selectedFeatureId) ?? null
+      : null
+    const vertex = feature && vertexIndex != null
+      ? getRenderableFeatureVertices(runtime, feature)[vertexIndex]
+      : null
+    if (vertex) {
+      return [...vertex] as Vec3
+    }
+  }
+
+  const hit = runtime.raycaster.intersectObjects(getPickableObjects(runtime), false)[0]
+  return hit
+    ? [
+        hit.point.x + data.center[0],
+        hit.point.y + data.center[1],
+        hit.point.z + data.center[2],
+      ]
+    : null
 }
 
 function findNearestEditVertexIndexOnScreen(

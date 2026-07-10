@@ -5,7 +5,7 @@
 - Add semantic surface type badge to face vertex circulator panel in edit mode
 - Display all geometries of the selected LoD, rather than just the first geometry per object
 - Pick, outline, inspect, and edit individual geometries within multi-geometry objects
-- Display viewport-center movement distance in the status bar for pan, recenter, and focus actions. Or show distance between consecitively selected vertices if available.
+- Add a ruler tool for measuring between surface clicks, with vertex snapping in edit mode
 - Allow clear selection in edit mode to deselect selected faces and vertices
 - Redesign the file metadata dialog with tabs for opened files, source locations, and val3dity summary counts
 - Add CityObjects error-code filtering with a popover of checkbox toggles when showing validation errors only
@@ -14,6 +14,7 @@
 - Add support for experimental val3dity cityjson extension
 - Put the val3dity errors under relvant geometry in geometry tab
 - Prevent clipping through meshes when zooming out from close orthographic views
+- Add distance measuring tool
 
 ## 0.8.0 - 2026-06-14
 

@@ -25,6 +25,7 @@ import {
   Pin,
   PinOff,
   Pyramid,
+  Ruler,
   ArrowLeftRight,
   RotateCcw,
   RotateCw,
@@ -293,8 +294,8 @@ function App() {
   const [loadingMessage, setLoadingMessage] = useState<string | null>(null)
   const [cameraFocalLength, setCameraFocalLength] = useState(DEFAULT_CAMERA_FOCAL_LENGTH)
   const [viewportCenter, setViewportCenter] = useState<Vec3 | null>(null)
-  const [viewportCenterDistance, setViewportCenterDistance] = useState<number | null>(null)
-  const [selectedVertexPairDistance, setSelectedVertexPairDistance] = useState<number | null>(null)
+  const [measurementActive, setMeasurementActive] = useState(false)
+  const [measurementPoints, setMeasurementPoints] = useState<Vec3[]>([])
   const [hideOccludedEditEdges, setHideOccludedEditEdges] = useState(true)
   const [showOnlyInvalidFeatures, setShowOnlyInvalidFeatures] = useState(false)
   const [selectedErrorCodes, setSelectedErrorCodes] = useState<number[] | null>(null)
@@ -388,22 +389,9 @@ function App() {
     activeSelectedFaceVertexEntryIndex != null
       ? `vtx entry   ${activeSelectedFaceVertexEntryIndex + 1}/${selectedFaceVertexCount}`
       : null
-  const selectedVertexCursorDistance = useMemo(() => {
-    if (!editMode || selectedVertexIndex == null || !selectedFeature || !viewportCenter) {
-      return null
-    }
-
-    const vertex = selectedFeature.vertices[selectedVertexIndex]
-    if (!vertex) {
-      return null
-    }
-
-    return distanceBetweenPoints(vertex, viewportCenter)
-  }, [editMode, selectedFeature, selectedVertexIndex, viewportCenter])
-  const displayedViewportCenterDistance =
-    editMode && selectedVertexIndex != null
-      ? selectedVertexPairDistance ?? selectedVertexCursorDistance
-      : viewportCenterDistance
+  const measurementDistance = measurementPoints.length === 2
+    ? distanceBetweenPoints(measurementPoints[0], measurementPoints[1])
+    : null
   const selectedFaceRingLabel =
     selectedFaceRingCount === 0
       ? 'No ring selected'
@@ -711,6 +699,8 @@ function App() {
     setSelectedFaceRingIndex(0)
     setSelectedVertexIndex(null)
     setSelectedFaceVertexEntryIndex(null)
+    setMeasurementActive(false)
+    setMeasurementPoints([])
   }, [isMobileLayout])
 
   useEffect(() => {
@@ -1160,6 +1150,8 @@ function App() {
     setSearchQuery('')
     setFocusTarget(null)
     setPickingMode('object')
+    setMeasurementActive(false)
+    setMeasurementPoints([])
     setShowVertexGizmo(false)
     setSelectedSemanticSurface(null)
     setPinnedAttributeKeys([])
@@ -1175,7 +1167,6 @@ function App() {
     attributeColorMapIdsByKeyRef.current = new Map()
     attributeColorMapReversedByKeyRef.current = new Map()
     setViewportCenter(null)
-    setViewportCenterDistance(null)
     setViewportResetRevision((current) => current + 1)
   }, [])
 
@@ -1568,7 +1559,6 @@ function App() {
   const handleViewportCenterChange = useCallback((center: Vec3 | null) => {
     if (!center) {
       setViewportCenter(null)
-      setViewportCenterDistance(null)
       return
     }
 
@@ -1715,6 +1705,17 @@ function App() {
 
     setPickingMode((current) => (current === mode ? 'none' : mode))
   }, [editMode])
+
+  const toggleMeasurement = useCallback(() => {
+    setMeasurementActive((current) => {
+      setMeasurementPoints([])
+      return !current
+    })
+  }, [])
+
+  const handleMeasurePoint = useCallback((point: Vec3) => {
+    setMeasurementPoints((current) => current.length === 2 ? [point] : [...current, point])
+  }, [])
 
   const toggleEditMode = useCallback(() => {
     if (isMobileLayout) {
@@ -1900,14 +1901,6 @@ function App() {
     ringIndex?: number
     entryIndex?: number | null
   }) => {
-    const previousVertex =
-      selectedFeature && selectedVertexIndex != null
-        ? selectedFeature.vertices[selectedVertexIndex]
-        : null
-    const nextVertex = selectedFeature && vertexIndex != null ? selectedFeature.vertices[vertexIndex] : null
-    setSelectedVertexPairDistance(
-      previousVertex && nextVertex ? distanceBetweenPoints(previousVertex, nextVertex) : null,
-    )
     setSelectedVertexIndex(vertexIndex)
     let nextEntryIndex = options?.entryIndex ?? null
 
@@ -1922,7 +1915,7 @@ function App() {
       }
     }
     setSelectedFaceVertexEntryIndex(nextEntryIndex)
-  }, [selectedFace, selectedFeature, selectedVertexIndex])
+  }, [selectedFace])
 
   const handleSelectVertex = useCallback((vertexIndex: number | null) => {
     selectFaceVertex(vertexIndex)
@@ -2719,6 +2712,8 @@ function App() {
             appearanceMode={appearanceMode}
             attributeColor={attributeColorViewportState}
             pickingMode={effectivePickingMode}
+            measurementActive={measurementActive}
+            measurementPoints={measurementPoints}
             showVertexGizmo={showVertexGizmo}
             mobileInteraction={isMobileLayout}
             mobileSelectionMode={mobileInspectMode}
@@ -2732,7 +2727,7 @@ function App() {
             onVertexCommit={applyFeatureVertices}
             onCameraFocalLengthSync={setCameraFocalLength}
             onViewportCenterChange={handleViewportCenterChange}
-            onViewportCenterDistanceChange={setViewportCenterDistance}
+            onMeasurePoint={handleMeasurePoint}
             onDataRendered={handleViewportDataRendered}
             theme={theme}
           />
@@ -2841,12 +2836,14 @@ function App() {
               appearanceMode={appearanceMode}
               colormapAvailable={availableAttributeColorViewportState != null}
               pickingMode={effectivePickingMode}
+              measurementActive={measurementActive}
               showVertexGizmo={showVertexGizmo}
               hasSelectedVertex={selectedVertexIndex != null}
               isolateSelectedFeature={isolateSelectedFeature}
               showTooltips={showViewportTooltips}
               onToggleEditMode={toggleEditMode}
               onCyclePickingMode={cyclePickingMode}
+              onToggleMeasurement={toggleMeasurement}
               onToggleVertexGizmo={() => setShowVertexGizmo((current) => !current)}
               onToggleXray={() => setHideOccludedEditEdges((current) => !current)}
               onCycleAppearanceMode={cycleAppearanceMode}
@@ -2880,7 +2877,9 @@ function App() {
               isPaneCollapsed={isPaneCollapsed}
               activeObjectId={activeObject?.id ?? null}
               viewportCenter={viewportCenter}
-              viewportCenterDistance={displayedViewportCenterDistance}
+              measurementActive={measurementActive}
+              measurementPointCount={measurementPoints.length}
+              measurementDistance={measurementDistance}
               selectedVertexIndex={selectedVertexIndex}
               cameraFocalLength={cameraFocalLength}
               onCameraFocalLengthChange={setCameraFocalLength}
@@ -3352,12 +3351,14 @@ function DesktopViewportToolbar({
   appearanceMode,
   colormapAvailable,
   pickingMode,
+  measurementActive,
   showVertexGizmo,
   hasSelectedVertex,
   isolateSelectedFeature,
   showTooltips,
   onToggleEditMode,
   onCyclePickingMode,
+  onToggleMeasurement,
   onToggleVertexGizmo,
   onToggleXray,
   onCycleAppearanceMode,
@@ -3376,12 +3377,14 @@ function DesktopViewportToolbar({
   appearanceMode: ViewerAppearanceMode
   colormapAvailable: boolean
   pickingMode: ViewerPickingMode
+  measurementActive: boolean
   showVertexGizmo: boolean
   hasSelectedVertex: boolean
   isolateSelectedFeature: boolean
   showTooltips: boolean
   onToggleEditMode: () => void
   onCyclePickingMode: () => void
+  onToggleMeasurement: () => void
   onToggleVertexGizmo: () => void
   onToggleXray: () => void
   onCycleAppearanceMode: () => void
@@ -3464,6 +3467,15 @@ function DesktopViewportToolbar({
         isMenuOpen={isPickingMenuOpen}
         onMenuOpenChange={setIsPickingMenuOpen}
       />
+      <ToolbarToggleButton
+        active={measurementActive}
+        onClick={onToggleMeasurement}
+        ariaLabel="Toggle distance measurement"
+        icon={<Ruler className="size-3.5" />}
+        showTooltip={tooltipsVisible}
+      >
+        Measure distance
+      </ToolbarToggleButton>
       {hasSelectedFeature && (
         <>
           <ToolbarToggleButton
@@ -3525,7 +3537,9 @@ function DesktopViewportStatusBar({
   isPaneCollapsed,
   activeObjectId,
   viewportCenter,
-  viewportCenterDistance,
+  measurementActive,
+  measurementPointCount,
+  measurementDistance,
   selectedVertexIndex,
   cameraFocalLength,
   onCameraFocalLengthChange,
@@ -3542,7 +3556,9 @@ function DesktopViewportStatusBar({
   isPaneCollapsed: boolean
   activeObjectId: string | null
   viewportCenter: Vec3 | null
-  viewportCenterDistance: number | null
+  measurementActive: boolean
+  measurementPointCount: number
+  measurementDistance: number | null
   selectedVertexIndex: number | null
   cameraFocalLength: number
   onCameraFocalLengthChange: (value: number) => void
@@ -3625,9 +3641,13 @@ function DesktopViewportStatusBar({
           {selectedVertexIndex != null && (
             <span className="shrink-0 text-foreground/75">[vtx {selectedVertexIndex}]</span>
           )}
-          {viewportCenterDistance != null && (
+          {measurementActive && (
             <span className="shrink-0 border-l border-border/70 pl-1 text-foreground/75">
-              dist {formatDistanceValue(viewportCenterDistance)}
+              {measurementDistance != null
+                ? `distance ${formatDistanceValue(measurementDistance)}`
+                : measurementPointCount === 1
+                  ? 'measure: click second point'
+                  : 'measure: click first point'}
             </span>
           )}
         </div>
@@ -4983,6 +5003,7 @@ function ToolbarToggleButton({
   children,
   ariaLabel,
   iconSrc,
+  icon,
   showTooltip = false,
   tooltipHotkey,
 }: {
@@ -4992,6 +5013,7 @@ function ToolbarToggleButton({
   children: ReactNode
   ariaLabel: string
   iconSrc?: string
+  icon?: ReactNode
   showTooltip?: boolean
   tooltipHotkey?: string
 }) {
@@ -5016,11 +5038,11 @@ function ToolbarToggleButton({
           disabled && 'border-border/45 bg-transparent text-muted-foreground/45 hover:bg-transparent hover:text-muted-foreground/45',
         )}
       >
-        {iconSrc ? (
+        {icon ?? (iconSrc ? (
           <MaskIcon src={iconSrc} className="size-3.5" />
         ) : (
           <span className={cn('size-1.5 rounded-full', active ? 'bg-primary' : 'bg-muted-foreground/45')} />
-        )}
+        ))}
       </Button>
     </ViewportControlTooltip>
   )
@@ -7501,7 +7523,13 @@ function formatCoordinateTriple(coordinates: Vec3) {
 }
 
 function formatDistanceValue(distance: number) {
-  return distance.toFixed(3)
+  if (distance === 0 || distance >= 0.001) {
+    return distance.toFixed(3)
+  }
+
+  const decimalPlaces = Math.min(12, Math.max(4, 2 - Math.floor(Math.log10(distance))))
+  const formatted = distance.toFixed(decimalPlaces)
+  return Number(formatted) === 0 ? distance.toExponential(2) : formatted
 }
 
 function distanceBetweenPoints(left: Vec3, right: Vec3) {
