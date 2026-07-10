@@ -5298,7 +5298,7 @@ const DetailGeometryPanel = memo(function DetailGeometryPanel({
   }
 
   return (
-    <div className="grid gap-2">
+    <div className="grid min-w-0 gap-2">
       {geometries.length === 0 && (
         <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-4 py-4 text-sm text-muted-foreground">
           No geometries available for the selected object.
@@ -5316,14 +5316,17 @@ const DetailGeometryPanel = memo(function DetailGeometryPanel({
         return (
           <div
             key={geometry.index}
-            className={cn(
-              'rounded-sm border px-3 py-2',
-              isActive
-                ? 'border-primary/35 bg-primary/8'
-                : 'border-foreground/8 bg-foreground/3',
-            )}
+            className="min-w-0 overflow-hidden rounded-sm"
           >
-            <div className="flex items-start justify-between gap-3">
+            <div
+              className={cn(
+                'flex min-w-0 items-start justify-between gap-3 border px-3 py-2',
+                geometryErrors.length > 0 ? 'rounded-t-sm border-b-0' : 'rounded-sm',
+                isActive
+                  ? 'border-primary/35 bg-primary/8'
+                  : 'border-foreground/8 bg-foreground/3',
+              )}
+            >
               <div className="min-w-0">
                 <p className="flex items-center gap-1.5 text-sm font-medium text-foreground/90">
                   <Pyramid className="size-3.5 text-muted-foreground" />
@@ -5350,7 +5353,10 @@ const DetailGeometryPanel = memo(function DetailGeometryPanel({
             </div>
             {geometryErrors.length > 0 && (
               <DetailValidationErrorList
-                className="mt-2.5"
+                className={cn(
+                  'overflow-hidden rounded-b-sm border-y border-r',
+                  isActive ? 'border-primary/35' : 'border-foreground/15',
+                )}
                 errors={geometryErrors}
                 onCenterError={onCenterError}
               />
@@ -5359,15 +5365,19 @@ const DetailGeometryPanel = memo(function DetailGeometryPanel({
         )
       })}
       {unassignedErrors.length > 0 && (
-        <div className="rounded-sm border border-destructive/20 bg-destructive/5 px-3 py-2.5">
-          <div className="mb-2 flex items-center gap-1.5 text-sm font-medium text-destructive">
+        <div className="min-w-0 overflow-hidden rounded-sm">
+          <div className="flex items-center gap-1.5 rounded-t-sm border border-b-0 border-destructive/25 bg-destructive/5 px-3 py-2 text-sm font-medium text-destructive">
             <TriangleAlert className="size-3.5" />
             <span>Other validation errors</span>
             <span className="rounded-sm bg-destructive/10 px-1.5 py-0.5 text-[10px]">
               {unassignedErrors.length}
             </span>
           </div>
-          <DetailValidationErrorList errors={unassignedErrors} onCenterError={onCenterError} />
+          <DetailValidationErrorList
+            className="overflow-hidden rounded-b-sm border-y border-r border-destructive/25"
+            errors={unassignedErrors}
+            onCenterError={onCenterError}
+          />
         </div>
       )}
     </div>
@@ -5384,7 +5394,7 @@ function DetailValidationErrorList({
   onCenterError: (error: ViewerValidationError) => void
 }) {
   return (
-    <div className={cn('grid gap-2', className)}>
+    <div className={cn('min-w-0 divide-y divide-foreground/20', className)}>
       {errors.map((error, errorIndex) => (
         <DetailValidationErrorCard
           key={`${error.id}-${error.code}-${errorIndex}`}
@@ -5407,10 +5417,10 @@ function DetailValidationErrorCard({
 
   return (
     <div
-      className="flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-sm border px-3 py-2.5 text-left transition"
+      className="flex w-full min-w-0 items-center gap-2 overflow-hidden px-3 py-2 text-left transition"
       style={{
-        borderColor: `${color}30`,
-        backgroundColor: `${color}18`,
+        backgroundColor: `${color}12`,
+        boxShadow: `inset 3px 0 ${color}a0`,
       }}
     >
       <div className="min-w-0 flex-1 overflow-hidden">
@@ -5453,7 +5463,7 @@ function DetailValidationErrorCard({
         type="button"
         variant="ghost"
         size="icon"
-        className="size-8 shrink-0 self-center"
+        className="size-7 shrink-0 self-center"
         aria-label={`Center ${error.description}`}
         title={`Center ${error.description}`}
         onClick={() => onCenterError(error)}
