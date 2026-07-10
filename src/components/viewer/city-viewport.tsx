@@ -6098,16 +6098,80 @@ function updateCameraClipping(runtime: Runtime) {
   const center = getArcballCenter(runtime.arcball)
   const distance = Math.max(runtime.camera.position.distanceTo(center), 0.001)
   const sceneScale = Math.max(runtime.sceneScale, 1)
+
+  if (isOrthographicCamera(runtime.camera)) {
+    const depthBounds = getOrthographicSceneDepthBounds(runtime)
+    if (depthBounds) {
+      const depthSpan = Math.max(depthBounds.far - depthBounds.near, 0)
+      const depthMargin = Math.max(depthSpan * 0.02, sceneScale * 1e-6, 0.001)
+      const minimumClearance = depthMargin * 2
+      let nearestDepth = depthBounds.near
+      let farthestDepth = depthBounds.far
+
+      // Orthographic zoom changes only the frustum size, so a camera switched
+      // from a very close perspective view can remain inside the scene. Move it
+      // backwards without changing the framing so every rendered mesh is in
+      // front of the near clipping plane.
+      if (nearestDepth < minimumClearance) {
+        const backward = new THREE.Vector3(0, 0, 1).applyQuaternion(runtime.camera.quaternion)
+        const backwardDistance = minimumClearance - nearestDepth
+        runtime.camera.position.addScaledVector(backward, backwardDistance)
+        runtime.camera.updateMatrix()
+        runtime.camera.updateMatrixWorld(true)
+        syncArcballState(runtime, center)
+        nearestDepth += backwardDistance
+        farthestDepth += backwardDistance
+      }
+
+      const nextNear = Math.max(nearestDepth - depthMargin, 0.0005)
+      const nextFar = Math.max(farthestDepth + depthMargin, nextNear + 0.001)
+      updateCameraClippingPlanes(runtime.camera, nextNear, nextFar)
+      return
+    }
+  }
+
   const nextNear = Math.max(Math.min(distance * 0.01, sceneScale / 1500), 0.0005)
   const nextFar = Math.max(sceneScale * 8, distance * 8, 50)
 
+  updateCameraClippingPlanes(runtime.camera, nextNear, nextFar)
+}
+
+function getOrthographicSceneDepthBounds(runtime: Runtime) {
+  const bounds = new THREE.Box3().setFromObject(runtime.rootGroup)
+  if (bounds.isEmpty()) {
+    return null
+  }
+
+  runtime.camera.updateMatrixWorld(true)
+  const inverseCameraMatrix = runtime.camera.matrixWorldInverse
+  const corner = new THREE.Vector3()
+  let nearestDepth = Infinity
+  let farthestDepth = -Infinity
+
+  for (const x of [bounds.min.x, bounds.max.x]) {
+    for (const y of [bounds.min.y, bounds.max.y]) {
+      for (const z of [bounds.min.z, bounds.max.z]) {
+        corner.set(x, y, z).applyMatrix4(inverseCameraMatrix)
+        const depth = -corner.z
+        nearestDepth = Math.min(nearestDepth, depth)
+        farthestDepth = Math.max(farthestDepth, depth)
+      }
+    }
+  }
+
+  return Number.isFinite(nearestDepth) && Number.isFinite(farthestDepth)
+    ? { near: nearestDepth, far: farthestDepth }
+    : null
+}
+
+function updateCameraClippingPlanes(camera: ViewerCamera, near: number, far: number) {
   if (
-    Math.abs(runtime.camera.near - nextNear) > 1e-7 ||
-    Math.abs(runtime.camera.far - nextFar) > 1e-4
+    Math.abs(camera.near - near) > 1e-7 ||
+    Math.abs(camera.far - far) > 1e-4
   ) {
-    runtime.camera.near = nextNear
-    runtime.camera.far = nextFar
-    runtime.camera.updateProjectionMatrix()
+    camera.near = near
+    camera.far = far
+    camera.updateProjectionMatrix()
   }
 }
 

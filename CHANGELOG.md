@@ -13,6 +13,7 @@
 - Allow opening multiple files at once
 - Add support for experimental val3dity cityjson extension
 - Put the val3dity errors under relvant geometry in geometry tab
+- Prevent clipping through meshes when zooming out from close orthographic views
 
 ## 0.8.0 - 2026-06-14
 
