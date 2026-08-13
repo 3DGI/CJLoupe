@@ -1,10 +1,8 @@
 # CJLoupe
 
-CityJSON 3D viewer and inspection tool with support for val3dity annotations.
+CityJSON 3D viewer and inspection tool with support for val3dity annotations. Also an experiment in learning how to use coding agents effectively.
 
-It was built specifically to inspect errors in CityJSON geometries, with the ability to investigate how the geometry is actually structured down to the vertex level.
-
-This app was built almost entirely through vibe coding, though I still spent many dozens of hours instructing, supervising and scrutinizing the agent.
+It started out specifically to inspect errors in CityJSON geometries, with the ability to investigate how the geometry is actually structured down to the vertex level.
 
 ![CJLoupe screenshot](./Screenshot.png)
 
