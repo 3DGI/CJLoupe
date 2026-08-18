@@ -8,8 +8,11 @@ import {
   embedViewerStateInCityJson,
   encodeViewerState,
   getViewerShareMode,
+  getViewerStateFromUrl,
   resolveEmbeddedViewerState,
+  resolveViewerStateForDataset,
 } from './viewer-state'
+import { combineViewerDatasets } from './cityjson'
 import type { ViewerDataset, ViewerDatasetSource } from '../types/cityjson'
 import type { ViewerShareStateV1 } from './viewer-state'
 
@@ -126,6 +129,26 @@ describe('CityJSON state embedding', () => {
     expect(resolved.warning).toContain('conflicting')
   })
 
+  test('does not fall back to embedded state when an explicit URL state is invalid', () => {
+    const embedded = dataset([source('state.city.json', 'file', encodeViewerState(state))])
+    const invalidUrlState = getViewerStateFromUrl('https://example.test/?state=not-json')
+    const resolved = resolveViewerStateForDataset(embedded, invalidUrlState)
+
+    expect(invalidUrlState.provided).toBe(true)
+    expect(resolved.state).toBeNull()
+    expect(resolved.warning).toContain('base64url')
+
+    const emptyUrlState = getViewerStateFromUrl('https://example.test/?state=')
+    expect(emptyUrlState.provided).toBe(true)
+    expect(emptyUrlState.warning).toContain('empty')
+
+    const withoutUrlState = resolveViewerStateForDataset(
+      embedded,
+      getViewerStateFromUrl('https://example.test/'),
+    )
+    expect(withoutUrlState.state).toEqual(state)
+  })
+
 })
 
 describe('share output selection', () => {
@@ -184,6 +207,28 @@ describe('share output selection', () => {
     expect(strFromU8(archive['report.json'])).toBe('{"features":[]}')
     expect(JSON.parse(strFromU8(archive['same.cjloupe.city.json']))[CJLOUPE_VIEWER_STATE_PROPERTY].state)
       .toBe(encodeViewerState(state))
+  })
+
+  test('preserves a standalone report when combining it with embedded validation', () => {
+    const standalone = dataset([source('standalone.city.json', 'file')])
+    standalone.validationSource = {
+      name: 'standalone-report.json',
+      location: 'standalone-report.json',
+      sourceKind: 'file',
+      sourceText: '{"features":[]}',
+    }
+    const embedded = dataset([source('embedded.city.json', 'file')])
+    embedded.validationSource = {
+      name: 'embedded val3dity report',
+      location: 'embedded.city.json',
+      sourceKind: 'embedded',
+      sourceText: null,
+    }
+
+    const combined = combineViewerDatasets([standalone, embedded])
+
+    expect(combined.validationSource).toEqual(standalone.validationSource)
+    expect(getViewerShareMode(combined)).toBe('archive')
   })
 })
 

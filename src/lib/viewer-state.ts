@@ -8,25 +8,25 @@ import type {
   ViewerGeometryDisplayMode,
   ViewerPickingMode,
 } from '@/types/cityjson'
+import {
+  CJLOUPE_VIEWER_STATE_PROPERTY,
+  isViewerCameraPose,
+  VIEWER_STATE_VERSION,
+} from './viewer-state-schema'
+import type { ViewerCameraPose } from './viewer-state-schema'
+
+export {
+  CJLOUPE_VIEWER_STATE_PROPERTY,
+  VIEWER_STATE_VERSION,
+} from './viewer-state-schema'
+export type { ViewerCameraPose } from './viewer-state-schema'
 
 export const VIEWER_STATE_QUERY_PARAM = 'state'
-export const CJLOUPE_VIEWER_STATE_PROPERTY = '+CJLoupe-viewerState'
 
-const VIEWER_STATE_VERSION = 1
 const VIEWER_STATE_MAX_ENCODED_LENGTH = 64 * 1024
 
-export type ViewerCameraPose = {
-  kind: 'perspective' | 'orthographic'
-  position: Vec3
-  quaternion: [number, number, number, number]
-  up: Vec3
-  target: Vec3
-  focalLength: number | null
-  orthographicHalfHeight: number | null
-}
-
 export type ViewerShareStateV1 = {
-  version: 1
+  version: typeof VIEWER_STATE_VERSION
   camera: ViewerCameraPose
   selection: {
     featureId: string | null
@@ -83,6 +83,10 @@ export type EmbeddedViewerStateResolution = {
   warning: string | null
 }
 
+export type UrlViewerStateResolution = EmbeddedViewerStateResolution & {
+  provided: boolean
+}
+
 export function encodeViewerState(state: ViewerShareStateV1) {
   const bytes = new TextEncoder().encode(JSON.stringify(state))
   let binary = ''
@@ -126,20 +130,34 @@ export function decodeViewerState(encoded: string): ViewerShareStateV1 {
   return decoded
 }
 
-export function getViewerStateFromUrl(url: string): EmbeddedViewerStateResolution {
+export function getViewerStateFromUrl(url: string): UrlViewerStateResolution {
   const encoded = new URL(url).searchParams.get(VIEWER_STATE_QUERY_PARAM)
-  if (!encoded) {
-    return { state: null, warning: null }
+  if (encoded === null) {
+    return { state: null, warning: null, provided: false }
   }
 
   try {
-    return { state: decodeViewerState(encoded), warning: null }
+    return { state: decodeViewerState(encoded), warning: null, provided: true }
   } catch (error) {
     return {
       state: null,
       warning: error instanceof Error ? error.message : 'Could not restore the shared viewer state.',
+      provided: true,
     }
   }
+}
+
+export function resolveViewerStateForDataset(
+  dataset: ViewerDataset,
+  urlResolution: UrlViewerStateResolution | null,
+  restoreEmbeddedState = true,
+): EmbeddedViewerStateResolution {
+  if (urlResolution?.provided) {
+    return urlResolution
+  }
+  return restoreEmbeddedState
+    ? resolveEmbeddedViewerState(dataset)
+    : { state: null, warning: null }
 }
 
 export function resolveEmbeddedViewerState(dataset: ViewerDataset): EmbeddedViewerStateResolution {
@@ -378,7 +396,7 @@ function detectLineEnding(sourceText: string) {
 }
 
 function isViewerShareStateV1(value: Record<string, unknown>): value is ViewerShareStateV1 {
-  if (!isCameraPose(value.camera) || !isRecord(value.selection) || !isRecord(value.appearance) ||
+  if (!isViewerCameraPose(value.camera) || !isRecord(value.selection) || !isRecord(value.appearance) ||
       !isRecord(value.interaction) || !isRecord(value.filters) || !isRecord(value.measurement)) {
     return false
   }
@@ -412,19 +430,6 @@ function isViewerShareStateV1(value: Record<string, unknown>): value is ViewerSh
     isStringArray(filters.pinnedAttributeKeys) &&
     typeof measurement.active === 'boolean' &&
     Array.isArray(measurement.points) && measurement.points.length <= 2 && measurement.points.every(isVec3)
-  )
-}
-
-function isCameraPose(value: unknown): value is ViewerCameraPose {
-  if (!isRecord(value)) return false
-  return (
-    (value.kind === 'perspective' || value.kind === 'orthographic') &&
-    isVec3(value.position) &&
-    isQuaternion(value.quaternion) &&
-    isVec3(value.up) &&
-    isVec3(value.target) &&
-    isNullablePositiveNumber(value.focalLength) &&
-    isNullablePositiveNumber(value.orthographicHalfHeight)
   )
 }
 
@@ -471,20 +476,12 @@ function isNullableNonNegativeInteger(value: unknown) {
   return value === null || isNonNegativeInteger(value)
 }
 
-function isNullablePositiveNumber(value: unknown) {
-  return value === null || (isFiniteNumber(value) && value > 0)
-}
-
 function isNullableString(value: unknown) {
   return value === null || typeof value === 'string'
 }
 
 function isVec3(value: unknown): value is Vec3 {
   return isNumberArray(value, false) && value.length === 3
-}
-
-function isQuaternion(value: unknown): value is [number, number, number, number] {
-  return isNumberArray(value, false) && value.length === 4
 }
 
 function isNumberArray(value: unknown, integersOnly: boolean): value is number[] {

@@ -37,7 +37,8 @@ import { errorColor } from '@/lib/error-palette'
 import { measurePerformance, nowPerformance, recordPerformanceMeasure } from '@/lib/performance'
 import { semanticSurfaceColor } from '@/lib/semantic-surface-colors'
 import { viewerObjectKey } from '@/lib/utils'
-import type { ViewerCameraPose } from '@/lib/viewer-state'
+import { isViewerCameraPose } from '@/lib/viewer-state-schema'
+import type { ViewerCameraPose } from '@/lib/viewer-state-schema'
 
 type Theme = 'light' | 'dark'
 
@@ -5751,7 +5752,7 @@ function parseCameraSyncMessage(value: unknown): CameraSyncMessage | null {
     }
   }
 
-  if (!isCameraSyncPose(candidate.pose)) {
+  if (!isViewerCameraPose(candidate.pose)) {
     return null
   }
 
@@ -5760,39 +5761,6 @@ function parseCameraSyncMessage(value: unknown): CameraSyncMessage | null {
     sourceId: candidate.sourceId,
     pose: candidate.pose,
   }
-}
-
-function isCameraSyncPose(value: unknown): value is ViewerCameraPose {
-  if (!value || typeof value !== 'object') {
-    return false
-  }
-
-  const candidate = value as Partial<ViewerCameraPose>
-  return (
-    (candidate.kind === 'perspective' || candidate.kind === 'orthographic') &&
-    isVec3Value(candidate.position) &&
-    isQuaternionValue(candidate.quaternion) &&
-    isVec3Value(candidate.up) &&
-    isVec3Value(candidate.target) &&
-    (candidate.focalLength == null || isFinitePositiveNumber(candidate.focalLength)) &&
-    (candidate.orthographicHalfHeight == null || isFinitePositiveNumber(candidate.orthographicHalfHeight))
-  )
-}
-
-function isVec3Value(value: unknown): value is Vec3 {
-  return Array.isArray(value) && value.length === 3 && value.every(isFiniteNumber)
-}
-
-function isQuaternionValue(value: unknown): value is [number, number, number, number] {
-  return Array.isArray(value) && value.length === 4 && value.every(isFiniteNumber)
-}
-
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value)
-}
-
-function isFinitePositiveNumber(value: unknown): value is number {
-  return isFiniteNumber(value) && value > 0
 }
 
 function vectorToVec3(vector: THREE.Vector3): Vec3 {

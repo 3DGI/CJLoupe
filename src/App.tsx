@@ -108,6 +108,7 @@ import {
   loadValidationReportFromUrl,
   mergeValidationAnnotations,
 } from '@/lib/cityjson'
+import type { LoadedValidationReport } from '@/lib/cityjson'
 import { validateDatasetWithVal3dity } from '@/lib/val3dity-wasm'
 import type { Val3dityValidationOptions } from '@/lib/val3dity-wasm'
 import { cn, viewerObjectKey } from '@/lib/utils'
@@ -115,7 +116,8 @@ import {
   createViewerShareOutput,
   getViewerShareMode,
   getViewerStateFromUrl,
-  resolveEmbeddedViewerState,
+  resolveViewerStateForDataset,
+  VIEWER_STATE_VERSION,
   VIEWER_STATE_QUERY_PARAM,
 } from '@/lib/viewer-state'
 import type { ViewerCameraPose, ViewerShareStateV1 } from '@/lib/viewer-state'
@@ -303,12 +305,10 @@ function App() {
   const pendingViewportDatasetRef = useRef<ViewerDataset | null>(null)
   const appendNextCityJsonFileSelectionRef = useRef(false)
   const datasetRef = useRef<ViewerDataset | null>(null)
-  const initialViewerStateResolutionRef = useRef<ReturnType<typeof getViewerStateFromUrl> | null>(null)
-  if (initialViewerStateResolutionRef.current === null) {
-    initialViewerStateResolutionRef.current = getViewerStateFromUrl(window.location.href)
-  }
-  const pendingViewerStateRef = useRef<ViewerShareStateV1 | null>(initialViewerStateResolutionRef.current.state)
-  const pendingViewerStateWarningRef = useRef<string | null>(initialViewerStateResolutionRef.current.warning)
+  const [initialViewerStateResolution] = useState(() => getViewerStateFromUrl(window.location.href))
+  const pendingUrlViewerStateRef = useRef<ReturnType<typeof getViewerStateFromUrl> | null>(
+    initialViewerStateResolution,
+  )
   const pendingCameraPoseRef = useRef<ViewerCameraPose | null>(null)
   const latestCameraPoseRef = useRef<ViewerCameraPose | null>(null)
   const shareStatusTimerRef = useRef<number | null>(null)
@@ -334,8 +334,6 @@ function App() {
   const [topDownViewRevision, setTopDownViewRevision] = useState(0)
   const [focusRevision, setFocusRevision] = useState(0)
   const [focusTarget, setFocusTarget] = useState<ViewerFocusTarget>(null)
-  const [annotationSourceName, setAnnotationSourceName] = useState<string | null>(null)
-  const [annotationSourceLocation, setAnnotationSourceLocation] = useState<string | null>(null)
   const [loadingMessage, setLoadingMessage] = useState<string | null>(null)
   const [cameraFocalLength, setCameraFocalLength] = useState(DEFAULT_CAMERA_FOCAL_LENGTH)
   const [viewportCenter, setViewportCenter] = useState<Vec3 | null>(null)
@@ -392,6 +390,8 @@ function App() {
   } | null>(null)
   const dragCountRef = useRef(0)
   const { theme, themeMode, toggleTheme } = useTheme()
+  const annotationSourceName = dataset?.validationSource?.name ?? null
+  const annotationSourceLocation = dataset?.validationSource?.location ?? null
 
   const featureMap = useMemo(() => {
     void geometryRevision
@@ -961,15 +961,6 @@ function App() {
         appendToCurrentScene && dataset ? [dataset, ...loadedDatasets] : loadedDatasets,
       )
       applyDataset(nextDataset, { restoreEmbeddedState: !appendToCurrentScene })
-      if (nextDataset.validationSource) {
-        setAnnotationSourceName(nextDataset.validationSource.name)
-        setAnnotationSourceLocation(nextDataset.validationSource.location)
-        setShowOnlyInvalidFeatures(nextDataset.features.some((feature) => feature.errors.length > 0))
-        setSelectedErrorCodes(null)
-      } else if (!appendToCurrentScene) {
-        setAnnotationSourceName(null)
-        setAnnotationSourceLocation(null)
-      }
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to parse selected files.'
       setError(message)
@@ -985,31 +976,24 @@ function App() {
 
   function applyLoadedAnnotations(
     currentDataset: ViewerDataset,
-    annotations: Map<string, { validity: boolean; errors: ViewerValidationError[] }>,
-    sourceName: string,
-    sourceLocation = sourceName,
-    sourceKind: ViewerValidationSource['sourceKind'] = 'file',
-    sourceText: string | null = null,
+    report: LoadedValidationReport,
+    source: Omit<ViewerValidationSource, 'sourceText'>,
   ) {
-    assertValidationAnnotationsMatchDataset(currentDataset, annotations)
+    assertValidationAnnotationsMatchDataset(currentDataset, report.annotations)
     setDataset((current) => {
       if (!current) {
         return current
       }
 
-      const nextDataset = mergeValidationAnnotations(current, annotations, {
-        name: sourceName,
-        location: sourceLocation,
-        sourceKind,
-        sourceText,
+      const nextDataset = mergeValidationAnnotations(current, report.annotations, {
+        ...source,
+        sourceText: report.sourceText,
       })
       waitForViewportDataset(nextDataset)
       setShowOnlyInvalidFeatures(nextDataset.features.some((feature) => feature.errors.length > 0))
       setSelectedErrorCodes(null)
       return nextDataset
     })
-    setAnnotationSourceName(sourceName)
-    setAnnotationSourceLocation(sourceLocation)
   }
 
   async function openAnnotationFile(file: File) {
@@ -1026,11 +1010,12 @@ function App() {
       const report = await loadValidationReportFromFile(file)
       applyLoadedAnnotations(
         dataset,
-        report.annotations,
-        file.name,
-        getFileSourceLocation(file),
-        'file',
-        report.sourceText,
+        report,
+        {
+          name: file.name,
+          location: getFileSourceLocation(file),
+          sourceKind: 'file',
+        },
       )
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to parse annotation report.'
@@ -1060,11 +1045,12 @@ function App() {
       const report = await loadValidationReportFromUrl(trimmed)
       applyLoadedAnnotations(
         dataset,
-        report.annotations,
-        deriveSourceNameFromUrl(trimmed),
-        trimmed,
-        'url',
-        report.sourceText,
+        report,
+        {
+          name: deriveSourceNameFromUrl(trimmed),
+          location: trimmed,
+          sourceKind: 'url',
+        },
       )
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to load val3dity report from URL.'
@@ -1092,11 +1078,12 @@ function App() {
       const report = await validateDatasetWithVal3dity(dataset, buildVal3dityValidationOptions(val3dityParameters))
       applyLoadedAnnotations(
         dataset,
-        report.annotations,
-        'val3dity wasm',
-        'val3dity wasm',
-        'generated',
-        report.sourceText,
+        report,
+        {
+          name: 'val3dity wasm',
+          location: 'val3dity wasm',
+          sourceKind: 'generated',
+        },
       )
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to run val3dity validation.'
@@ -1197,8 +1184,6 @@ function App() {
         sourceText: report.sourceText,
       })
       applyDataset(mergedDataset)
-      setAnnotationSourceName(reportFile.name)
-      setAnnotationSourceLocation(getFileSourceLocation(reportFile))
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to load dropped files.'
       setError(message)
@@ -1208,12 +1193,22 @@ function App() {
     }
   }
 
-  const resetViewerState = useCallback(() => {
+  const resetViewerState = useCallback((nextDataset: ViewerDataset) => {
     setCameraFocalLength(DEFAULT_CAMERA_FOCAL_LENGTH)
+    setSelectedFeatureId(null)
+    setActiveObjectId(null)
     setGeometryDisplayMode({ kind: 'best' })
     setActiveGeometryIndex(null)
+    setSelectedFaceIndex(null)
+    setSelectedFaceRingIndex(0)
+    setSelectedVertexIndex(null)
+    setSelectedFaceVertexEntryIndex(null)
+    setSelectedSemanticSurface(null)
+    setEditMode(false)
     setHideOccludedEditEdges(true)
-    setShowOnlyInvalidFeatures(false)
+    setShowOnlyInvalidFeatures(
+      Boolean(nextDataset.validationSource) && nextDataset.features.some((feature) => feature.errors.length > 0),
+    )
     setSelectedErrorCodes(null)
     setAppearanceMode('regular')
     setIsolateSelectedFeature(false)
@@ -1222,10 +1217,10 @@ function App() {
     setSearchQuery('')
     setFocusTarget(null)
     setPickingMode('object')
+    setMobileInspectMode('object')
     setMeasurementActive(false)
     setMeasurementPoints([])
     setShowVertexGizmo(false)
-    setSelectedSemanticSurface(null)
     setPinnedAttributeKeys([])
     setIsPinnedAttributesOpen(false)
     setAttributeColorKey(null)
@@ -1238,6 +1233,8 @@ function App() {
     attributeColorDomainsByKeyRef.current = new Map()
     attributeColorMapIdsByKeyRef.current = new Map()
     attributeColorMapReversedByKeyRef.current = new Map()
+    preInspectPickingModeRef.current = 'object'
+    inspectPickingModeRef.current = 'face'
     setViewportCenter(null)
     setViewportResetRevision((current) => current + 1)
   }, [])
@@ -1270,16 +1267,17 @@ function App() {
       ? state.selection.faceRingIndex
       : 0
     const restoredRing = restoredFace?.[restoredFaceRingIndex] ?? null
-    const restoredVertexIndex = restoredRing?.includes(state.selection.vertexIndex ?? -1)
+    const restoredVertexIndex = state.selection.vertexIndex != null &&
+      restoredGeometry?.vertexIndices.includes(state.selection.vertexIndex)
       ? state.selection.vertexIndex
       : null
-    const restoredFaceVertexEntryIndex = restoredVertexIndex != null &&
-      state.selection.faceVertexEntryIndex != null &&
-      restoredRing?.[state.selection.faceVertexEntryIndex] === restoredVertexIndex
+    let restoredFaceVertexEntryIndex: number | null = null
+    if (restoredVertexIndex != null && restoredRing?.includes(restoredVertexIndex)) {
+      restoredFaceVertexEntryIndex = state.selection.faceVertexEntryIndex != null &&
+        restoredRing[state.selection.faceVertexEntryIndex] === restoredVertexIndex
         ? state.selection.faceVertexEntryIndex
-        : restoredVertexIndex != null
-          ? restoredRing?.indexOf(restoredVertexIndex) ?? null
-          : null
+        : restoredRing.indexOf(restoredVertexIndex)
+    }
     const restoredSemanticSurface = state.selection.semanticSurfaceSelected &&
       restoredFeature && restoredObject && restoredGeometry && restoredFaceIndex != null
         ? restoredGeometry.semanticSurfaces[restoredFaceIndex]
@@ -1398,16 +1396,12 @@ function App() {
     nextDataset: ViewerDataset,
     options?: { restoreEmbeddedState?: boolean },
   ) => {
-    let viewerState = pendingViewerStateRef.current
-    let viewerStateWarning = pendingViewerStateWarningRef.current
-    if (viewerState) {
-      pendingViewerStateRef.current = null
-      pendingViewerStateWarningRef.current = null
-    } else if (options?.restoreEmbeddedState !== false) {
-      const embedded = resolveEmbeddedViewerState(nextDataset)
-      viewerState = embedded.state
-      viewerStateWarning ??= embedded.warning
-    }
+    const viewerStateResolution = resolveViewerStateForDataset(
+      nextDataset,
+      pendingUrlViewerStateRef.current,
+      options?.restoreEmbeddedState !== false,
+    )
+    pendingUrlViewerStateRef.current = null
 
     datasetRef.current = nextDataset
     latestCameraPoseRef.current = null
@@ -1417,23 +1411,14 @@ function App() {
     originalVerticesRef.current = new Map()
     originalObjectGeometriesRef.current = new Map()
     waitForViewportDataset(nextDataset)
-    resetViewerState()
+    resetViewerState(nextDataset)
     setDataset(nextDataset)
 
-    setSelectedFeatureId(null)
-    setActiveObjectId(null)
-    setActiveGeometryIndex(null)
-    setSelectedFaceIndex(null)
-    setSelectedFaceRingIndex(0)
-    setSelectedVertexIndex(null)
-    setSelectedFaceVertexEntryIndex(null)
-    setEditMode(false)
-    if (viewerState) {
-      restoreViewerState(nextDataset, viewerState)
+    if (viewerStateResolution.state) {
+      restoreViewerState(nextDataset, viewerStateResolution.state)
     }
-    if (viewerStateWarning) {
-      setError(viewerStateWarning)
-      pendingViewerStateWarningRef.current = null
+    if (viewerStateResolution.warning) {
+      setError(viewerStateResolution.warning)
     }
   }, [resetViewerState, restoreViewerState, waitForViewportDataset])
 
@@ -1463,12 +1448,8 @@ function App() {
           sourceKind: 'url',
           sourceText: report.sourceText,
         }))
-        setAnnotationSourceName(deriveSourceNameFromUrl(example.validationReportUrl))
-        setAnnotationSourceLocation(example.validationReportUrl)
       } else {
         applyDataset(nextDataset)
-        setAnnotationSourceName(nextDataset.validationSource?.name ?? null)
-        setAnnotationSourceLocation(nextDataset.validationSource?.location ?? null)
       }
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : `Failed to load ${example.name}.`
@@ -1504,8 +1485,6 @@ function App() {
         sourceText: report.sourceText,
       })
       applyDataset(mergedDataset)
-      setAnnotationSourceName(deriveSourceNameFromUrl(cleanValUrl))
-      setAnnotationSourceLocation(cleanValUrl)
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to load files from URL parameters.'
       setError(message)
@@ -1536,15 +1515,6 @@ function App() {
         appendToCurrentScene && currentDataset ? [currentDataset, ...loadedDatasets] : loadedDatasets,
       )
       applyDataset(nextDataset, { restoreEmbeddedState: !appendToCurrentScene })
-      if (nextDataset.validationSource) {
-        setAnnotationSourceName(nextDataset.validationSource.name)
-        setAnnotationSourceLocation(nextDataset.validationSource.location)
-        setShowOnlyInvalidFeatures(nextDataset.features.some((feature) => feature.errors.length > 0))
-        setSelectedErrorCodes(null)
-      } else if (!appendToCurrentScene) {
-        setAnnotationSourceName(null)
-        setAnnotationSourceLocation(null)
-      }
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to load file from URL.'
       setError(message)
@@ -1569,9 +1539,8 @@ function App() {
       void openCityJsonFromUrls(cjParams)
     } else {
       setIsLoading(false)
-      if (pendingViewerStateWarningRef.current) {
-        setError(pendingViewerStateWarningRef.current)
-        pendingViewerStateWarningRef.current = null
+      if (pendingUrlViewerStateRef.current?.warning) {
+        setError(pendingUrlViewerStateRef.current.warning)
       } else {
         setIsFileDialogOpen(true)
       }
@@ -1599,9 +1568,7 @@ function App() {
   }, [openCityJsonFromUrl])
 
   function clearAnnotations() {
-    setDataset((current) => (current ? { ...mergeValidationAnnotations(current, new Map()), validationSource: null } : current))
-    setAnnotationSourceName(null)
-    setAnnotationSourceLocation(null)
+    setDataset((current) => (current ? mergeValidationAnnotations(current, new Map(), null) : current))
     setShowOnlyInvalidFeatures(false)
     setSelectedErrorCodes(null)
   }
@@ -2553,7 +2520,7 @@ function App() {
     }
 
     return {
-      version: 1,
+      version: VIEWER_STATE_VERSION,
       camera,
       selection: {
         featureId: selectedFeatureId,

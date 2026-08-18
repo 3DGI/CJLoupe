@@ -14,9 +14,11 @@ import {
   measurePerformance,
   nowPerformance,
   recordPerformanceMeasure,
-} from '@/lib/performance'
-
-const CJLOUPE_VIEWER_STATE_PROPERTY = '+CJLoupe-viewerState'
+} from './performance'
+import {
+  CJLOUPE_VIEWER_STATE_PROPERTY,
+  VIEWER_STATE_VERSION,
+} from './viewer-state-schema'
 
 type CityJsonTransform = {
   scale?: number[]
@@ -53,7 +55,7 @@ type CityJsonHeader = {
   transform?: CityJsonTransform
   metadata?: Record<string, unknown>
   '+val3dity-report'?: Val3dityExtensionReport
-  '+CJLoupe-viewerState'?: unknown
+  [CJLOUPE_VIEWER_STATE_PROPERTY]?: unknown
 }
 
 type CityJsonDocument = CityJsonHeader & {
@@ -313,22 +315,22 @@ export function combineViewerDatasets(datasets: ViewerDataset[]): ViewerDataset 
   const cityJsonKinds = new Set(sources.map((source) => source.cityJsonKind))
   const cityJsonVersions = new Set(sources.map((source) => source.cityJsonVersion).filter((version) => version != null))
   const validationSources = datasets.flatMap((dataset) => dataset.validationSource ? [dataset.validationSource] : [])
+  const standaloneValidationSource = validationSources.find((source) => source.sourceKind !== 'embedded')
+  const validationSource: ViewerDataset['validationSource'] = standaloneValidationSource ?? (validationSources.length > 0
+    ? {
+        name: 'embedded val3dity reports',
+        location: validationSources.map((source) => source.location).join('\n'),
+        sourceKind: 'embedded',
+        sourceText: null,
+      }
+    : null)
 
   return {
     sourceName,
     sourceLocation,
     sourceText: '',
     sources,
-    validationSource: validationSources.length > 0
-      ? validationSources.length === 1
-        ? validationSources[0]
-        : {
-            name: 'embedded val3dity reports',
-            location: validationSources.map((source) => source.location).join('\n'),
-            sourceKind: 'embedded',
-            sourceText: null,
-          }
-      : null,
+    validationSource,
     center,
     extent,
     features,
@@ -948,13 +950,7 @@ export function parseValidationReport(text: string) {
     throw new Error('Validation report contains no features.')
   }
 
-  const annotations = new Map<
-    string,
-    {
-      validity: boolean
-      errors: ViewerValidationError[]
-    }
-  >()
+  const annotations: ValidationAnnotations = new Map()
 
   for (const feature of report.features) {
     if (!feature || typeof feature !== 'object' || Array.isArray(feature)) {
@@ -1031,7 +1027,7 @@ function readEmbeddedViewerState(header: CityJsonHeader | null) {
   }
 
   const candidate = value as Record<string, unknown>
-  if (candidate.version === 1 &&
+  if (candidate.version === VIEWER_STATE_VERSION &&
     candidate.encoding === 'base64url' &&
     typeof candidate.state === 'string') {
     return {
