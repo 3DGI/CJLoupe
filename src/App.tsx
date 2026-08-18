@@ -149,8 +149,8 @@ type ExampleDatasetConfig = {
 const EXAMPLE_DATASETS: readonly ExampleDatasetConfig[] = [
   {
     id: 'rf-val3dity',
-    name: 'Weesperstraat, Amsterdam (3DBAG v2025.09.03)',
-    description: 'A piece of 3DBAG with a matching val3dity validation report.',
+    name: 'Weesperstraat, Amsterdam',
+    description: 'An old roofer reconstruction with a matching val3dity validation report.',
     formatBadges: ['CityJSONSeq', 'val3dity annotations'],
     cityJsonUrls: [`${import.meta.env.BASE_URL}samples/rf-val3dity.city.jsonl`],
     validationReportUrl: `${import.meta.env.BASE_URL}samples/val-report.json`,
