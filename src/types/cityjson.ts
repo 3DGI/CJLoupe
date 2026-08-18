@@ -40,6 +40,8 @@ export interface ViewerValidationError {
   geometryIndex: number | null
   shellIndex: number | null
   faceIndex: number | null
+  ringIndex: number | null
+  vertexIndex: number | null
   location: Vec3 | null
 }
 

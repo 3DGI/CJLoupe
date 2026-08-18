@@ -91,6 +91,7 @@ import changelogText from '../CHANGELOG.md?raw'
 import packageJson from '../package.json'
 import {
   assertValidationAnnotationsMatchDataset,
+  classifyJsonFile,
   combineViewerDatasets,
   loadCityJsonFromFile,
   loadCityJsonFromUrl,
@@ -1078,7 +1079,7 @@ function App() {
     event.target.value = ''
   }
 
-  function handleDrop(event: React.DragEvent) {
+  async function handleDrop(event: React.DragEvent) {
     event.preventDefault()
     setIsDragging(false)
     const files = Array.from(event.dataTransfer.files)
@@ -1086,6 +1087,7 @@ function App() {
     const appendToCurrentScene = event.shiftKey
 
     const cityFiles: File[] = []
+    const ambiguousJsonFiles: File[] = []
     let reportFile: File | null = null
 
     for (const file of files) {
@@ -1093,7 +1095,29 @@ function App() {
       if (isCityJsonFileName(name)) {
         cityFiles.push(file)
       } else if (name.endsWith('.json')) {
+        ambiguousJsonFiles.push(file)
+      }
+    }
+
+    const classifiedJsonFiles = await Promise.all(
+      ambiguousJsonFiles.map(async (file) => ({ file, kind: await classifyJsonFile(file) })),
+    )
+    const unknownJsonFiles: File[] = []
+    for (const { file, kind } of classifiedJsonFiles) {
+      if (kind === 'cityjson') {
+        cityFiles.push(file)
+      } else if (kind === 'validation-report') {
         reportFile = file
+      } else {
+        unknownJsonFiles.push(file)
+      }
+    }
+
+    for (const file of unknownJsonFiles) {
+      if (dataset || cityFiles.length > 0) {
+        reportFile = file
+      } else {
+        cityFiles.push(file)
       }
     }
 

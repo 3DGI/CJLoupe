@@ -11,7 +11,8 @@
 - Add CityObjects error-code filtering with a popover of checkbox toggles when showing validation errors only
 - Add option to synchronised camera's between different CJLoupe tabs, use button in bottom right to launch such a camera synchronised tab.
 - Allow opening multiple files at once
-- Add support for experimental val3dity cityjson extension
+- Add support for the experimental val3dity CityJSON extension version 0.2.0
+- Detect whether dropped `.json` files are CityJSON documents or standalone val3dity reports from their contents
 - Put the val3dity errors under relvant geometry in geometry tab
 - Prevent clipping through meshes when zooming out from close orthographic views
 - Add distance measuring tool

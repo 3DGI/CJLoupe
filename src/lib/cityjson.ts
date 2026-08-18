@@ -89,22 +89,40 @@ type Val3dityReport = {
 }
 
 type Val3dityExtensionReport = {
-  type?: string
   val3dityVersion?: string
-  inputFile?: string
-  inputFileType?: string
   validity?: boolean
+  parameters?: Record<string, number | string | boolean>
+  featuresOverview?: Val3dityExtensionSummary[]
+  primitivesOverview?: Val3dityExtensionSummary[]
+  errorCodeSummary?: Val3dityExtensionErrorCodeCount[]
+  datasetErrors?: Val3dityExtensionDatasetError[]
+}
+
+type Val3dityExtensionSummary = {
+  type?: string
+  total?: number
+  valid?: number
+}
+
+type Val3dityExtensionErrorCodeCount = {
+  code?: number
+  count?: number
+}
+
+type Val3dityExtensionDatasetError = {
+  code?: number
+  description?: string
+  info?: string
+  sourceId?: string
 }
 
 type Val3dityExtensionValidation = {
   validity?: boolean
-  reportFeatureId?: string
   geometries?: Val3dityExtensionGeometryValidation[]
 }
 
 type Val3dityExtensionGeometryValidation = {
   geometryIndex?: number
-  validity?: boolean
   errors?: Val3dityExtensionError[]
 }
 
@@ -117,14 +135,17 @@ type Val3dityExtensionError = {
 }
 
 type Val3dityExtensionErrorLocation = {
-  cityObjectId?: string
-  geometryIndex?: number
   shellIndex?: number
   faceIndex?: number
+  ringIndex?: number
+  vertexIndex?: number
   point?: {
+    role?: 'reported' | 'derived-centroid'
     coordinates?: unknown
   }
 }
+
+const fileTextCache = new WeakMap<File, Promise<string>>()
 
 export async function loadCityJsonSequenceFromUrl(url: string, sourceName: string) {
   return loadCityJsonFromUrl(url, sourceName, { cityJsonKind: 'sequence' })
@@ -160,7 +181,7 @@ export async function loadCityJsonFromFile(
   return measureAsyncPerformance('cjvis:cityjson:load-file-total', async () => {
     let text: string
     try {
-      text = await measureAsyncPerformance('cjvis:cityjson:read-file-text', () => file.text())
+      text = await measureAsyncPerformance('cjvis:cityjson:read-file-text', () => readFileText(file))
     } catch (caughtError) {
       throw new Error(
         `Could not read ${file.name} (${formatByteSize(file.size)}). Very large CityJSON files can exceed browser memory limits.`,
@@ -192,8 +213,38 @@ export async function loadValidationReportFromUrl(url: string) {
 }
 
 export async function loadValidationReportFromFile(file: File) {
-  const text = await file.text()
+  const text = await readFileText(file)
   return parseValidationReport(text)
+}
+
+export async function classifyJsonFile(file: File): Promise<'cityjson' | 'validation-report' | 'unknown'> {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(await readFileText(file)) as unknown
+  } catch {
+    return 'unknown'
+  }
+
+  if (!isRecord(parsed)) {
+    return 'unknown'
+  }
+
+  if (parsed.type === 'CityJSON') {
+    return 'cityjson'
+  }
+
+  return Array.isArray(parsed.features) ? 'validation-report' : 'unknown'
+}
+
+function readFileText(file: File) {
+  const cached = fileTextCache.get(file)
+  if (cached) {
+    return cached
+  }
+
+  const pending = file.text()
+  fileTextCache.set(file, pending)
+  return pending
 }
 
 export function combineViewerDatasets(datasets: ViewerDataset[]): ViewerDataset {
@@ -407,7 +458,7 @@ export function parseCityJsonSequence(text: string, sourceName: string): ViewerD
         viewerFeatureDuration += nowPerformance() - startedAt
 
         if (viewerFeature) {
-          features.push(applyVal3dityExtensionValidation(viewerFeature, feature.CityObjects, feature.id ?? rootObjectId, hasVal3dityExtensionReport))
+          features.push(applyVal3dityExtensionValidation(viewerFeature, feature.CityObjects, hasVal3dityExtensionReport))
         }
       }
 
@@ -469,7 +520,7 @@ function parseCityJsonDocument(document: CityJsonDocument, sourceName: string, s
         })
 
         if (viewerFeature) {
-          features.push(applyVal3dityExtensionValidation(viewerFeature, localized.cityObjects, rootObjectId, hasVal3dityExtensionReport))
+          features.push(applyVal3dityExtensionValidation(viewerFeature, localized.cityObjects, hasVal3dityExtensionReport))
         }
       }
 
@@ -488,7 +539,7 @@ function parseCityJsonDocument(document: CityJsonDocument, sourceName: string, s
         })
 
         if (viewerFeature) {
-          features.push(applyVal3dityExtensionValidation(viewerFeature, localized.cityObjects, objectId, hasVal3dityExtensionReport))
+          features.push(applyVal3dityExtensionValidation(viewerFeature, localized.cityObjects, hasVal3dityExtensionReport))
         }
       }
     })
@@ -614,7 +665,9 @@ function hasVal3dityReport(header: CityJsonHeader) {
 
 function getVal3dityReport(header: CityJsonHeader) {
   const report = header['+val3dity-report']
-  return isRecord(report) && report.type === 'val3dity_report'
+  return isRecord(report) &&
+    typeof report.val3dityVersion === 'string' &&
+    typeof report.validity === 'boolean'
     ? (report as Val3dityExtensionReport)
     : null
 }
@@ -622,7 +675,6 @@ function getVal3dityReport(header: CityJsonHeader) {
 function applyVal3dityExtensionValidation(
   feature: ViewerFeature,
   cityObjects: Record<string, CityJsonObject>,
-  fallbackFeatureId: string,
   hasVal3dityExtensionReport: boolean,
 ): ViewerFeature {
   let validity: boolean | null = null
@@ -634,21 +686,11 @@ function applyVal3dityExtensionValidation(
       continue
     }
 
-    const reportFeatureId = typeof validation.reportFeatureId === 'string' && validation.reportFeatureId.trim()
-      ? validation.reportFeatureId.trim()
-      : fallbackFeatureId
-    if (reportFeatureId !== feature.id) {
-      continue
-    }
-
     if (typeof validation.validity === 'boolean') {
       validity = validation.validity === false ? false : validity ?? true
     }
 
     for (const geometryValidation of validation.geometries ?? []) {
-      if (typeof geometryValidation.validity === 'boolean') {
-        validity = geometryValidation.validity === false ? false : validity ?? true
-      }
       for (const error of geometryValidation.errors ?? []) {
         errors.push(parseVal3dityExtensionError(error, cityObjectId, geometryValidation.geometryIndex))
       }
@@ -688,12 +730,12 @@ function parseVal3dityExtensionError(
     description: error.description ?? 'UNKNOWN',
     id: rawId,
     info: error.info ?? '',
-    cityObjectId: typeof location?.cityObjectId === 'string'
-      ? location.cityObjectId
-      : parts.coid ?? fallbackCityObjectId,
-    geometryIndex: parseNullableIntegerValue(location?.geometryIndex) ?? parseNullableInteger(parts.geom) ?? parseNullableIntegerValue(fallbackGeometryIndex),
+    cityObjectId: fallbackCityObjectId,
+    geometryIndex: parseNullableIntegerValue(fallbackGeometryIndex) ?? parseNullableInteger(parts.geom),
     shellIndex: parseNullableIntegerValue(location?.shellIndex) ?? parseNullableInteger(parts.shell),
     faceIndex: parseNullableIntegerValue(location?.faceIndex) ?? parseNullableInteger(parts.face),
+    ringIndex: parseNullableIntegerValue(location?.ringIndex) ?? parseNullableInteger(parts.ring),
+    vertexIndex: parseNullableIntegerValue(location?.vertexIndex) ?? parseNullableInteger(parts.vertex),
     location: parseValidationPoint(pointCoordinates) ?? parseValidationLocation(error.info, error.description),
   }
 }
@@ -1263,6 +1305,8 @@ function parseValidationError(error: Val3dityError): ViewerValidationError {
     geometryIndex: parseNullableInteger(parts.geom),
     shellIndex: parseNullableInteger(parts.shell),
     faceIndex: parseNullableInteger(parts.face),
+    ringIndex: parseNullableInteger(parts.ring),
+    vertexIndex: parseNullableInteger(parts.vertex),
     location: parseValidationLocation(error.info, error.description),
   }
 }
