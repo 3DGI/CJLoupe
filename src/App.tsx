@@ -126,8 +126,6 @@ import type {
   ViewerValidationError,
 } from '@/types/cityjson'
 
-const SAMPLE_URL = `${import.meta.env.BASE_URL}samples/rf-val3dity.city.jsonl`
-const SAMPLE_REPORT_URL = `${import.meta.env.BASE_URL}samples/val-report.json`
 type ExampleDatasetConfig = {
   id: string
   name: string
@@ -139,11 +137,11 @@ type ExampleDatasetConfig = {
 const EXAMPLE_DATASETS: readonly ExampleDatasetConfig[] = [
   {
     id: 'rf-val3dity',
-    name: 'RF val3dity sample',
-    description: 'A compact CityJSON sequence with a matching val3dity validation report.',
+    name: 'Weesperstraat, Amsterdam (3DBAG v2025.09.03)',
+    description: 'A piece of 3DBAG with a matching val3dity validation report.',
     formatBadges: ['CityJSONSeq', 'val3dity annotations'],
-    cityJsonUrls: [SAMPLE_URL],
-    validationReportUrl: SAMPLE_REPORT_URL,
+    cityJsonUrls: [`${import.meta.env.BASE_URL}samples/rf-val3dity.city.jsonl`],
+    validationReportUrl: `${import.meta.env.BASE_URL}samples/val-report.json`,
   },
 ]
 const VAL3DITY_ERRORS_URL = 'https://val3dity.readthedocs.io/2.6.0/errors/'
