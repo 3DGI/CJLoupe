@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Add shareable viewer-state snapshots: copy links for URL-backed scenes or download state-enriched CityJSON files and ZIP bundles for local scenes
 - Open the file chooser on startup instead of automatically loading the sample, with the bundled sample available as an example
 - Reimplement normal coloring mode to calculate color in-shader
 - Add semantic surface type badge to face vertex circulator panel in edit mode

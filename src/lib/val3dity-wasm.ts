@@ -1,15 +1,8 @@
 import { parseValidationReport } from '@/lib/cityjson'
-import type { ViewerDataset, ViewerValidationError } from '@/types/cityjson'
+import type { LoadedValidationReport } from '@/lib/cityjson'
+import type { ViewerDataset } from '@/types/cityjson'
 import { createVal3dity } from '@/vendor/val3dity/val3dity.js'
 import val3dityWasmUrl from '@/vendor/val3dity/val3dity_wasm.wasm?url'
-
-type ValidationAnnotations = Map<
-  string,
-  {
-    validity: boolean
-    errors: ViewerValidationError[]
-  }
->
 
 type Val3dityModule = {
   validateCityJSON(input: string, validationOptions?: Val3dityValidationOptions): unknown
@@ -29,7 +22,7 @@ let val3dityPromise: Promise<Val3dityModule> | null = null
 export async function validateDatasetWithVal3dity(
   dataset: ViewerDataset,
   validationOptions: Val3dityValidationOptions = {},
-): Promise<ValidationAnnotations> {
+): Promise<LoadedValidationReport> {
   if (dataset.cityJsonKind === 'Multiple') {
     throw new Error('Combined CityJSON scenes cannot be validated as a single source file.')
   }
@@ -43,7 +36,11 @@ export async function validateDatasetWithVal3dity(
       ? val3dity.validateCityJSONSeq(dataset.sourceText, validationOptions)
       : val3dity.validateCityJSON(dataset.sourceText, validationOptions)
 
-  return parseValidationReport(JSON.stringify(report))
+  const sourceText = JSON.stringify(report)
+  return {
+    annotations: parseValidationReport(sourceText),
+    sourceText,
+  }
 }
 
 async function loadVal3dity() {

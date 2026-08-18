@@ -31,6 +31,7 @@ import {
   RotateCw,
   Search,
   SearchAlert,
+  Share2,
   Columns3Cog,
   Shuffle,
   SquareMousePointer,
@@ -110,6 +111,14 @@ import {
 import { validateDatasetWithVal3dity } from '@/lib/val3dity-wasm'
 import type { Val3dityValidationOptions } from '@/lib/val3dity-wasm'
 import { cn, viewerObjectKey } from '@/lib/utils'
+import {
+  createViewerShareOutput,
+  getViewerShareMode,
+  getViewerStateFromUrl,
+  resolveEmbeddedViewerState,
+  VIEWER_STATE_QUERY_PARAM,
+} from '@/lib/viewer-state'
+import type { ViewerCameraPose, ViewerShareStateV1 } from '@/lib/viewer-state'
 import type {
   PolygonRings,
   Vec3,
@@ -124,6 +133,7 @@ import type {
   ViewerPickingMode,
   ViewerSemanticSurface,
   ViewerValidationError,
+  ViewerValidationSource,
 } from '@/types/cityjson'
 
 type ExampleDatasetConfig = {
@@ -293,6 +303,15 @@ function App() {
   const pendingViewportDatasetRef = useRef<ViewerDataset | null>(null)
   const appendNextCityJsonFileSelectionRef = useRef(false)
   const datasetRef = useRef<ViewerDataset | null>(null)
+  const initialViewerStateResolutionRef = useRef<ReturnType<typeof getViewerStateFromUrl> | null>(null)
+  if (initialViewerStateResolutionRef.current === null) {
+    initialViewerStateResolutionRef.current = getViewerStateFromUrl(window.location.href)
+  }
+  const pendingViewerStateRef = useRef<ViewerShareStateV1 | null>(initialViewerStateResolutionRef.current.state)
+  const pendingViewerStateWarningRef = useRef<string | null>(initialViewerStateResolutionRef.current.warning)
+  const pendingCameraPoseRef = useRef<ViewerCameraPose | null>(null)
+  const latestCameraPoseRef = useRef<ViewerCameraPose | null>(null)
+  const shareStatusTimerRef = useRef<number | null>(null)
 
   const [cameraFollowChannel, setCameraFollowChannel] = useState(() => getCameraFollowChannelFromUrl())
   const [cameraPublishChannel, setCameraPublishChannel] = useState<string | null>(null)
@@ -357,6 +376,13 @@ function App() {
   const [dismissedErrorMessage, setDismissedErrorMessage] = useState<string | null>(null)
   const [pickingMode, setPickingMode] = useState<ViewerPickingMode>('object')
   const [showVertexGizmo, setShowVertexGizmo] = useState(false)
+  const [cameraRestoreRequest, setCameraRestoreRequest] = useState<{
+    revision: number
+    pose: ViewerCameraPose
+  } | null>(null)
+  const [isSharing, setIsSharing] = useState(false)
+  const [shareStatus, setShareStatus] = useState('')
+  const [hasCameraPose, setHasCameraPose] = useState(false)
   const [selectedSemanticSurface, setSelectedSemanticSurface] = useState<{
     featureId: string
     objectId: string
@@ -368,6 +394,7 @@ function App() {
   const { theme, themeMode, toggleTheme } = useTheme()
 
   const featureMap = useMemo(() => {
+    void geometryRevision
     return new Map(dataset?.features.map((feature) => [feature.id, feature]) ?? [])
   }, [dataset, geometryRevision])
 
@@ -907,6 +934,14 @@ function App() {
     }
 
     pendingViewportDatasetRef.current = null
+    const pendingCameraPose = pendingCameraPoseRef.current
+    if (pendingCameraPose) {
+      pendingCameraPoseRef.current = null
+      setCameraRestoreRequest((current) => ({
+        revision: (current?.revision ?? 0) + 1,
+        pose: pendingCameraPose,
+      }))
+    }
     setIsLoading(false)
   }, [])
 
@@ -925,7 +960,7 @@ function App() {
       const nextDataset = combineViewerDatasets(
         appendToCurrentScene && dataset ? [dataset, ...loadedDatasets] : loadedDatasets,
       )
-      applyDataset(nextDataset)
+      applyDataset(nextDataset, { restoreEmbeddedState: !appendToCurrentScene })
       if (nextDataset.validationSource) {
         setAnnotationSourceName(nextDataset.validationSource.name)
         setAnnotationSourceLocation(nextDataset.validationSource.location)
@@ -953,6 +988,8 @@ function App() {
     annotations: Map<string, { validity: boolean; errors: ViewerValidationError[] }>,
     sourceName: string,
     sourceLocation = sourceName,
+    sourceKind: ViewerValidationSource['sourceKind'] = 'file',
+    sourceText: string | null = null,
   ) {
     assertValidationAnnotationsMatchDataset(currentDataset, annotations)
     setDataset((current) => {
@@ -960,7 +997,12 @@ function App() {
         return current
       }
 
-      const nextDataset = mergeValidationAnnotations(current, annotations)
+      const nextDataset = mergeValidationAnnotations(current, annotations, {
+        name: sourceName,
+        location: sourceLocation,
+        sourceKind,
+        sourceText,
+      })
       waitForViewportDataset(nextDataset)
       setShowOnlyInvalidFeatures(nextDataset.features.some((feature) => feature.errors.length > 0))
       setSelectedErrorCodes(null)
@@ -981,8 +1023,15 @@ function App() {
     setIsFileDialogOpen(false)
 
     try {
-      const annotations = await loadValidationReportFromFile(file)
-      applyLoadedAnnotations(dataset, annotations, file.name, getFileSourceLocation(file))
+      const report = await loadValidationReportFromFile(file)
+      applyLoadedAnnotations(
+        dataset,
+        report.annotations,
+        file.name,
+        getFileSourceLocation(file),
+        'file',
+        report.sourceText,
+      )
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to parse annotation report.'
       setError(message)
@@ -1008,8 +1057,15 @@ function App() {
     setAnnotationUrlInput('')
 
     try {
-      const annotations = await loadValidationReportFromUrl(trimmed)
-      applyLoadedAnnotations(dataset, annotations, deriveSourceNameFromUrl(trimmed), trimmed)
+      const report = await loadValidationReportFromUrl(trimmed)
+      applyLoadedAnnotations(
+        dataset,
+        report.annotations,
+        deriveSourceNameFromUrl(trimmed),
+        trimmed,
+        'url',
+        report.sourceText,
+      )
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to load val3dity report from URL.'
       setError(message)
@@ -1033,8 +1089,15 @@ function App() {
         throw new Error('Fix the val3dity parameters before running validation.')
       }
       await waitForNextPaint()
-      const annotations = await validateDatasetWithVal3dity(dataset, buildVal3dityValidationOptions(val3dityParameters))
-      applyLoadedAnnotations(dataset, annotations, 'val3dity wasm')
+      const report = await validateDatasetWithVal3dity(dataset, buildVal3dityValidationOptions(val3dityParameters))
+      applyLoadedAnnotations(
+        dataset,
+        report.annotations,
+        'val3dity wasm',
+        'val3dity wasm',
+        'generated',
+        report.sourceText,
+      )
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : 'Failed to run val3dity validation.'
       setError(message)
@@ -1121,13 +1184,18 @@ function App() {
     setIsFileDialogOpen(false)
 
     try {
-      const [loadedDatasets, annotations] = await Promise.all([
+      const [loadedDatasets, report] = await Promise.all([
         Promise.all(cityFiles.map((file) => loadCityJsonFromFile(file))),
         loadValidationReportFromFile(reportFile),
       ])
       const nextDataset = combineViewerDatasets(loadedDatasets)
-      assertValidationAnnotationsMatchDataset(nextDataset, annotations)
-      const mergedDataset = mergeValidationAnnotations(nextDataset, annotations)
+      assertValidationAnnotationsMatchDataset(nextDataset, report.annotations)
+      const mergedDataset = mergeValidationAnnotations(nextDataset, report.annotations, {
+        name: reportFile.name,
+        location: getFileSourceLocation(reportFile),
+        sourceKind: 'file',
+        sourceText: report.sourceText,
+      })
       applyDataset(mergedDataset)
       setAnnotationSourceName(reportFile.name)
       setAnnotationSourceLocation(getFileSourceLocation(reportFile))
@@ -1174,8 +1242,178 @@ function App() {
     setViewportResetRevision((current) => current + 1)
   }, [])
 
-  const applyDataset = useCallback((nextDataset: ViewerDataset) => {
+  const restoreViewerState = useCallback((nextDataset: ViewerDataset, state: ViewerShareStateV1) => {
+    const availableLodSet = new Set(collectAvailableLods(nextDataset))
+    const restoredGeometryDisplayMode =
+      state.selection.geometryDisplayMode.kind === 'lod' &&
+      availableLodSet.has(state.selection.geometryDisplayMode.lod)
+        ? state.selection.geometryDisplayMode
+        : { kind: 'best' } satisfies ViewerGeometryDisplayMode
+    const restoredFeature = state.selection.featureId
+      ? nextDataset.features.find((feature) => feature.id === state.selection.featureId) ?? null
+      : null
+    const restoredObject = restoredFeature && state.selection.objectId
+      ? restoredFeature.objects.find((object) => object.id === state.selection.objectId) ?? null
+      : null
+    const restoredGeometryIndex = resolveObjectGeometryIndex(
+      restoredObject,
+      restoredGeometryDisplayMode,
+      state.selection.geometryIndex,
+    )
+    const restoredGeometry = getObjectGeometryByIndex(restoredObject, restoredGeometryIndex)
+    const restoredFaceIndex = restoredGeometry && state.selection.faceIndex != null &&
+      state.selection.faceIndex < restoredGeometry.polygons.length
+        ? state.selection.faceIndex
+        : null
+    const restoredFace = restoredFaceIndex != null ? restoredGeometry?.polygons[restoredFaceIndex] ?? null : null
+    const restoredFaceRingIndex = restoredFace && state.selection.faceRingIndex < restoredFace.length
+      ? state.selection.faceRingIndex
+      : 0
+    const restoredRing = restoredFace?.[restoredFaceRingIndex] ?? null
+    const restoredVertexIndex = restoredRing?.includes(state.selection.vertexIndex ?? -1)
+      ? state.selection.vertexIndex
+      : null
+    const restoredFaceVertexEntryIndex = restoredVertexIndex != null &&
+      state.selection.faceVertexEntryIndex != null &&
+      restoredRing?.[state.selection.faceVertexEntryIndex] === restoredVertexIndex
+        ? state.selection.faceVertexEntryIndex
+        : restoredVertexIndex != null
+          ? restoredRing?.indexOf(restoredVertexIndex) ?? null
+          : null
+    const restoredSemanticSurface = state.selection.semanticSurfaceSelected &&
+      restoredFeature && restoredObject && restoredGeometry && restoredFaceIndex != null
+        ? restoredGeometry.semanticSurfaces[restoredFaceIndex]
+          ? {
+              featureId: restoredFeature.id,
+              objectId: restoredObject.id,
+              geometryIndex: restoredGeometry.index,
+              faceIndex: restoredFaceIndex,
+              surface: restoredGeometry.semanticSurfaces[restoredFaceIndex],
+            }
+          : null
+        : null
+
+    const availableAttributeKeys = new Set(
+      nextDataset.features.flatMap((feature) => feature.objects.flatMap((object) => Object.keys(object.attributes))),
+    )
+    const attributeSettings = state.appearance.attributeColor
+    const restoredAttributeKey = attributeSettings && availableAttributeKeys.has(attributeSettings.key)
+      ? attributeSettings.key
+      : null
+    const restoredPinnedAttributeKeys = [...new Set(state.filters.pinnedAttributeKeys)]
+      .filter((key) => availableAttributeKeys.has(key))
+    if (restoredAttributeKey && !restoredPinnedAttributeKeys.includes(restoredAttributeKey)) {
+      restoredPinnedAttributeKeys.push(restoredAttributeKey)
+    }
+    const restoredColorMapId = attributeSettings && isAttributeColorMapId(attributeSettings.colorMapId)
+      ? attributeSettings.colorMapId
+      : DEFAULT_ATTRIBUTE_COLOR_MAP_ID
+    const restoredColorMapColors = getContinuousAttributeColorMapColors(restoredColorMapId)
+    const restoredAttributeModel = buildAttributeColorModel(
+      nextDataset,
+      restoredAttributeKey,
+      attributeSettings?.inheritsParent ?? true,
+      restoredColorMapId,
+      attributeSettings?.reversed ? [...restoredColorMapColors].reverse() : restoredColorMapColors,
+      attributeSettings?.categoricalSeed ?? 0,
+      attributeSettings?.customColors ?? {},
+    )
+    const restoredAttributeDomain = restoredAttributeKey && attributeSettings?.domain &&
+      restoredAttributeModel?.kind === 'continuous'
+        ? clampAttributeColorDomain(
+            { key: restoredAttributeKey, ...attributeSettings.domain },
+            restoredAttributeModel.dataMin,
+            restoredAttributeModel.dataMax,
+          )
+        : null
+    const restoredAppearanceMode = state.appearance.mode === 'colormap' && !restoredAttributeKey
+      ? 'regular'
+      : state.appearance.mode
+    const availableErrorCodes = new Set(
+      nextDataset.features.flatMap((feature) => feature.errors.map((entry) => entry.code)),
+    )
+    const restoredErrorCodes = state.filters.selectedErrorCodes === null
+      ? null
+      : [...new Set(state.filters.selectedErrorCodes)].filter((code) => availableErrorCodes.has(code))
+    const mobileLayout = window.matchMedia('(max-width: 900px)').matches
+    const restoredEditMode = state.interaction.editMode && Boolean(restoredFeature && restoredObject) && !mobileLayout
+    const restoredPickingMode = getAvailablePickingModes(restoredEditMode).includes(state.interaction.pickingMode)
+      ? state.interaction.pickingMode
+      : restoredEditMode ? 'face' : 'object'
+
+    setGeometryDisplayMode(restoredGeometryDisplayMode)
+    setSelectedFeatureId(restoredFeature?.id ?? null)
+    setActiveObjectId(restoredObject?.id ?? null)
+    setActiveGeometryIndex(restoredGeometryIndex)
+    setSelectedFaceIndex(restoredFaceIndex)
+    setSelectedFaceRingIndex(restoredFaceRingIndex)
+    setSelectedVertexIndex(restoredVertexIndex)
+    setSelectedFaceVertexEntryIndex(restoredFaceVertexEntryIndex)
+    setSelectedSemanticSurface(restoredSemanticSurface)
+    setEditMode(restoredEditMode)
+    setIsolateSelectedFeature(state.interaction.isolateSelectedFeature && Boolean(restoredFeature))
+    setPickingMode(restoredPickingMode)
+    setHideOccludedEditEdges(state.interaction.hideOccludedEditEdges)
+    setShowVertexGizmo(state.interaction.showVertexGizmo && restoredEditMode && restoredVertexIndex != null)
+    setMobileInspectMode(state.interaction.mobileInspectMode)
+    setAppearanceMode(restoredAppearanceMode)
+    setPinnedAttributeKeys(restoredPinnedAttributeKeys)
+    setIsPinnedAttributesOpen(restoredPinnedAttributeKeys.length > 0)
+    setAttributeColorKey(restoredAttributeKey)
+    setAttributeColorInheritsParent(attributeSettings?.inheritsParent ?? true)
+    setAttributeColorDomain(restoredAttributeDomain)
+    setAttributeColorMapId(restoredColorMapId)
+    setAttributeColorMapReversed(attributeSettings?.reversed ?? false)
+    setAttributeCategoricalColorSeed(attributeSettings?.categoricalSeed ?? 0)
+    setCustomCategoricalColorMaps(
+      restoredAttributeKey && attributeSettings
+        ? { [restoredAttributeKey]: attributeSettings.customColors }
+        : {},
+    )
+    if (restoredAttributeKey && restoredAttributeDomain) {
+      attributeColorDomainsByKeyRef.current.set(restoredAttributeKey, restoredAttributeDomain)
+    }
+    if (restoredAttributeKey) {
+      attributeColorMapIdsByKeyRef.current.set(restoredAttributeKey, restoredColorMapId)
+      attributeColorMapReversedByKeyRef.current.set(restoredAttributeKey, attributeSettings?.reversed ?? false)
+    }
+    setSearchQuery(state.filters.searchQuery)
+    setShowOnlyInvalidFeatures(
+      state.filters.showOnlyInvalidFeatures && nextDataset.features.some((feature) => feature.validity != null),
+    )
+    setSelectedErrorCodes(restoredErrorCodes)
+    setMeasurementActive(state.measurement.active)
+    setMeasurementPoints(state.measurement.points)
+    preInspectPickingModeRef.current = restoredEditMode ? 'object' : restoredPickingMode
+    inspectPickingModeRef.current = restoredEditMode ? restoredPickingMode : 'face'
+    setCameraFocalLength(
+      state.camera.kind === 'orthographic'
+        ? ORTHOGRAPHIC_CAMERA_VALUE
+        : state.camera.focalLength ?? DEFAULT_CAMERA_FOCAL_LENGTH,
+    )
+    pendingCameraPoseRef.current = state.camera
+  }, [])
+
+  const applyDataset = useCallback((
+    nextDataset: ViewerDataset,
+    options?: { restoreEmbeddedState?: boolean },
+  ) => {
+    let viewerState = pendingViewerStateRef.current
+    let viewerStateWarning = pendingViewerStateWarningRef.current
+    if (viewerState) {
+      pendingViewerStateRef.current = null
+      pendingViewerStateWarningRef.current = null
+    } else if (options?.restoreEmbeddedState !== false) {
+      const embedded = resolveEmbeddedViewerState(nextDataset)
+      viewerState = embedded.state
+      viewerStateWarning ??= embedded.warning
+    }
+
     datasetRef.current = nextDataset
+    latestCameraPoseRef.current = null
+    pendingCameraPoseRef.current = null
+    setCameraRestoreRequest(null)
+    setHasCameraPose(false)
     originalVerticesRef.current = new Map()
     originalObjectGeometriesRef.current = new Map()
     waitForViewportDataset(nextDataset)
@@ -1190,7 +1428,14 @@ function App() {
     setSelectedVertexIndex(null)
     setSelectedFaceVertexEntryIndex(null)
     setEditMode(false)
-  }, [resetViewerState, waitForViewportDataset])
+    if (viewerState) {
+      restoreViewerState(nextDataset, viewerState)
+    }
+    if (viewerStateWarning) {
+      setError(viewerStateWarning)
+      pendingViewerStateWarningRef.current = null
+    }
+  }, [resetViewerState, restoreViewerState, waitForViewportDataset])
 
   const loadExampleDataset = useCallback(async (example: ExampleDatasetConfig) => {
     setIsLoading(true)
@@ -1199,7 +1444,7 @@ function App() {
     setIsFileDialogOpen(false)
 
     try {
-      const [loadedDatasets, annotations] = await Promise.all([
+      const [loadedDatasets, report] = await Promise.all([
         Promise.all(example.cityJsonUrls.map((url) => loadCityJsonFromUrl(
           url,
           example.cityJsonUrls.length === 1 ? example.name : deriveSourceNameFromUrl(url),
@@ -1210,9 +1455,14 @@ function App() {
       ])
       const nextDataset = combineViewerDatasets(loadedDatasets)
 
-      if (annotations && example.validationReportUrl) {
-        assertValidationAnnotationsMatchDataset(nextDataset, annotations)
-        applyDataset(mergeValidationAnnotations(nextDataset, annotations))
+      if (report && example.validationReportUrl) {
+        assertValidationAnnotationsMatchDataset(nextDataset, report.annotations)
+        applyDataset(mergeValidationAnnotations(nextDataset, report.annotations, {
+          name: deriveSourceNameFromUrl(example.validationReportUrl),
+          location: example.validationReportUrl,
+          sourceKind: 'url',
+          sourceText: report.sourceText,
+        }))
         setAnnotationSourceName(deriveSourceNameFromUrl(example.validationReportUrl))
         setAnnotationSourceLocation(example.validationReportUrl)
       } else {
@@ -1241,13 +1491,18 @@ function App() {
     try {
       const cleanCjUrls = cjUrls.map((url) => stripGzSuffix(url.trim())).filter(Boolean)
       const cleanValUrl = stripGzSuffix(valUrl.trim())
-      const [loadedDatasets, annotations] = await Promise.all([
+      const [loadedDatasets, report] = await Promise.all([
         Promise.all(cleanCjUrls.map((url) => loadCityJsonFromUrl(url, deriveSourceNameFromUrl(url)))),
         loadValidationReportFromUrl(cleanValUrl),
       ])
       const nextDataset = combineViewerDatasets(loadedDatasets)
-      assertValidationAnnotationsMatchDataset(nextDataset, annotations)
-      const mergedDataset = mergeValidationAnnotations(nextDataset, annotations)
+      assertValidationAnnotationsMatchDataset(nextDataset, report.annotations)
+      const mergedDataset = mergeValidationAnnotations(nextDataset, report.annotations, {
+        name: deriveSourceNameFromUrl(cleanValUrl),
+        location: cleanValUrl,
+        sourceKind: 'url',
+        sourceText: report.sourceText,
+      })
       applyDataset(mergedDataset)
       setAnnotationSourceName(deriveSourceNameFromUrl(cleanValUrl))
       setAnnotationSourceLocation(cleanValUrl)
@@ -1280,7 +1535,7 @@ function App() {
       const nextDataset = combineViewerDatasets(
         appendToCurrentScene && currentDataset ? [currentDataset, ...loadedDatasets] : loadedDatasets,
       )
-      applyDataset(nextDataset)
+      applyDataset(nextDataset, { restoreEmbeddedState: !appendToCurrentScene })
       if (nextDataset.validationSource) {
         setAnnotationSourceName(nextDataset.validationSource.name)
         setAnnotationSourceLocation(nextDataset.validationSource.location)
@@ -1314,7 +1569,12 @@ function App() {
       void openCityJsonFromUrls(cjParams)
     } else {
       setIsLoading(false)
-      setIsFileDialogOpen(true)
+      if (pendingViewerStateWarningRef.current) {
+        setError(pendingViewerStateWarningRef.current)
+        pendingViewerStateWarningRef.current = null
+      } else {
+        setIsFileDialogOpen(true)
+      }
     }
   }, [loadFromUrlParams, openCityJsonFromUrls])
 
@@ -2275,6 +2535,142 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [centerCurrentSelection, cycleAppearanceMode, cycleGeometryDisplayMode, cycleSelectedFaceRing, cycleSelectedFaceVertex, dataset, deleteSelectedFace, editMode, handlePickingModeShortcut, restoreSelectedFeatureGeometry, selectedFaceIndex, selectedFeatureId, toggleEditMode])
 
+  useEffect(() => () => {
+    if (shareStatusTimerRef.current != null) {
+      window.clearTimeout(shareStatusTimerRef.current)
+    }
+  }, [])
+
+  const handleCameraPoseChange = useCallback((pose: ViewerCameraPose) => {
+    latestCameraPoseRef.current = pose
+    setHasCameraPose(true)
+  }, [])
+
+  const createCurrentViewerState = useCallback((): ViewerShareStateV1 => {
+    const camera = latestCameraPoseRef.current
+    if (!camera) {
+      throw new Error('The camera is not ready to share yet.')
+    }
+
+    return {
+      version: 1,
+      camera,
+      selection: {
+        featureId: selectedFeatureId,
+        objectId: activeObject?.id ?? null,
+        geometryDisplayMode,
+        geometryIndex: resolvedActiveGeometryIndex,
+        faceIndex: selectedFaceIndex,
+        faceRingIndex: activeFaceRingIndex,
+        vertexIndex: selectedVertexIndex,
+        faceVertexEntryIndex: activeSelectedFaceVertexEntryIndex,
+        semanticSurfaceSelected: selectedSemanticSurface != null,
+      },
+      appearance: {
+        mode: appearanceMode,
+        attributeColor: attributeColorKey
+          ? {
+              key: attributeColorKey,
+              inheritsParent: attributeColorInheritsParent,
+              domain: activeAttributeColorDomain
+                ? { min: activeAttributeColorDomain.min, max: activeAttributeColorDomain.max }
+                : null,
+              colorMapId: attributeColorMapId,
+              reversed: attributeColorMapReversed,
+              categoricalSeed: attributeCategoricalColorSeed,
+              customColors: customCategoricalColorMaps[attributeColorKey] ?? {},
+            }
+          : null,
+      },
+      interaction: {
+        isolateSelectedFeature,
+        editMode,
+        pickingMode,
+        hideOccludedEditEdges,
+        showVertexGizmo,
+        mobileInspectMode,
+      },
+      filters: {
+        searchQuery,
+        showOnlyInvalidFeatures,
+        selectedErrorCodes,
+        pinnedAttributeKeys,
+      },
+      measurement: {
+        active: measurementActive,
+        points: measurementPoints,
+      },
+    }
+  }, [
+    activeAttributeColorDomain,
+    activeFaceRingIndex,
+    activeObject?.id,
+    activeSelectedFaceVertexEntryIndex,
+    appearanceMode,
+    attributeCategoricalColorSeed,
+    attributeColorInheritsParent,
+    attributeColorKey,
+    attributeColorMapId,
+    attributeColorMapReversed,
+    customCategoricalColorMaps,
+    editMode,
+    geometryDisplayMode,
+    hideOccludedEditEdges,
+    isolateSelectedFeature,
+    measurementActive,
+    measurementPoints,
+    mobileInspectMode,
+    pickingMode,
+    pinnedAttributeKeys,
+    resolvedActiveGeometryIndex,
+    searchQuery,
+    selectedErrorCodes,
+    selectedFaceIndex,
+    selectedFeatureId,
+    selectedSemanticSurface,
+    selectedVertexIndex,
+    showOnlyInvalidFeatures,
+    showVertexGizmo,
+  ])
+
+  const shareMode = dataset ? getViewerShareMode(dataset) : null
+  const shareActionLabel = shareMode === null
+    ? 'Share view'
+    : shareMode === 'url'
+      ? 'Copy share link'
+      : shareMode === 'file'
+        ? 'Download view file'
+        : 'Download view bundle'
+  const didCopyShareLink = shareStatus === 'Share link copied.'
+  const shareButtonLabel = didCopyShareLink ? 'Share link copied' : shareActionLabel
+
+  const handleShare = useCallback(async () => {
+    if (!dataset || isSharing) {
+      return
+    }
+
+    setIsSharing(true)
+    setError(null)
+    try {
+      const output = await createViewerShareOutput(dataset, createCurrentViewerState(), window.location.href)
+      if (output.kind === 'url') {
+        await navigator.clipboard.writeText(output.url)
+        setShareStatus('Share link copied.')
+      } else {
+        downloadBlob(output.data, output.name)
+        setShareStatus(output.kind === 'file' ? 'View file downloaded.' : 'View bundle downloaded.')
+      }
+      if (shareStatusTimerRef.current != null) {
+        window.clearTimeout(shareStatusTimerRef.current)
+      }
+      shareStatusTimerRef.current = window.setTimeout(() => setShareStatus(''), 2000)
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : 'Could not share the current view.')
+    } finally {
+      setIsSharing(false)
+    }
+  }, [createCurrentViewerState, dataset, isSharing])
+
   const isErrorDialogVisible = Boolean(error && dismissedErrorMessage !== error)
   const hasModalScrim =
     isFileDialogOpen ||
@@ -2428,6 +2824,21 @@ function App() {
                   <FolderOpen className="size-4" />
                 </Button>
               </div>
+              <Button
+                size="icon"
+                variant={didCopyShareLink ? 'secondary' : 'ghost'}
+                onClick={() => void handleShare()}
+                disabled={!dataset || !hasCameraPose || isSharing}
+                aria-label={shareButtonLabel}
+                title={shareButtonLabel}
+              >
+                {didCopyShareLink
+                  ? <Check className="size-4 text-primary" />
+                  : <Share2 className="size-4" />}
+              </Button>
+              <span className="sr-only" role="status" aria-live="polite">
+                {shareStatus}
+              </span>
               <Button
                 size="icon"
                 variant="ghost"
@@ -2743,6 +3154,7 @@ function App() {
             mobileSelectionMode={mobileInspectMode}
             cameraSyncChannel={cameraSyncChannel}
             cameraSyncRole={cameraSyncRole}
+            cameraRestoreRequest={cameraRestoreRequest}
             onSelectFeature={handleViewportSelectFeature}
             onClearSelection={handleClearSelection}
             onSelectFace={handleSelectFace}
@@ -2750,6 +3162,7 @@ function App() {
             onSelectSemanticSurface={handleSelectSemanticSurface}
             onVertexCommit={applyFeatureVertices}
             onCameraFocalLengthSync={setCameraFocalLength}
+            onCameraPoseChange={handleCameraPoseChange}
             onViewportCenterChange={handleViewportCenterChange}
             onMeasurePoint={handleMeasurePoint}
             onDataRendered={handleViewportDataRendered}
@@ -6719,6 +7132,24 @@ function deriveSourceNameFromUrl(url: string) {
   }
 }
 
+function isAttributeColorMapId(value: string): value is AttributeColorMapId {
+  return value === 'random' ||
+    Object.prototype.hasOwnProperty.call(ATTRIBUTE_COLOR_MAPS, value) ||
+    Object.prototype.hasOwnProperty.call(QUALITATIVE_COLOR_MAPS, value)
+}
+
+function downloadBlob(blob: Blob, fileName: string) {
+  const objectUrl = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = objectUrl
+  anchor.download = fileName
+  anchor.hidden = true
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
+}
+
 function getCameraFollowChannelFromUrl() {
   if (typeof window === 'undefined') {
     return null
@@ -6736,6 +7167,7 @@ function buildCameraFollowerUrl(channel: string) {
   const url = new URL(window.location.href)
   url.searchParams.delete('cj')
   url.searchParams.delete('val')
+  url.searchParams.delete(VIEWER_STATE_QUERY_PARAM)
   url.searchParams.set(CAMERA_FOLLOW_QUERY_PARAM, channel)
   return url.toString()
 }

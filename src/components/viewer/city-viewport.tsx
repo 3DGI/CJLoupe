@@ -37,6 +37,7 @@ import { errorColor } from '@/lib/error-palette'
 import { measurePerformance, nowPerformance, recordPerformanceMeasure } from '@/lib/performance'
 import { semanticSurfaceColor } from '@/lib/semantic-surface-colors'
 import { viewerObjectKey } from '@/lib/utils'
+import type { ViewerCameraPose } from '@/lib/viewer-state'
 
 type Theme = 'light' | 'dark'
 
@@ -70,21 +71,11 @@ const REFERENCE_HALF_FOV_TANGENT = Math.tan(
 type ViewerCamera = THREE.PerspectiveCamera | THREE.OrthographicCamera
 type CameraSyncRole = 'publish' | 'follow'
 
-type CameraSyncPose = {
-  kind: 'perspective' | 'orthographic'
-  position: Vec3
-  quaternion: [number, number, number, number]
-  up: Vec3
-  target: Vec3
-  focalLength: number | null
-  orthographicHalfHeight: number | null
-}
-
 type CameraSyncMessage =
   | {
       type: 'pose'
       sourceId: string
-      pose: CameraSyncPose
+      pose: ViewerCameraPose
     }
   | {
       type: 'request-pose'
@@ -215,6 +206,7 @@ type CityViewportProps = {
   mobileSelectionMode: 'object' | 'surface'
   cameraSyncChannel: string | null
   cameraSyncRole: CameraSyncRole | null
+  cameraRestoreRequest: { revision: number; pose: ViewerCameraPose } | null
   onSelectFeature: (featureId: string, objectId?: string | null, geometryIndex?: number | null) => void
   onClearSelection: () => void
   onSelectFace: (faceIndex: number | null) => void
@@ -228,6 +220,7 @@ type CityViewportProps = {
   } | null) => void
   onVertexCommit: (featureId: string, vertices: Vec3[]) => void
   onCameraFocalLengthSync: (value: number) => void
+  onCameraPoseChange: (pose: ViewerCameraPose) => void
   onViewportCenterChange: (center: Vec3 | null) => void
   onMeasurePoint: (point: Vec3) => void
   onDataRendered: (data: ViewerDataset) => void
@@ -603,6 +596,7 @@ function CityViewport({
   mobileSelectionMode,
   cameraSyncChannel,
   cameraSyncRole,
+  cameraRestoreRequest,
   onSelectFeature,
   onClearSelection,
   onSelectFace,
@@ -610,6 +604,7 @@ function CityViewport({
   onSelectSemanticSurface,
   onVertexCommit,
   onCameraFocalLengthSync,
+  onCameraPoseChange,
   onViewportCenterChange,
   onMeasurePoint,
   onDataRendered,
@@ -621,6 +616,7 @@ function CityViewport({
   const dataRef = useRef<ViewerDataset | null>(data)
   const initialCameraFocalLengthRef = useRef(cameraFocalLength)
   const handledTopDownViewRevisionRef = useRef(topDownViewRevision)
+  const handledCameraRestoreRevisionRef = useRef(-1)
   const hideOccludedEditEdgesRef = useRef(hideOccludedEditEdges)
   const isolateSelectedFeatureRef = useRef(isolateSelectedFeature)
   const selectionRef = useRef({
@@ -653,6 +649,7 @@ function CityViewport({
   const onSelectSemanticSurfaceRef = useRef(onSelectSemanticSurface)
   const onVertexCommitRef = useRef(onVertexCommit)
   const onCameraFocalLengthSyncRef = useRef(onCameraFocalLengthSync)
+  const onCameraPoseChangeRef = useRef(onCameraPoseChange)
   const onViewportCenterChangeRef = useRef(onViewportCenterChange)
   const onMeasurePointRef = useRef(onMeasurePoint)
   const onDataRenderedRef = useRef(onDataRendered)
@@ -667,7 +664,7 @@ function CityViewport({
   const pointerDownRef = useRef<{ x: number; y: number } | null>(null)
   const cameraSyncClientIdRef = useRef(createCameraSyncClientId())
   const cameraSyncTransportRef = useRef<CameraSyncTransport | null>(null)
-  const lastCameraSyncPoseRef = useRef<CameraSyncPose | null>(null)
+  const lastCameraSyncPoseRef = useRef<ViewerCameraPose | null>(null)
   const pendingCameraSyncFrameRef = useRef<number | null>(null)
 
   useEffect(() => {
@@ -702,6 +699,7 @@ function CityViewport({
   useEffect(() => { onSelectSemanticSurfaceRef.current = onSelectSemanticSurface }, [onSelectSemanticSurface])
   useEffect(() => { onVertexCommitRef.current = onVertexCommit }, [onVertexCommit])
   useEffect(() => { onCameraFocalLengthSyncRef.current = onCameraFocalLengthSync }, [onCameraFocalLengthSync])
+  useEffect(() => { onCameraPoseChangeRef.current = onCameraPoseChange }, [onCameraPoseChange])
   useEffect(() => { onViewportCenterChangeRef.current = onViewportCenterChange }, [onViewportCenterChange])
   useEffect(() => { onMeasurePointRef.current = onMeasurePoint }, [onMeasurePoint])
   useEffect(() => { onDataRenderedRef.current = onDataRendered }, [onDataRendered])
@@ -714,31 +712,36 @@ function CityViewport({
   useEffect(() => { mobileInteractionRef.current = mobileInteraction }, [mobileInteraction])
   useEffect(() => { mobileSelectionModeRef.current = mobileSelectionMode }, [mobileSelectionMode])
 
-  const sendCameraSyncPose = useCallback((transport = cameraSyncTransportRef.current) => {
+  const emitCameraPose = useCallback((transport = cameraSyncTransportRef.current) => {
     const runtime = runtimeRef.current
-    if (!runtime || !transport || transport.role !== 'publish') {
+    if (!runtime) {
+      return
+    }
+
+    const pose = readCameraSyncPose(runtime, dataRef.current)
+    onCameraPoseChangeRef.current(pose)
+    if (!transport || transport.role !== 'publish') {
       return
     }
 
     const message: CameraSyncMessage = {
       type: 'pose',
       sourceId: cameraSyncClientIdRef.current,
-      pose: readCameraSyncPose(runtime, dataRef.current),
+      pose,
     }
     transport.channel.postMessage(message)
   }, [])
 
   const scheduleCameraSyncPose = useCallback(() => {
-    const transport = cameraSyncTransportRef.current
-    if (!transport || transport.role !== 'publish' || pendingCameraSyncFrameRef.current != null) {
+    if (pendingCameraSyncFrameRef.current != null) {
       return
     }
 
     pendingCameraSyncFrameRef.current = window.requestAnimationFrame(() => {
       pendingCameraSyncFrameRef.current = null
-      sendCameraSyncPose()
+      emitCameraPose()
     })
-  }, [sendCameraSyncPose])
+  }, [emitCameraPose])
 
   useEffect(() => {
     const container = containerRef.current
@@ -1340,7 +1343,7 @@ function CityViewport({
           return
         }
 
-        sendCameraSyncPose(transport)
+        emitCameraPose(transport)
         return
       }
 
@@ -1361,6 +1364,7 @@ function CityViewport({
       applyCameraSyncPose(runtime, message.pose, dataRef.current, onCameraFocalLengthSyncRef.current)
       renderViewport(runtime)
       reportViewportCenter(runtime, dataRef.current, onViewportCenterChangeRef.current)
+      scheduleCameraSyncPose()
     }
 
     channel.addEventListener('message', handleCameraSyncMessage)
@@ -1382,7 +1386,7 @@ function CityViewport({
         cameraSyncTransportRef.current = null
       }
     }
-  }, [cameraSyncChannel, cameraSyncRole, sendCameraSyncPose])
+  }, [cameraSyncChannel, cameraSyncRole, emitCameraPose, scheduleCameraSyncPose])
 
   useEffect(() => {
     const runtime = runtimeRef.current
@@ -1421,6 +1425,33 @@ function CityViewport({
       scheduleCameraSyncPose()
     })
   }, [data, scheduleCameraSyncPose])
+
+  useEffect(() => {
+    if (
+      !cameraRestoreRequest ||
+      handledCameraRestoreRevisionRef.current === cameraRestoreRequest.revision ||
+      cameraSyncTransportRef.current?.role === 'follow'
+    ) {
+      return
+    }
+
+    const runtime = runtimeRef.current
+    const currentData = dataRef.current
+    if (!runtime || !currentData) {
+      return
+    }
+
+    handledCameraRestoreRevisionRef.current = cameraRestoreRequest.revision
+    applyCameraSyncPose(
+      runtime,
+      cameraRestoreRequest.pose,
+      currentData,
+      onCameraFocalLengthSyncRef.current,
+    )
+    renderViewport(runtime)
+    reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
+    scheduleCameraSyncPose()
+  }, [cameraRestoreRequest, scheduleCameraSyncPose])
 
   useEffect(() => {
     const runtime = runtimeRef.current
@@ -5639,7 +5670,7 @@ function createCameraSyncClientId() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 }
 
-function readCameraSyncPose(runtime: Runtime, data: ViewerDataset | null): CameraSyncPose {
+function readCameraSyncPose(runtime: Runtime, data: ViewerDataset | null): ViewerCameraPose {
   const camera = runtime.camera
   const target = getArcballCenter(runtime.arcball)
   const worldOffset = data ? vec3ToVector(data.center) : new THREE.Vector3()
@@ -5661,7 +5692,7 @@ function readCameraSyncPose(runtime: Runtime, data: ViewerDataset | null): Camer
 
 function applyCameraSyncPose(
   runtime: Runtime,
-  pose: CameraSyncPose,
+  pose: ViewerCameraPose,
   data: ViewerDataset | null,
   onCameraFocalLengthSync: (value: number) => void,
 ) {
@@ -5731,12 +5762,12 @@ function parseCameraSyncMessage(value: unknown): CameraSyncMessage | null {
   }
 }
 
-function isCameraSyncPose(value: unknown): value is CameraSyncPose {
+function isCameraSyncPose(value: unknown): value is ViewerCameraPose {
   if (!value || typeof value !== 'object') {
     return false
   }
 
-  const candidate = value as Partial<CameraSyncPose>
+  const candidate = value as Partial<ViewerCameraPose>
   return (
     (candidate.kind === 'perspective' || candidate.kind === 'orthographic') &&
     isVec3Value(candidate.position) &&

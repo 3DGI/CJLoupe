@@ -89,6 +89,11 @@ export interface ViewerDataset {
 export interface ViewerDatasetSource {
   name: string
   location: string
+  sourceKind: 'url' | 'file' | 'inline'
+  sourceText: string
+  embeddedViewerState: string | null
+  embeddedViewerStateError: string | null
+  embeddedSourceName: string | null
   cityJsonKind: 'CityJSON' | 'CityJSONFeatures'
   cityJsonVersion: string | null
   featureCount: number
@@ -99,6 +104,8 @@ export interface ViewerDatasetSource {
 export interface ViewerValidationSource {
   name: string
   location: string
+  sourceKind: 'url' | 'file' | 'embedded' | 'generated'
+  sourceText: string | null
 }
 
 export interface ViewerFeature {

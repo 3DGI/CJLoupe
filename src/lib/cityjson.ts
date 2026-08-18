@@ -16,6 +16,8 @@ import {
   recordPerformanceMeasure,
 } from '@/lib/performance'
 
+const CJLOUPE_VIEWER_STATE_PROPERTY = '+CJLoupe-viewerState'
+
 type CityJsonTransform = {
   scale?: number[]
   translate?: number[]
@@ -51,6 +53,7 @@ type CityJsonHeader = {
   transform?: CityJsonTransform
   metadata?: Record<string, unknown>
   '+val3dity-report'?: Val3dityExtensionReport
+  '+CJLoupe-viewerState'?: unknown
 }
 
 type CityJsonDocument = CityJsonHeader & {
@@ -86,6 +89,19 @@ type Val3dityFeature = {
 
 type Val3dityReport = {
   features?: Val3dityFeature[]
+}
+
+export type ValidationAnnotations = Map<
+  string,
+  {
+    validity: boolean
+    errors: ViewerValidationError[]
+  }
+>
+
+export type LoadedValidationReport = {
+  annotations: ValidationAnnotations
+  sourceText: string
 }
 
 type Val3dityExtensionReport = {
@@ -166,6 +182,7 @@ export async function loadCityJsonFromUrl(
     return withDatasetSourceLocation(
       parseCityJsonForSource(text, sourceName, options?.cityJsonKind ?? inferCityJsonKindFromSource(url)),
       url,
+      'url',
     )
   })
 }
@@ -198,6 +215,7 @@ export async function loadCityJsonFromFile(
     return withDatasetSourceLocation(
       parseCityJsonForSource(text, file.name, options?.cityJsonKind ?? inferCityJsonKindFromSource(file.name)),
       getFileSourceLocation(file),
+      'file',
     )
   })
 }
@@ -209,12 +227,18 @@ export async function loadValidationReportFromUrl(url: string) {
   }
 
   const text = await response.text()
-  return parseValidationReport(text)
+  return {
+    annotations: parseValidationReport(text),
+    sourceText: text,
+  } satisfies LoadedValidationReport
 }
 
 export async function loadValidationReportFromFile(file: File) {
   const text = await readFileText(file)
-  return parseValidationReport(text)
+  return {
+    annotations: parseValidationReport(text),
+    sourceText: text,
+  } satisfies LoadedValidationReport
 }
 
 export async function classifyJsonFile(file: File): Promise<'cityjson' | 'validation-report' | 'unknown'> {
@@ -296,10 +320,14 @@ export function combineViewerDatasets(datasets: ViewerDataset[]): ViewerDataset 
     sourceText: '',
     sources,
     validationSource: validationSources.length > 0
-      ? {
-          name: validationSources.length === 1 ? validationSources[0].name : 'embedded val3dity reports',
-          location: validationSources.map((source) => source.location).join('\n'),
-        }
+      ? validationSources.length === 1
+        ? validationSources[0]
+        : {
+            name: 'embedded val3dity reports',
+            location: validationSources.map((source) => source.location).join('\n'),
+            sourceKind: 'embedded',
+            sourceText: null,
+          }
       : null,
     center,
     extent,
@@ -469,7 +497,15 @@ export function parseCityJsonSequence(text: string, sourceName: string): ViewerD
     })
 
     return measurePerformance('cjvis:cityjson:create-viewer-dataset', () =>
-      createViewerDataset(sourceName, text, features, info, 'CityJSONFeatures', createVal3dityExtensionSource(header, features, sourceName)),
+      createViewerDataset(
+        sourceName,
+        text,
+        features,
+        info,
+        'CityJSONFeatures',
+        createVal3dityExtensionSource(header, features, sourceName),
+        header,
+      ),
     )
   })
 }
@@ -545,7 +581,15 @@ function parseCityJsonDocument(document: CityJsonDocument, sourceName: string, s
     })
 
     return measurePerformance('cjvis:cityjson:create-viewer-dataset', () =>
-      createViewerDataset(sourceName, sourceText, features, info, 'CityJSON', createVal3dityExtensionSource(document, features, sourceName)),
+      createViewerDataset(
+        sourceName,
+        sourceText,
+        features,
+        info,
+        'CityJSON',
+        createVal3dityExtensionSource(document, features, sourceName),
+        document,
+      ),
     )
   })
 }
@@ -557,6 +601,7 @@ function createViewerDataset(
   info: ViewerDatasetInfo,
   cityJsonKind: 'CityJSON' | 'CityJSONFeatures',
   validationSource: ViewerDataset['validationSource'] = null,
+  sourceHeader: CityJsonHeader | null = null,
 ): ViewerDataset {
   if (features.length === 0) {
     throw new Error('No renderable CityJSON features were found.')
@@ -584,6 +629,7 @@ function createViewerDataset(
     (extent[1] + extent[4]) / 2,
     (extent[2] + extent[5]) / 2,
   ]
+  const embeddedViewerState = readEmbeddedViewerState(sourceHeader)
 
   return {
     sourceName,
@@ -594,6 +640,11 @@ function createViewerDataset(
       {
         name: sourceName,
         location: sourceName,
+        sourceKind: 'inline',
+        sourceText,
+        embeddedViewerState: embeddedViewerState.state,
+        embeddedViewerStateError: embeddedViewerState.error,
+        embeddedSourceName: embeddedViewerState.sourceName,
         cityJsonKind,
         cityJsonVersion: info.cityJsonVersion,
         featureCount: features.length,
@@ -616,6 +667,11 @@ function getDatasetSources(dataset: ViewerDataset): ViewerDatasetSource[] {
         {
           name: dataset.sourceName,
           location: dataset.sourceLocation,
+          sourceKind: 'inline',
+          sourceText: dataset.sourceText,
+          embeddedViewerState: null,
+          embeddedViewerStateError: null,
+          embeddedSourceName: null,
           cityJsonKind: dataset.cityJsonKind === 'Multiple' ? 'CityJSONFeatures' : dataset.cityJsonKind,
           cityJsonVersion: dataset.cityJsonVersion,
           featureCount: dataset.features.length,
@@ -625,15 +681,23 @@ function getDatasetSources(dataset: ViewerDataset): ViewerDatasetSource[] {
       ]
 }
 
-function withDatasetSourceLocation(dataset: ViewerDataset, sourceLocation: string): ViewerDataset {
+function withDatasetSourceLocation(
+  dataset: ViewerDataset,
+  sourceLocation: string,
+  sourceKind: ViewerDatasetSource['sourceKind'],
+): ViewerDataset {
+  const restoredSourceName = dataset.sources[0]?.embeddedSourceName?.trim() || dataset.sourceName
   return {
     ...dataset,
+    sourceName: restoredSourceName,
     sourceLocation,
     validationSource: dataset.validationSource
       ? { ...dataset.validationSource, location: sourceLocation }
       : null,
     sources: dataset.sources.map((source, index) =>
-      index === 0 ? { ...source, location: sourceLocation } : source,
+      index === 0
+        ? { ...source, name: source.embeddedSourceName?.trim() || source.name, location: sourceLocation, sourceKind }
+        : source,
     ),
   }
 }
@@ -656,6 +720,8 @@ function createVal3dityExtensionSource(
   return {
     name: `embedded ${versionLabel} report`,
     location: sourceName,
+    sourceKind: 'embedded',
+    sourceText: null,
   }
 }
 
@@ -937,10 +1003,12 @@ export function assertValidationAnnotationsMatchDataset(
 
 export function mergeValidationAnnotations(
   dataset: ViewerDataset,
-  annotations: Map<string, { validity: boolean; errors: ViewerValidationError[] }>,
+  annotations: ValidationAnnotations,
+  validationSource: ViewerDataset['validationSource'] = dataset.validationSource,
 ) {
   return {
     ...dataset,
+    validationSource,
     features: dataset.features.map((feature) => {
       const annotation = annotations.get(feature.id)
       return {
@@ -949,6 +1017,35 @@ export function mergeValidationAnnotations(
         errors: annotation?.errors ?? [],
       }
     }),
+  }
+}
+
+function readEmbeddedViewerState(header: CityJsonHeader | null) {
+  if (!header || !(CJLOUPE_VIEWER_STATE_PROPERTY in header)) {
+    return { state: null, error: null, sourceName: null }
+  }
+
+  const value = header[CJLOUPE_VIEWER_STATE_PROPERTY]
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { state: null, error: 'The CityJSON file contains an invalid CJLoupe viewer-state block.', sourceName: null }
+  }
+
+  const candidate = value as Record<string, unknown>
+  if (candidate.version === 1 &&
+    candidate.encoding === 'base64url' &&
+    typeof candidate.state === 'string') {
+    return {
+      state: candidate.state,
+      error: null,
+      sourceName: typeof candidate.sourceName === 'string' && candidate.sourceName.length <= 512
+        ? candidate.sourceName
+        : null,
+    }
+  }
+  return {
+    state: null,
+    error: 'The CityJSON file contains an unsupported CJLoupe viewer-state block.',
+    sourceName: null,
   }
 }
 
