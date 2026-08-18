@@ -7603,16 +7603,14 @@ function ChangelogDialogContent({
           {sections.map((section) => (
             <section key={section.heading}>
               <h2 className="text-sm font-semibold text-foreground">{section.heading}</h2>
-              {section.items.length > 0 && (
-                <ul className="mt-2 space-y-1.5 text-sm leading-6 text-foreground/82">
-                  {section.items.map((item, index) => (
-                    <li key={`${section.heading}:${index}`} className="flex gap-2">
-                      <span aria-hidden="true" className="mt-2 size-1 shrink-0 rounded-full bg-primary/70" />
-                      <span>{item}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <ul className="mt-2 space-y-1.5 text-sm leading-6 text-foreground/82">
+                {section.items.map((item, index) => (
+                  <li key={`${section.heading}:${index}`} className="flex gap-2">
+                    <span aria-hidden="true" className="mt-2 size-1 shrink-0 rounded-full bg-primary/70" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
             </section>
           ))}
         </div>
@@ -7798,7 +7796,7 @@ function parseChangelog(markdown: string): Array<{ heading: string; items: strin
     current.items.push(line.replace(/^-\s+/, ''))
   }
 
-  return sections
+  return sections.filter((section) => section.items.length > 0)
 }
 
 function ExtentCoordinates({
