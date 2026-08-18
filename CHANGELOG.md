@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+
+## 0.9.0 - 2026-08-18
+
 - Add shareable viewer-state snapshots: copy links for URL-backed scenes or download state-enriched CityJSON files and ZIP bundles for local scenes
 - Open the file chooser on startup instead of automatically loading the sample, with the bundled sample available as an example
 - Reimplement normal coloring mode to calculate color in-shader
