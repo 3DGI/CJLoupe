@@ -34,7 +34,7 @@ bun run lint
 
 ## Data Loading
 
-The app loads a bundled sample on startup and also supports local files.
+The app opens a file chooser on startup, where you can load the bundled example or your own files.
 
 - CityJSON: `.json`, `.city.json`, `.cityjson`
 - CityJSON feature sequences: `.jsonl`, `.city.jsonl`

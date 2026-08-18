@@ -46,8 +46,16 @@ import { Suspense, lazy, memo, startTransition, useCallback, useEffect, useMemo,
 import type { ChangeEvent, ReactNode } from 'react'
 
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ColorPicker, ColorPickerHex, ColorPickerInput } from '@/components/ui/color-picker'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Kbd } from '@/components/ui/kbd'
 import {
   collectAvailableLods,
@@ -120,6 +128,24 @@ import type {
 
 const SAMPLE_URL = `${import.meta.env.BASE_URL}samples/rf-val3dity.city.jsonl`
 const SAMPLE_REPORT_URL = `${import.meta.env.BASE_URL}samples/val-report.json`
+type ExampleDatasetConfig = {
+  id: string
+  name: string
+  description: string
+  formatBadges: readonly string[]
+  cityJsonUrls: readonly string[]
+  validationReportUrl?: string
+}
+const EXAMPLE_DATASETS: readonly ExampleDatasetConfig[] = [
+  {
+    id: 'rf-val3dity',
+    name: 'RF val3dity sample',
+    description: 'A compact CityJSON sequence with a matching val3dity validation report.',
+    formatBadges: ['CityJSONSeq', 'val3dity annotations'],
+    cityJsonUrls: [SAMPLE_URL],
+    validationReportUrl: SAMPLE_REPORT_URL,
+  },
+]
 const VAL3DITY_ERRORS_URL = 'https://val3dity.readthedocs.io/2.6.0/errors/'
 const GITHUB_REPO_URL = 'https://github.com/3DGI/CJLoupe'
 const APP_VERSION = packageJson.version
@@ -258,6 +284,7 @@ type ErrorCodeFilterOption = {
 function App() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const annotationInputRef = useRef<HTMLInputElement>(null)
+  const fileDialogTriggerRef = useRef<HTMLButtonElement>(null)
   const originalVerticesRef = useRef<Map<string, Vec3[]>>(new Map())
   const originalObjectGeometriesRef = useRef<Map<string, Map<string, ViewerObjectGeometry[]>>>(new Map())
   const attributeColorDomainsByKeyRef = useRef<Map<string, AttributeColorDomain>>(new Map())
@@ -866,51 +893,6 @@ function App() {
     })
   }, [activeObjectId, dataset, editMode, selectedFeatureId])
 
-  useEffect(() => {
-    if (!isFileDialogOpen) {
-      return
-    }
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsFileDialogOpen(false)
-      }
-    }
-
-    window.addEventListener('keydown', handleEscape)
-    return () => window.removeEventListener('keydown', handleEscape)
-  }, [isFileDialogOpen])
-
-  useEffect(() => {
-    if (!isInfoDialogOpen) {
-      return
-    }
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsInfoDialogOpen(false)
-      }
-    }
-
-    window.addEventListener('keydown', handleEscape)
-    return () => window.removeEventListener('keydown', handleEscape)
-  }, [isInfoDialogOpen])
-
-  useEffect(() => {
-    if (!isChangelogDialogOpen) {
-      return
-    }
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsChangelogDialogOpen(false)
-      }
-    }
-
-    window.addEventListener('keydown', handleEscape)
-    return () => window.removeEventListener('keydown', handleEscape)
-  }, [isChangelogDialogOpen])
-
   const waitForViewportDataset = useCallback((nextDataset: ViewerDataset) => {
     pendingViewportDatasetRef.current = nextDataset
   }, [])
@@ -1212,24 +1194,39 @@ function App() {
     setEditMode(false)
   }, [resetViewerState, waitForViewportDataset])
 
-  const loadFromSample = useCallback(async () => {
+  const loadExampleDataset = useCallback(async (example: ExampleDatasetConfig) => {
     setIsLoading(true)
+    setLoadingMessage(example.cityJsonUrls.length > 1 ? `Loading ${example.cityJsonUrls.length} CityJSON URLs…` : null)
     setError(null)
+    setIsFileDialogOpen(false)
 
     try {
-      const [nextDataset, annotations] = await Promise.all([
-        loadCityJsonFromUrl(SAMPLE_URL, 'rf-val3dity sample'),
-        loadValidationReportFromUrl(SAMPLE_REPORT_URL),
+      const [loadedDatasets, annotations] = await Promise.all([
+        Promise.all(example.cityJsonUrls.map((url) => loadCityJsonFromUrl(
+          url,
+          example.cityJsonUrls.length === 1 ? example.name : deriveSourceNameFromUrl(url),
+        ))),
+        example.validationReportUrl
+          ? loadValidationReportFromUrl(example.validationReportUrl)
+          : Promise.resolve(null),
       ])
-      assertValidationAnnotationsMatchDataset(nextDataset, annotations)
-      const mergedDataset = mergeValidationAnnotations(nextDataset, annotations)
-      applyDataset(mergedDataset)
-      setAnnotationSourceName('val-report.json')
-      setAnnotationSourceLocation(SAMPLE_REPORT_URL)
+      const nextDataset = combineViewerDatasets(loadedDatasets)
+
+      if (annotations && example.validationReportUrl) {
+        assertValidationAnnotationsMatchDataset(nextDataset, annotations)
+        applyDataset(mergeValidationAnnotations(nextDataset, annotations))
+        setAnnotationSourceName(deriveSourceNameFromUrl(example.validationReportUrl))
+        setAnnotationSourceLocation(example.validationReportUrl)
+      } else {
+        applyDataset(nextDataset)
+        setAnnotationSourceName(nextDataset.validationSource?.name ?? null)
+        setAnnotationSourceLocation(nextDataset.validationSource?.location ?? null)
+      }
     } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : 'Failed to load sample file.'
+      const message = caughtError instanceof Error ? caughtError.message : `Failed to load ${example.name}.`
       setError(message)
     } finally {
+      setLoadingMessage(null)
       finishLoadingIfViewportIsReady()
     }
   }, [applyDataset, finishLoadingIfViewportIsReady])
@@ -1318,9 +1315,10 @@ function App() {
     } else if (cjParams.length > 0) {
       void openCityJsonFromUrls(cjParams)
     } else {
-      void loadFromSample()
+      setIsLoading(false)
+      setIsFileDialogOpen(true)
     }
-  }, [loadFromSample, loadFromUrlParams, openCityJsonFromUrls])
+  }, [loadFromUrlParams, openCityJsonFromUrls])
 
   useEffect(() => {
     const handlePaste = (event: ClipboardEvent) => {
@@ -1359,8 +1357,11 @@ function App() {
     annotationInputRef.current?.click()
   }
 
-  function handleFileAction() {
-    setIsFileDialogOpen(true)
+  function dismissError() {
+    setDismissedErrorMessage(error)
+    if (!dataset) {
+      setIsFileDialogOpen(true)
+    }
   }
 
   const openCameraFollower = useCallback(() => {
@@ -2417,9 +2418,10 @@ function App() {
               )}
               <div className="relative">
                 <Button
+                  ref={fileDialogTriggerRef}
                   size="icon"
                   variant="ghost"
-                  onClick={handleFileAction}
+                  onClick={() => setIsFileDialogOpen(true)}
                   aria-label="Open files"
                   title="Open files"
                   aria-expanded={isFileDialogOpen}
@@ -2959,136 +2961,169 @@ function App() {
         onChange={handleAnnotationSelection}
       />
 
-      {isFileDialogOpen && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/42 px-4 backdrop-blur-md">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="file-dialog-title"
-            className="w-full max-w-lg rounded-sm border border-border/45 bg-background p-5 shadow-[0_28px_100px_rgb(0_0_0_/_0.28)]"
-          >
-            <div className="flex items-center justify-between gap-4">
+      <Dialog
+        open={isFileDialogOpen}
+        onOpenChange={(open) => {
+          if (open || dataset) setIsFileDialogOpen(open)
+        }}
+      >
+        <DialogContent
+          showCloseButton={Boolean(dataset)}
+          closeLabel="Close file dialog"
+          className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden p-0"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            fileDialogTriggerRef.current?.focus()
+          }}
+        >
+          <DialogHeader className="shrink-0 border-b border-border/40 p-5 pr-14">
+            <DialogTitle className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary">
+              Open files
+            </DialogTitle>
+            <DialogDescription>
+              Choose an example or open your own CityJSON data.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
+            <section aria-labelledby="example-datasets-title">
               <p
-                id="file-dialog-title"
-                className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary"
+                id="example-datasets-title"
+                className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground"
               >
-                Open files
+                Examples
               </p>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-8 shrink-0"
-                onClick={() => setIsFileDialogOpen(false)}
-                aria-label="Close file dialog"
-                title="Close file dialog"
-              >
-                <X className="size-4" />
-              </Button>
-            </div>
+              <div className="mt-2 space-y-2">
+                {EXAMPLE_DATASETS.map((example) => (
+                  <Card key={example.id} className="gap-3 bg-background/45">
+                    <CardHeader className="gap-1.5 px-3 pt-3">
+                      <CardTitle className="text-sm">{example.name}</CardTitle>
+                      <CardDescription className="text-xs">{example.description}</CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex flex-wrap gap-1.5 px-3">
+                      {example.formatBadges.map((format) => (
+                        <Badge key={format} variant="outline" className="px-2 py-0.5 text-[10px]">
+                          {format}
+                        </Badge>
+                      ))}
+                    </CardContent>
+                    <CardFooter className="px-3 pb-3">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8"
+                        onClick={() => void loadExampleDataset(example)}
+                        aria-label={`Open ${example.name}`}
+                      >
+                        Open example
+                      </Button>
+                    </CardFooter>
+                  </Card>
+                ))}
+              </div>
+            </section>
 
-            <div className="mt-5 space-y-5">
-              <section>
-                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                  CityJSON
-                </p>
-                <form
-                  className="mt-2 flex gap-2"
-                  onSubmit={(event) => {
-                    event.preventDefault()
-                    void openCityJsonFromUrl(cityJsonUrlInput)
-                  }}
+            <section>
+              <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                CityJSON
+              </p>
+              <form
+                className="mt-2 flex flex-wrap gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  void openCityJsonFromUrl(cityJsonUrlInput)
+                }}
+              >
+                <Input
+                  type="url"
+                  inputMode="url"
+                  placeholder="Paste a URL…"
+                  value={cityJsonUrlInput}
+                  onChange={(event) => setCityJsonUrlInput(event.target.value)}
+                  aria-label="CityJSON URL"
+                  className="min-w-48 flex-1"
+                />
+                <Button
+                  type="submit"
+                  variant="outline"
+                  disabled={tryParseHttpUrl(cityJsonUrlInput) === null}
                 >
-                  <Input
-                    type="url"
-                    inputMode="url"
-                    placeholder="Paste a URL…"
-                    value={cityJsonUrlInput}
-                    onChange={(event) => setCityJsonUrlInput(event.target.value)}
-                    aria-label="CityJSON URL"
-                    className="min-w-0 flex-1"
-                  />
-                  <Button
-                    type="submit"
-                    variant="outline"
-                    disabled={tryParseHttpUrl(cityJsonUrlInput) === null}
-                  >
-                    Open URL
-                  </Button>
+                  Open URL
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={(event) => triggerCityJsonInput(event.shiftKey)}
+                  aria-label={dataset ? 'Upload a CityJSON file to replace the current one' : 'Upload a CityJSON file'}
+                  title="Upload files"
+                >
+                  <Upload className="size-4" />
+                </Button>
+              </form>
+            </section>
+
+            <section>
+              <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                Val3dity report
+              </p>
+              <form
+                className="mt-2 flex flex-wrap gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  void openAnnotationFromUrl(annotationUrlInput)
+                }}
+              >
+                <Input
+                  type="url"
+                  inputMode="url"
+                  placeholder={dataset ? 'Paste a URL…' : 'Load a CityJSON file first'}
+                  value={annotationUrlInput}
+                  onChange={(event) => setAnnotationUrlInput(event.target.value)}
+                  aria-label="Val3dity report URL"
+                  className="min-w-48 flex-1"
+                  disabled={!dataset}
+                />
+                <Button
+                  type="submit"
+                  variant="outline"
+                  disabled={!dataset || tryParseHttpUrl(annotationUrlInput) === null}
+                >
+                  Open URL
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={triggerAnnotationInput}
+                  disabled={!dataset}
+                  aria-label={annotationSourceName ? 'Upload a val3dity report to replace the current one' : 'Upload a val3dity report'}
+                  title="Upload file"
+                >
+                  <Upload className="size-4" />
+                </Button>
+                {annotationSourceName && (
                   <Button
                     type="button"
                     variant="outline"
                     size="icon"
-                    onClick={(event) => triggerCityJsonInput(event.shiftKey)}
-                    aria-label={dataset ? 'Upload a CityJSON file to replace the current one' : 'Upload a CityJSON file'}
-                    title="Upload files"
+                    onClick={clearAnnotations}
+                    aria-label="Clear val3dity report"
+                    title="Clear val3dity report"
                   >
-                    <Upload className="size-4" />
+                    <X className="size-4" />
                   </Button>
-                </form>
-              </section>
+                )}
+              </form>
+            </section>
 
-              <section>
-                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                  Val3dity report
-                </p>
-                <form
-                  className="mt-2 flex gap-2"
-                  onSubmit={(event) => {
-                    event.preventDefault()
-                    void openAnnotationFromUrl(annotationUrlInput)
-                  }}
-                >
-                  <Input
-                    type="url"
-                    inputMode="url"
-                    placeholder={dataset ? 'Paste a URL…' : 'Load a CityJSON file first'}
-                    value={annotationUrlInput}
-                    onChange={(event) => setAnnotationUrlInput(event.target.value)}
-                    aria-label="Val3dity report URL"
-                    className="min-w-0 flex-1"
-                    disabled={!dataset}
-                  />
-                  <Button
-                    type="submit"
-                    variant="outline"
-                    disabled={!dataset || tryParseHttpUrl(annotationUrlInput) === null}
-                  >
-                    Open URL
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={triggerAnnotationInput}
-                    disabled={!dataset}
-                    aria-label={annotationSourceName ? 'Upload a val3dity report to replace the current one' : 'Upload a val3dity report'}
-                    title="Upload file"
-                  >
-                    <Upload className="size-4" />
-                  </Button>
-                  {annotationSourceName && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      onClick={clearAnnotations}
-                      aria-label="Clear val3dity report"
-                      title="Clear val3dity report"
-                    >
-                      <X className="size-4" />
-                    </Button>
-                  )}
-                </form>
-              </section>
-
-              <p className="text-xs text-muted-foreground">
-                Tip: select or drop multiple CityJSON files. Hold Shift while dropping or pressing upload to add to the current scene.
-              </p>
-            </div>
+            <p className="text-xs text-muted-foreground">
+              Tip: select or drop multiple CityJSON files. Hold Shift while dropping or pressing upload to add to the current scene.
+            </p>
           </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
       {isLoading && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-background/42 backdrop-blur-md">
@@ -3107,21 +3142,19 @@ function App() {
         </div>
       )}
 
-      {isInfoDialogOpen && dataset && (
-        <InfoDialog
-          dataset={dataset}
-          annotationSourceName={annotationSourceName}
-          annotationSourceLocation={annotationSourceLocation}
-          onClose={() => setIsInfoDialogOpen(false)}
-        />
-      )}
+      <Dialog open={isInfoDialogOpen} onOpenChange={setIsInfoDialogOpen}>
+        {isInfoDialogOpen && dataset && (
+          <InfoDialogContent
+            dataset={dataset}
+            annotationSourceName={annotationSourceName}
+            annotationSourceLocation={annotationSourceLocation}
+          />
+        )}
+      </Dialog>
 
-      {isChangelogDialogOpen && (
-        <ChangelogDialog
-          changelog={changelogText}
-          onClose={() => setIsChangelogDialogOpen(false)}
-        />
-      )}
+      <Dialog open={isChangelogDialogOpen} onOpenChange={setIsChangelogDialogOpen}>
+        {isChangelogDialogOpen && <ChangelogDialogContent changelog={changelogText} />}
+      </Dialog>
 
       {isErrorDialogVisible && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/42 backdrop-blur-md">
@@ -3138,7 +3171,7 @@ function App() {
                 variant="ghost"
                 size="icon"
                 className="size-8 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                onClick={() => setDismissedErrorMessage(error)}
+                onClick={dismissError}
                 aria-label="Dismiss error"
                 title="Dismiss error"
               >
@@ -3150,7 +3183,7 @@ function App() {
       )}
 
       {isDragging && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-background/70 backdrop-blur-sm">
           <div className="rounded-sm border-2 border-dashed border-accent/35 bg-card px-10 py-8 text-center shadow-2xl">
             <p className="text-lg font-semibold text-foreground">Drop files to open</p>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -6817,16 +6850,14 @@ function getVal3dityErrorUrl(error: ViewerValidationError) {
   return anchor ? `${VAL3DITY_ERRORS_URL}#${anchor}` : VAL3DITY_ERRORS_URL
 }
 
-function InfoDialog({
+function InfoDialogContent({
   dataset,
   annotationSourceName,
   annotationSourceLocation,
-  onClose,
 }: {
   dataset: ViewerDataset
   annotationSourceName: string | null
   annotationSourceLocation: string | null
-  onClose: () => void
 }) {
   const validationSummary = annotationSourceName ? summarizeValidation(dataset) : null
   const cityJsonTabs = dataset.sources.map((source, index) => ({
@@ -6841,27 +6872,27 @@ function InfoDialog({
   const defaultInfoTab = cityJsonTabs[0]?.value ?? 'cityjson'
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center overflow-y-auto bg-background/42 p-4 backdrop-blur-md">
+    <DialogContent
+      closeLabel="Close information dialog"
+      className="flex min-h-0 max-h-[calc(100dvh-2rem)] max-w-2xl flex-col overflow-hidden p-0"
+    >
+      <DialogDescription className="sr-only">
+        CityJSON source metadata and validation report details.
+      </DialogDescription>
       <Tabs
         defaultValue={defaultInfoTab}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="info-dialog-title"
-        className="flex min-h-0 max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-sm border border-border/45 bg-background shadow-[0_28px_100px_rgb(0_0_0_/_0.28)]"
+        className="flex min-h-0 w-full flex-1 flex-col overflow-hidden"
       >
         <div className="border-b border-border bg-gradient-to-r from-primary/8 via-transparent to-transparent">
-          <div className="flex items-start justify-between gap-4 p-5">
+          <div className="flex items-start gap-4 p-5 pr-14">
             <div className="flex min-w-0 items-start gap-3">
               <div className="flex size-11 shrink-0 items-center justify-center rounded-sm border border-primary/20 bg-primary/10 text-primary">
                 <FileText className="size-5" />
               </div>
               <div className="min-w-0 space-y-1">
-                <p
-                  id="info-dialog-title"
-                  className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary"
-                >
+                <DialogTitle className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary">
                   File information
-                </p>
+                </DialogTitle>
                 <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                   <Badge variant="secondary" className="border-primary/10 bg-primary/10 text-primary">
                     {formatOpenFileCount(cityJsonSourceCount + (annotationSourceName ? 1 : 0))}
@@ -6870,17 +6901,6 @@ function InfoDialog({
                 </div>
               </div>
             </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-8 shrink-0"
-              onClick={onClose}
-              aria-label="Close information dialog"
-              title="Close"
-            >
-              <X className="size-4" />
-            </Button>
           </div>
 
           <TabsList className="-mb-px max-w-full gap-0 overflow-x-auto px-5">
@@ -7018,7 +7038,7 @@ function InfoDialog({
           </div>
         </div>
       </Tabs>
-    </div>
+    </DialogContent>
   )
 }
 
@@ -7152,72 +7172,55 @@ function Val3dityNumberInput({
   )
 }
 
-function ChangelogDialog({
+function ChangelogDialogContent({
   changelog,
-  onClose,
 }: {
   changelog: string
-  onClose: () => void
 }) {
   const sections = parseChangelog(changelog)
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center overflow-y-auto bg-background/42 p-4 backdrop-blur-md">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="changelog-dialog-title"
-        className="flex min-h-0 max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-sm border border-border/45 bg-background shadow-[0_28px_100px_rgb(0_0_0_/_0.28)]"
-      >
-        <div className="flex items-start justify-between gap-4 border-b border-border/40 p-5">
-          <div className="min-w-0">
-            <p
-              id="changelog-dialog-title"
-              className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary"
-            >
-              Changelog
-            </p>
-            <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2">
-              <p className="truncate text-sm text-muted-foreground">CJLoupe</p>
-              <span className="text-sm font-bold text-foreground">
-                v{APP_VERSION}
-              </span>
-            </div>
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-8 shrink-0"
-            onClick={onClose}
-            aria-label="Close changelog"
-            title="Close"
-          >
-            <X className="size-4" />
-          </Button>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          <div className="space-y-5">
-            {sections.map((section) => (
-              <section key={section.heading}>
-                <h2 className="text-sm font-semibold text-foreground">{section.heading}</h2>
-                {section.items.length > 0 && (
-                  <ul className="mt-2 space-y-1.5 text-sm leading-6 text-foreground/82">
-                    {section.items.map((item, index) => (
-                      <li key={`${section.heading}:${index}`} className="flex gap-2">
-                        <span aria-hidden="true" className="mt-2 size-1 shrink-0 rounded-full bg-primary/70" />
-                        <span>{item}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
-            ))}
+    <DialogContent
+      closeLabel="Close changelog"
+      className="flex min-h-0 max-h-[calc(100dvh-2rem)] max-w-2xl flex-col overflow-hidden p-0"
+    >
+      <DialogDescription className="sr-only">
+        Release notes for CJLoupe version {APP_VERSION}.
+      </DialogDescription>
+      <div className="flex items-start gap-4 border-b border-border/40 p-5 pr-14">
+        <div className="min-w-0">
+          <DialogTitle className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary">
+            Changelog
+          </DialogTitle>
+          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2">
+            <p className="truncate text-sm text-muted-foreground">CJLoupe</p>
+            <span className="text-sm font-bold text-foreground">
+              v{APP_VERSION}
+            </span>
           </div>
         </div>
       </div>
-    </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto p-5">
+        <div className="space-y-5">
+          {sections.map((section) => (
+            <section key={section.heading}>
+              <h2 className="text-sm font-semibold text-foreground">{section.heading}</h2>
+              {section.items.length > 0 && (
+                <ul className="mt-2 space-y-1.5 text-sm leading-6 text-foreground/82">
+                  {section.items.map((item, index) => (
+                    <li key={`${section.heading}:${index}`} className="flex gap-2">
+                      <span aria-hidden="true" className="mt-2 size-1 shrink-0 rounded-full bg-primary/70" />
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          ))}
+        </div>
+      </div>
+    </DialogContent>
   )
 }
 

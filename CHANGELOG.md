@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Open the file chooser on startup instead of automatically loading the sample, with the bundled sample available as an example
 - Reimplement normal coloring mode to calculate color in-shader
 - Add semantic surface type badge to face vertex circulator panel in edit mode
 - Display all geometries of the selected LoD, rather than just the first geometry per object
