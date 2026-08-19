@@ -3354,10 +3354,7 @@ function App() {
           showCloseButton={Boolean(dataset)}
           closeLabel="Close file dialog"
           className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden p-0"
-          onCloseAutoFocus={(event) => {
-            event.preventDefault()
-            fileDialogTriggerRef.current?.focus()
-          }}
+          finalFocus={fileDialogTriggerRef}
         >
           <DialogHeader className="shrink-0 border-b border-border/40 p-5 pr-14">
             <DialogTitle className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary">
