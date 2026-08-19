@@ -6592,16 +6592,17 @@ function ColorMapSelect({
       }}
     >
       <SelectTrigger
+        size="lg"
         variant="surface"
         aria-label="Attribute color map"
-        className="h-9 min-w-0 flex-1 rounded-sm px-2.5"
+        className="min-w-0 flex-1 px-2.5"
       >
-        <ColorMapSwatch colorMapId={value} className="h-3 w-12 shrink-0" />
-        <SelectValue className="min-w-0 flex-1 truncate text-sm">
-          {formatColorMapName(value)}
+        <SelectValue className="min-w-0">
+          <ColorMapSwatch colorMapId={value} className="h-3 w-12 shrink-0" />
+          <span className="min-w-0 flex-1 truncate text-sm">{formatColorMapName(value)}</span>
         </SelectValue>
       </SelectTrigger>
-      <SelectContent align="start" alignItemWithTrigger={false} className="max-h-72 rounded-sm">
+      <SelectContent align="start" className="max-h-72 rounded-sm">
         {groups.map((group) => (
           <SelectGroup key={group.label}>
             <SelectLabel className="text-[10px] font-medium uppercase tracking-[0.14em]">
