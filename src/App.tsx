@@ -44,7 +44,7 @@ import {
   TriangleAlert,
 } from 'lucide-react'
 import { Suspense, lazy, memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent, ReactNode } from 'react'
+import type { ChangeEvent, ReactElement, ReactNode } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
@@ -5417,12 +5417,12 @@ function ViewportControlTooltip({
   show: boolean
   label: string
   hotkey?: string
-  children: ReactNode
+  children: ReactElement
 }) {
   return (
     <TooltipProvider>
       <Tooltip open={show}>
-        <TooltipTrigger asChild>{children}</TooltipTrigger>
+        <TooltipTrigger render={children} />
         <TooltipContent side="left">
           <span className="inline-flex items-center gap-2">
             <span>{label}</span>
