@@ -7516,23 +7516,29 @@ function Val3dityParametersPopover({
           />
         </div>
 
-        <label className="block space-y-1.5" htmlFor="val3dity-primitive">
+        <label className="flex flex-col gap-1.5" htmlFor="val3dity-primitive">
           <span className="text-xs font-medium text-muted-foreground">Primitive</span>
-          <select
-            id="val3dity-primitive"
-            value={parameters.primitive}
-            onChange={(event) =>
-              onChange({
-                ...parameters,
-                primitive: event.target.value as Val3dityPrimitiveOption,
-              })}
-            className="flex h-10 w-full rounded-sm border border-input bg-background/70 px-3 py-2 text-sm text-foreground shadow-sm outline-none transition focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
-          >
-            <option value="auto">Auto</option>
-            <option value="Solid">Solid</option>
-            <option value="MultiSurface">MultiSurface</option>
-            <option value="CompositeSurface">CompositeSurface</option>
-          </select>
+          <div className="relative">
+            <select
+              id="val3dity-primitive"
+              value={parameters.primitive}
+              onChange={(event) =>
+                onChange({
+                  ...parameters,
+                  primitive: event.target.value as Val3dityPrimitiveOption,
+                })}
+              className="flex h-10 w-full appearance-none rounded-sm border border-input bg-background/70 py-2 pl-3 pr-10 text-sm text-foreground shadow-sm outline-none transition focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+            >
+              <option value="auto">Auto</option>
+              <option value="Solid">Solid</option>
+              <option value="MultiSurface">MultiSurface</option>
+              <option value="CompositeSurface">CompositeSurface</option>
+            </select>
+            <ChevronDown
+              aria-hidden="true"
+              className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+            />
+          </div>
         </label>
 
         {hasInvalidNumber && (
