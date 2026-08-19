@@ -5335,10 +5335,10 @@ const FeatureListPanel = memo(function FeatureListPanel({
                 Show errors only
               </FieldLabel>
               <FieldDescription className="text-xs text-foreground/60">
-                  Showing {filteredObjectCount} of {datasetFeatureCount}
+                Showing {filteredObjectCount} of {datasetFeatureCount}
               </FieldDescription>
             </FieldContent>
-            <div className="flex shrink-0 items-center gap-1.5">
+            <div className="flex shrink-0 self-center items-center gap-1.5">
               {showOnlyInvalidFeatures && errorCodeFilters.length > 0 && (
                 <Popover>
                   <PopoverTrigger
