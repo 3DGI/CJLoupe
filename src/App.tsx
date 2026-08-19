@@ -4652,17 +4652,19 @@ const FeatureObjectTreeNode = memo(function FeatureObjectTreeNode({
               : 'text-foreground/72 hover:bg-foreground/6',
           )}
         >
-          <CollapsibleTrigger asChild>
-            <button
-              type="button"
-              aria-label={open ? `Collapse ${objectLabel}` : `Expand ${objectLabel}`}
-              className="shrink-0 rounded-sm p-0.5 text-muted-foreground transition hover:bg-foreground/6 hover:text-foreground"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <ChevronRight
-                className={cn('size-3 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')}
+          <CollapsibleTrigger
+            render={(
+              <button
+                type="button"
+                aria-label={open ? `Collapse ${objectLabel}` : `Expand ${objectLabel}`}
+                className="shrink-0 rounded-sm p-0.5 text-muted-foreground transition hover:bg-foreground/6 hover:text-foreground"
+                onClick={(event) => event.stopPropagation()}
               />
-            </button>
+            )}
+          >
+            <ChevronRight
+              className={cn('size-3 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')}
+            />
           </CollapsibleTrigger>
           <button
             type="button"
