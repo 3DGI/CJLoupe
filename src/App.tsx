@@ -2822,22 +2822,23 @@ function App() {
               <Button
                 size="icon"
                 variant="ghost"
-                asChild
-              >
-                <a
-                  href={GITHUB_REPO_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label="Open GitHub repository"
-                  title="Open GitHub repository"
-                >
-                  <img
-                    src={theme === 'dark' ? gitIconWhiteUrl : gitIconBlackUrl}
-                    alt=""
-                    className="size-4"
-                    aria-hidden="true"
+                render={(
+                  <a
+                    href={GITHUB_REPO_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label="Open GitHub repository"
+                    title="Open GitHub repository"
                   />
-                </a>
+                )}
+                nativeButton={false}
+              >
+                <img
+                  src={theme === 'dark' ? gitIconWhiteUrl : gitIconBlackUrl}
+                  alt=""
+                  className="size-4"
+                  aria-hidden="true"
+                />
               </Button>
             </div>
 
