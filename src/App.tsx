@@ -5204,17 +5204,19 @@ const FeatureListPanel = memo(function FeatureListPanel({
                     <SearchAlert className="size-4" />
                   </Button>
                   <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-8 w-6 rounded-none"
-                        aria-label="Set val3dity parameters"
-                        title="Set val3dity parameters"
-                      >
-                        <ChevronDown className="size-3.5" />
-                      </Button>
-                    </PopoverTrigger>
+                    <PopoverTrigger
+                      render={(
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-6 rounded-none"
+                          aria-label="Set val3dity parameters"
+                          title="Set val3dity parameters"
+                        >
+                          <ChevronDown className="size-3.5" />
+                        </Button>
+                      )}
+                    />
                     <PopoverContent align="start" className="w-96 p-0">
                       <Val3dityParametersPopover
                         parameters={val3dityParameters}
@@ -5264,17 +5266,19 @@ const FeatureListPanel = memo(function FeatureListPanel({
               <div className="flex shrink-0 items-center gap-1.5">
                 {showOnlyInvalidFeatures && errorCodeFilters.length > 0 && (
                   <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        size="icon"
-                        variant={selectedErrorCodeCount === errorCodeFilters.length ? 'ghost' : 'outline'}
-                        className="size-8"
-                        aria-label="Filter validation error codes"
-                        title="Filter validation error codes"
-                      >
-                        <Filter className="size-4" />
-                      </Button>
-                    </PopoverTrigger>
+                    <PopoverTrigger
+                      render={(
+                        <Button
+                          size="icon"
+                          variant={selectedErrorCodeCount === errorCodeFilters.length ? 'ghost' : 'outline'}
+                          className="size-8"
+                          aria-label="Filter validation error codes"
+                          title="Filter validation error codes"
+                        >
+                          <Filter className="size-4" />
+                        </Button>
+                      )}
+                    />
                     <PopoverContent align="end" className="w-80 p-0">
                       <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
                         <div className="min-w-0">
@@ -6087,18 +6091,20 @@ function InfoPanel({
             Pinned attributes
           </p>
           <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-5 shrink-0 rounded-[3px] p-0 text-muted-foreground hover:text-foreground"
-                aria-label="Configure pinned attributes"
-                title="Configure pinned attributes"
-              >
-                <Columns3Cog className="size-3" />
-              </Button>
-            </PopoverTrigger>
+            <PopoverTrigger
+              render={(
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-5 shrink-0 rounded-[3px] p-0 text-muted-foreground hover:text-foreground"
+                  aria-label="Configure pinned attributes"
+                  title="Configure pinned attributes"
+                >
+                  <Columns3Cog className="size-3" />
+                </Button>
+              )}
+            />
             <PopoverContent align="start" side="bottom" className="w-72 p-0">
               <PinnedAttributesSettingsPopover
                 inheritsParent={attributeColorInheritsParent}
@@ -6527,19 +6533,21 @@ function ColorMapSelect({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          aria-label="Attribute color map"
-          className="h-9 min-w-0 flex-1 justify-between gap-2 px-2.5 font-normal"
-        >
-          <ColorMapSwatch colorMapId={value} className="h-3 w-12 shrink-0" />
-          <span className="min-w-0 flex-1 truncate text-left text-sm">{formatColorMapName(value)}</span>
-          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="start" side="bottom" className="w-[var(--radix-popover-trigger-width)] p-1">
+      <PopoverTrigger
+        render={(
+          <Button
+            type="button"
+            variant="outline"
+            aria-label="Attribute color map"
+            className="h-9 min-w-0 flex-1 justify-between gap-2 px-2.5 font-normal"
+          >
+            <ColorMapSwatch colorMapId={value} className="h-3 w-12 shrink-0" />
+            <span className="min-w-0 flex-1 truncate text-left text-sm">{formatColorMapName(value)}</span>
+            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+          </Button>
+        )}
+      />
+      <PopoverContent align="start" side="bottom" className="w-[var(--anchor-width)] p-1">
         <div className="max-h-72 overflow-y-auto">
           {groups.map((group) => (
             <div key={group.label}>
@@ -6952,19 +6960,21 @@ function CategoryColorPicker({
 
   return (
     <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          className="size-4 shrink-0 rounded-[2px] border-border p-0"
-          style={{ backgroundColor: normalizedColor }}
-          aria-label={`Set color for ${label}`}
-          title={`Set color for ${label}`}
-        >
-          <span className="sr-only">Set color</span>
-        </Button>
-      </PopoverTrigger>
+      <PopoverTrigger
+        render={(
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="size-4 shrink-0 rounded-[2px] border-border p-0"
+            style={{ backgroundColor: normalizedColor }}
+            aria-label={`Set color for ${label}`}
+            title={`Set color for ${label}`}
+          >
+            <span className="sr-only">Set color</span>
+          </Button>
+        )}
+      />
       <PopoverContent align="start" side="right" className="w-fit p-2">
         <ColorPicker>
           <ColorPickerHex color={normalizedColor} onChange={onChange} />
