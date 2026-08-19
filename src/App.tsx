@@ -2944,19 +2944,24 @@ function App() {
               )}
 
               {isDetailPanelVisible && (
-              <Tabs value={resolvedDetailTab} onValueChange={setDetailTab} asChild>
-                <section
-                  className={cn(
-                    'flex min-w-0 flex-col border-t border-border',
-                    isMobileLayout
-                      ? 'min-h-0 flex-1 border-t-0'
-                      : detailPaneMode === 'collapsed'
-                      ? 'shrink-0'
-                      : detailPaneMode === 'fullscreen'
+              <Tabs
+                value={resolvedDetailTab}
+                onValueChange={setDetailTab}
+                render={(
+                  <section
+                    className={cn(
+                      'flex min-w-0 flex-col border-t border-border',
+                      isMobileLayout
                         ? 'min-h-0 flex-1 border-t-0'
-                        : 'min-h-0 flex-1',
-                  )}
-                >
+                        : detailPaneMode === 'collapsed'
+                        ? 'shrink-0'
+                        : detailPaneMode === 'fullscreen'
+                          ? 'min-h-0 flex-1 border-t-0'
+                          : 'min-h-0 flex-1',
+                    )}
+                  />
+                )}
+              >
                   <div className="panel-header-surface space-y-1 p-4 pb-2.5">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
@@ -3078,7 +3083,6 @@ function App() {
                       </div>
                     </ScrollArea>
                   )}
-                </section>
               </Tabs>
               )}
             </div>
@@ -7329,7 +7333,7 @@ function InfoDialogContent({
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="p-5">
             {cityJsonTabs.map(({ source, value, metadataEntries }) => (
-              <TabsContent key={value} value={value} className="mt-0 block space-y-4 data-[state=inactive]:hidden">
+              <TabsContent key={value} value={value} className="mt-0 block space-y-4 data-hidden:hidden">
                 <section>
                   <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                     CityJSON
@@ -7376,7 +7380,7 @@ function InfoDialogContent({
             ))}
 
             {annotationSourceName && (
-              <TabsContent value="val3dity" className="mt-0 block space-y-4 data-[state=inactive]:hidden">
+              <TabsContent value="val3dity" className="mt-0 block space-y-4 data-hidden:hidden">
                 <section>
                   <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                     Val3dity report

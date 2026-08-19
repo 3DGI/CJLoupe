@@ -172,7 +172,7 @@
     background: color-mix(in oklch, var(--accent) 6%, transparent);
   }
 
-  .detail-tab[data-state='active'] {
+  .detail-tab[data-active] {
     background: var(--background) !important;
     border-color: var(--border) !important;
     border-bottom-color: var(--background) !important;
