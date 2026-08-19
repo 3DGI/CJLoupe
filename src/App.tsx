@@ -4789,15 +4789,16 @@ function ViewportGeometryModeBar({
             <Button
               type="button"
               variant="ghost"
-              size="sm"
-              className="floating-panel pointer-events-auto h-8 rounded-sm border px-2 font-mono text-[11px]"
+              className="floating-panel pointer-events-auto gap-2 rounded-sm border px-2 font-mono"
               aria-label={`Choose level of detail, currently ${activeMode.label}`}
               title={`LoD: ${activeMode.label}`}
             />
           )}
         >
-          <span className="uppercase tracking-[0.16em] text-muted-foreground">LoD</span>
-          <span>{activeMode.label}</span>
+          <span className="flex min-w-0 flex-col items-start gap-0.5">
+            <span className="text-[9px] leading-none uppercase tracking-[0.16em] text-muted-foreground">LoD</span>
+            <span className="text-[11px] leading-none">{activeMode.label}</span>
+          </span>
           <ChevronDown
             data-icon="inline-end"
             className={cn('transition-transform', isMenuOpen && 'rotate-180')}
