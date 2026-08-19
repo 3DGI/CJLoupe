@@ -6735,9 +6735,9 @@ function AttributeColorSection({
                   max={rangeMax}
                   step={rangeSpan / 200}
                   value={[visibleDomain.min, visibleDomain.max]}
-                  minStepsBetweenThumbs={0}
+                  minStepsBetweenValues={0}
                   onValueChange={(value) => {
-                    const [nextMin, nextMax] = value
+                    const [nextMin, nextMax] = value as readonly number[]
                     if (nextMin == null || nextMax == null) return
                     previewDomain({
                       key: model.key,
@@ -6745,8 +6745,8 @@ function AttributeColorSection({
                       max: Math.max(nextMin, nextMax),
                     })
                   }}
-                  onValueCommit={(value) => {
-                    const [nextMin, nextMax] = value
+                  onValueCommitted={(value) => {
+                    const [nextMin, nextMax] = value as readonly number[]
                     if (nextMin == null || nextMax == null) return
                     commitDomain({
                       key: model.key,
