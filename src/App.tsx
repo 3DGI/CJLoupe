@@ -60,6 +60,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
@@ -89,7 +90,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import {
   collectAvailableLods,
   getGeometryDisplayModeKey,
@@ -4769,6 +4769,7 @@ function ViewportGeometryModeBar({
   showTooltips?: boolean
   onSelectGeometryDisplayMode: (mode: ViewerGeometryDisplayMode) => void
 }) {
+  const [isMenuOpen, setIsMenuOpen] = useState(false)
   const modeKey = getGeometryDisplayModeKey(geometryDisplayMode)
   const modes: Array<{ key: string; label: string; mode: ViewerGeometryDisplayMode }> = [
     { key: 'best', label: 'Best', mode: { kind: 'best' } },
@@ -4778,37 +4779,55 @@ function ViewportGeometryModeBar({
       mode: { kind: 'lod', lod } satisfies ViewerGeometryDisplayMode,
     })),
   ]
+  const activeMode = modes.find((entry) => entry.key === modeKey) ?? modes[0]
 
   return (
-    <div className="floating-panel pointer-events-auto flex flex-col items-stretch gap-1.5 rounded-sm border p-2">
-      <ViewportControlTooltip show={showTooltips} label="LoD" hotkey="L">
-        <div className="flex items-center justify-center">
-          <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">LoD</span>
-        </div>
+    <DropdownMenu open={isMenuOpen} onOpenChange={setIsMenuOpen}>
+      <ViewportControlTooltip show={showTooltips && !isMenuOpen} label="LoD" hotkey="L">
+        <DropdownMenuTrigger
+          render={(
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="floating-panel pointer-events-auto h-8 rounded-sm border px-2 font-mono text-[11px]"
+              aria-label={`Choose level of detail, currently ${activeMode.label}`}
+              title={`LoD: ${activeMode.label}`}
+            />
+          )}
+        >
+          <span className="uppercase tracking-[0.16em] text-muted-foreground">LoD</span>
+          <span>{activeMode.label}</span>
+          <ChevronDown
+            data-icon="inline-end"
+            className={cn('transition-transform', isMenuOpen && 'rotate-180')}
+          />
+        </DropdownMenuTrigger>
       </ViewportControlTooltip>
-      <ToggleGroup
-        value={[modeKey]}
-        orientation="vertical"
-        className="w-full items-stretch gap-1 rounded-none"
-        onValueChange={(value) => {
-          const selectedMode = modes.find((entry) => entry.key === value[0])
-          if (selectedMode) {
-            onSelectGeometryDisplayMode(selectedMode.mode)
-          }
-        }}
-      >
-        {modes.map((entry) => (
-          <ToggleGroupItem
-            key={entry.key}
-            value={entry.key}
-            className="h-auto min-w-0 justify-start rounded-sm px-2 py-1 text-left text-[11px] font-normal text-muted-foreground hover:bg-foreground/6 hover:text-foreground aria-pressed:bg-primary/12 aria-pressed:text-primary"
-            title={entry.label}
+      <DropdownMenuContent side="top" align="end" className="min-w-28 rounded-sm">
+        <DropdownMenuGroup>
+          <DropdownMenuRadioGroup
+            value={modeKey}
+            onValueChange={(value) => {
+              const selectedMode = modes.find((entry) => entry.key === value)
+              if (selectedMode) {
+                onSelectGeometryDisplayMode(selectedMode.mode)
+              }
+            }}
           >
-            {entry.label}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
-    </div>
+            {modes.map((entry) => (
+              <DropdownMenuRadioItem
+                key={entry.key}
+                value={entry.key}
+                className="h-8 rounded-sm text-xs"
+              >
+                {entry.label}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -5592,21 +5611,23 @@ function ToolbarPickingButton({
             )}
           />
           <DropdownMenuContent side="top" align="end" className="min-w-40 rounded-sm">
-            <DropdownMenuRadioGroup
-              value={mode}
-              onValueChange={(value) => onSelectMode(value as ViewerPickingMode)}
-            >
-              {availableModes.map((entry) => (
-                <DropdownMenuRadioItem
-                  key={entry}
-                  value={entry}
-                  className="h-8 rounded-sm text-xs"
-                >
-                  <MaskIcon src={getPickingModeIconUrl(entry)} className="size-3.5" />
-                  <span>{getPickingModeLabel(entry)}</span>
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
+            <DropdownMenuGroup>
+              <DropdownMenuRadioGroup
+                value={mode}
+                onValueChange={(value) => onSelectMode(value as ViewerPickingMode)}
+              >
+                {availableModes.map((entry) => (
+                  <DropdownMenuRadioItem
+                    key={entry}
+                    value={entry}
+                    className="h-8 rounded-sm text-xs"
+                  >
+                    <MaskIcon src={getPickingModeIconUrl(entry)} />
+                    <span>{getPickingModeLabel(entry)}</span>
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -5665,27 +5686,29 @@ function ToolbarAppearanceButton({
             )}
           />
           <DropdownMenuContent side="top" align="end" className="min-w-40 rounded-sm">
-            <DropdownMenuRadioGroup
-              value={mode}
-              onValueChange={(value) => onSelectMode(value as ViewerAppearanceMode)}
-            >
-              {VIEWER_APPEARANCE_MODES.map((entry) => {
-                const isAvailable = entry !== 'colormap' || colormapAvailable
+            <DropdownMenuGroup>
+              <DropdownMenuRadioGroup
+                value={mode}
+                onValueChange={(value) => onSelectMode(value as ViewerAppearanceMode)}
+              >
+                {VIEWER_APPEARANCE_MODES.map((entry) => {
+                  const isAvailable = entry !== 'colormap' || colormapAvailable
 
-                return (
-                  <DropdownMenuRadioItem
-                    key={entry}
-                    value={entry}
-                    disabled={!isAvailable}
-                    title={!isAvailable ? 'Select an attribute to enable colormap coloring' : undefined}
-                    className="h-8 rounded-sm text-xs"
-                  >
-                    {getAppearanceModeIcon(entry)}
-                    <span>{getAppearanceModeLabel(entry)}</span>
-                  </DropdownMenuRadioItem>
-                )
-              })}
-            </DropdownMenuRadioGroup>
+                  return (
+                    <DropdownMenuRadioItem
+                      key={entry}
+                      value={entry}
+                      disabled={!isAvailable}
+                      title={!isAvailable ? 'Select an attribute to enable colormap coloring' : undefined}
+                      className="h-8 rounded-sm text-xs"
+                    >
+                      {getAppearanceModeIcon(entry)}
+                      <span>{getAppearanceModeLabel(entry)}</span>
+                    </DropdownMenuRadioItem>
+                  )
+                })}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
