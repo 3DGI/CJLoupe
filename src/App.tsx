@@ -5622,7 +5622,7 @@ function ToolbarPickingButton({
                     value={entry}
                     className="h-8 rounded-sm text-xs"
                   >
-                    <MaskIcon src={getPickingModeIconUrl(entry)} />
+                    <MaskIcon src={getPickingModeIconUrl(entry)} className="size-3.5" />
                     <span>{getPickingModeLabel(entry)}</span>
                   </DropdownMenuRadioItem>
                 ))}
