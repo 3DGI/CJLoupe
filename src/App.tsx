@@ -57,7 +57,39 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from '@/components/ui/field'
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from '@/components/ui/input-group'
 import { Kbd } from '@/components/ui/kbd'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import {
   collectAvailableLods,
   getGeometryDisplayModeKey,
@@ -2962,7 +2994,7 @@ function App() {
                   />
                 )}
               >
-                  <div className="panel-header-surface space-y-1 p-4 pb-2.5">
+                  <div className="panel-header-surface flex flex-col gap-1 p-4 pb-2.5">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                         <div className="flex min-w-0 items-center gap-2">
@@ -3041,7 +3073,7 @@ function App() {
 
                   {detailPaneMode !== 'collapsed' && (
                     <ScrollArea key={detailSelectionKey} className="min-h-0 min-w-0 flex-1">
-                      <div className="panel-body-surface min-w-0 space-y-2 p-4 pt-3">
+                      <div className="panel-body-surface flex min-w-0 flex-col gap-2 p-4 pt-3">
                         {selectedFeature ? (
                           <>
                             {hasDetailContent ? (
@@ -3365,7 +3397,7 @@ function App() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
+          <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-5">
             <section aria-labelledby="example-datasets-title">
               <p
                 id="example-datasets-title"
@@ -3373,7 +3405,7 @@ function App() {
               >
                 Examples
               </p>
-              <div className="mt-2 space-y-2">
+              <div className="mt-2 flex flex-col gap-2">
                 {EXAMPLE_DATASETS.map((example) => (
                   <Card key={example.id} className="gap-3 bg-background/45">
                     <CardHeader className="gap-1.5 px-3 pt-3">
@@ -3409,38 +3441,49 @@ function App() {
                 CityJSON
               </p>
               <form
-                className="mt-2 flex flex-wrap gap-2"
+                className="mt-2"
                 onSubmit={(event) => {
                   event.preventDefault()
                   void openCityJsonFromUrl(cityJsonUrlInput)
                 }}
               >
-                <Input
-                  type="url"
-                  inputMode="url"
-                  placeholder="Paste a URL…"
-                  value={cityJsonUrlInput}
-                  onChange={(event) => setCityJsonUrlInput(event.target.value)}
-                  aria-label="CityJSON URL"
-                  className="min-w-48 flex-1"
-                />
-                <Button
-                  type="submit"
-                  variant="outline"
-                  disabled={tryParseHttpUrl(cityJsonUrlInput) === null}
-                >
-                  Open URL
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={(event) => triggerCityJsonInput(event.shiftKey)}
-                  aria-label={dataset ? 'Upload a CityJSON file to replace the current one' : 'Upload a CityJSON file'}
-                  title="Upload files"
-                >
-                  <Upload className="size-4" />
-                </Button>
+                <FieldGroup>
+                  <Field>
+                    <FieldLabel htmlFor="cityjson-url" className="sr-only">
+                      CityJSON URL
+                    </FieldLabel>
+                    <InputGroup>
+                      <InputGroupInput
+                        id="cityjson-url"
+                        type="url"
+                        inputMode="url"
+                        placeholder="Paste a URL…"
+                        value={cityJsonUrlInput}
+                        onChange={(event) => setCityJsonUrlInput(event.target.value)}
+                      />
+                      <InputGroupAddon align="inline-end" className="gap-1 pr-1">
+                        <InputGroupButton
+                          type="submit"
+                          variant="outline"
+                          size="sm"
+                          disabled={tryParseHttpUrl(cityJsonUrlInput) === null}
+                        >
+                          Open URL
+                        </InputGroupButton>
+                        <InputGroupButton
+                          type="button"
+                          variant="outline"
+                          size="icon-sm"
+                          onClick={(event) => triggerCityJsonInput(event.shiftKey)}
+                          aria-label={dataset ? 'Upload a CityJSON file to replace the current one' : 'Upload a CityJSON file'}
+                          title="Upload files"
+                        >
+                          <Upload data-icon="inline-start" />
+                        </InputGroupButton>
+                      </InputGroupAddon>
+                    </InputGroup>
+                  </Field>
+                </FieldGroup>
               </form>
             </section>
 
@@ -3449,52 +3492,63 @@ function App() {
                 Val3dity report
               </p>
               <form
-                className="mt-2 flex flex-wrap gap-2"
+                className="mt-2"
                 onSubmit={(event) => {
                   event.preventDefault()
                   void openAnnotationFromUrl(annotationUrlInput)
                 }}
               >
-                <Input
-                  type="url"
-                  inputMode="url"
-                  placeholder={dataset ? 'Paste a URL…' : 'Load a CityJSON file first'}
-                  value={annotationUrlInput}
-                  onChange={(event) => setAnnotationUrlInput(event.target.value)}
-                  aria-label="Val3dity report URL"
-                  className="min-w-48 flex-1"
-                  disabled={!dataset}
-                />
-                <Button
-                  type="submit"
-                  variant="outline"
-                  disabled={!dataset || tryParseHttpUrl(annotationUrlInput) === null}
-                >
-                  Open URL
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={triggerAnnotationInput}
-                  disabled={!dataset}
-                  aria-label={annotationSourceName ? 'Upload a val3dity report to replace the current one' : 'Upload a val3dity report'}
-                  title="Upload file"
-                >
-                  <Upload className="size-4" />
-                </Button>
-                {annotationSourceName && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={clearAnnotations}
-                    aria-label="Clear val3dity report"
-                    title="Clear val3dity report"
-                  >
-                    <X className="size-4" />
-                  </Button>
-                )}
+                <FieldGroup>
+                  <Field data-disabled={!dataset}>
+                    <FieldLabel htmlFor="val3dity-report-url" className="sr-only">
+                      Val3dity report URL
+                    </FieldLabel>
+                    <InputGroup>
+                      <InputGroupInput
+                        id="val3dity-report-url"
+                        type="url"
+                        inputMode="url"
+                        placeholder={dataset ? 'Paste a URL…' : 'Load a CityJSON file first'}
+                        value={annotationUrlInput}
+                        onChange={(event) => setAnnotationUrlInput(event.target.value)}
+                        disabled={!dataset}
+                      />
+                      <InputGroupAddon align="inline-end" className="gap-1 pr-1">
+                        <InputGroupButton
+                          type="submit"
+                          variant="outline"
+                          size="sm"
+                          disabled={!dataset || tryParseHttpUrl(annotationUrlInput) === null}
+                        >
+                          Open URL
+                        </InputGroupButton>
+                        <InputGroupButton
+                          type="button"
+                          variant="outline"
+                          size="icon-sm"
+                          onClick={triggerAnnotationInput}
+                          disabled={!dataset}
+                          aria-label={annotationSourceName ? 'Upload a val3dity report to replace the current one' : 'Upload a val3dity report'}
+                          title="Upload file"
+                        >
+                          <Upload data-icon="inline-start" />
+                        </InputGroupButton>
+                        {annotationSourceName && (
+                          <InputGroupButton
+                            type="button"
+                            variant="outline"
+                            size="icon-sm"
+                            onClick={clearAnnotations}
+                            aria-label="Clear val3dity report"
+                            title="Clear val3dity report"
+                          >
+                            <X data-icon="inline-start" />
+                          </InputGroupButton>
+                        )}
+                      </InputGroupAddon>
+                    </InputGroup>
+                  </Field>
+                </FieldGroup>
               </form>
             </section>
 
@@ -3605,7 +3659,7 @@ function EditSelectionOverlay({
 
   return (
     <div className={cn('pointer-events-none absolute z-10', positionClassName)}>
-      <div className="floating-panel pointer-events-auto space-y-2 rounded-sm border p-3">
+      <div className="floating-panel pointer-events-auto flex flex-col gap-2 rounded-sm border p-3">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
               {selectedFaceIndex != null ? `Face ${selectedFaceIndex}` : 'No face selected'}
@@ -3639,7 +3693,7 @@ function EditSelectionOverlay({
               </Badge>
             )}
           </div>
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             <div className="flex flex-wrap gap-2">
               <Button
                 type="button"
@@ -4250,7 +4304,7 @@ function ViewportHelpPanel({
         )}
       >
         {!isCollapsed && (
-          <div id="viewport-help-panel" className="min-w-0 flex-1 space-y-3">
+          <div id="viewport-help-panel" className="flex min-w-0 flex-1 flex-col gap-3">
             <div>
               <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
                 Hotkeys
@@ -4528,7 +4582,7 @@ const FeatureObjectTree = memo(function FeatureObjectTree({
   )
 
   return (
-    <div className="space-y-1">
+    <div className="flex flex-col gap-1">
       {rootIds.map((objectId) => (
         <FeatureObjectTreeNode
           key={objectId}
@@ -4681,7 +4735,7 @@ const FeatureObjectTreeNode = memo(function FeatureObjectTreeNode({
           </button>
         </div>
         <CollapsibleContent className="overflow-hidden">
-          <div className="mt-1 space-y-1 border-l border-border/55 pl-3">
+          <div className="mt-1 flex flex-col gap-1 border-l border-border/55 pl-3">
             {childIds.map((childId) => (
               <FeatureObjectTreeNode
                 key={childId}
@@ -4732,28 +4786,28 @@ function ViewportGeometryModeBar({
           <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">LoD</span>
         </div>
       </ViewportControlTooltip>
-      <div className="flex flex-col items-stretch gap-1">
-        {modes.map((entry) => {
-          const isActive = entry.key === modeKey
-
-          return (
-            <button
-              key={entry.key}
-              type="button"
-              onClick={() => onSelectGeometryDisplayMode(entry.mode)}
-              className={cn(
-                'rounded-sm px-2 py-1 text-left text-[11px] transition',
-                isActive
-                  ? 'bg-primary/12 text-primary'
-                  : 'text-muted-foreground hover:bg-foreground/6 hover:text-foreground',
-              )}
-              title={entry.label}
-            >
-              {entry.label}
-            </button>
-          )
-        })}
-      </div>
+      <ToggleGroup
+        value={[modeKey]}
+        orientation="vertical"
+        className="w-full items-stretch gap-1 rounded-none"
+        onValueChange={(value) => {
+          const selectedMode = modes.find((entry) => entry.key === value[0])
+          if (selectedMode) {
+            onSelectGeometryDisplayMode(selectedMode.mode)
+          }
+        }}
+      >
+        {modes.map((entry) => (
+          <ToggleGroupItem
+            key={entry.key}
+            value={entry.key}
+            className="h-auto min-w-0 justify-start rounded-sm px-2 py-1 text-left text-[11px] font-normal text-muted-foreground hover:bg-foreground/6 hover:text-foreground aria-pressed:bg-primary/12 aria-pressed:text-primary"
+            title={entry.label}
+          >
+            {entry.label}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
     </div>
   )
 }
@@ -5179,7 +5233,7 @@ const FeatureListPanel = memo(function FeatureListPanel({
 
   return (
     <>
-      <div className="panel-header-surface space-y-2.5 border-b p-4 pb-3">
+      <div className="panel-header-surface flex flex-col gap-2.5 border-b p-4 pb-3">
         {showDesktopHeading && (
           <div className="flex items-center justify-between gap-2">
             <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
@@ -5239,95 +5293,88 @@ const FeatureListPanel = memo(function FeatureListPanel({
           </div>
         )}
 
-        <div className="flex items-center gap-2">
-          <div className="relative min-w-0 flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={searchQuery}
-              onChange={onSearchQueryChange}
-              placeholder="Search objects"
-              className="h-9 pl-8"
-            />
-          </div>
-        </div>
+        <InputGroup className="h-9">
+          <InputGroupAddon>
+            <Search aria-hidden="true" />
+          </InputGroupAddon>
+          <InputGroupInput
+            value={searchQuery}
+            onChange={onSearchQueryChange}
+            placeholder="Search objects"
+            aria-label="Search objects"
+          />
+        </InputGroup>
 
         {annotationSourceName && (
-          <div className="rounded-sm bg-foreground/4 px-3 py-2">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Show errors only</p>
-                <p className="text-xs text-foreground/60">
+          <Field orientation="horizontal" className="rounded-sm bg-foreground/4 px-3 py-2">
+            <FieldContent>
+              <FieldLabel
+                htmlFor="show-invalid-features"
+                className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground"
+              >
+                Show errors only
+              </FieldLabel>
+              <FieldDescription className="text-xs text-foreground/60">
                   Showing {filteredObjectCount} of {datasetFeatureCount}
-                </p>
-              </div>
-              <div className="flex shrink-0 items-center gap-1.5">
-                {showOnlyInvalidFeatures && errorCodeFilters.length > 0 && (
-                  <Popover>
-                    <PopoverTrigger
-                      render={(
-                        <Button
-                          size="icon"
-                          variant={selectedErrorCodeCount === errorCodeFilters.length ? 'ghost' : 'outline'}
-                          className="size-8"
-                          aria-label="Filter validation error codes"
-                          title="Filter validation error codes"
-                        >
-                          <Filter className="size-4" />
-                        </Button>
-                      )}
-                    />
-                    <PopoverContent align="end" className="w-80 p-0">
-                      <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
-                        <div className="min-w-0">
-                          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                            Error codes
-                          </p>
-                          <p className="text-xs text-foreground/60">
-                            {selectedErrorCodeCount} of {errorCodeFilters.length} selected
-                          </p>
-                        </div>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 shrink-0 px-2 text-xs"
-                          onClick={onToggleAllErrorCodeFilters}
-                        >
-                          {selectedErrorCodeCount === errorCodeFilters.length ? 'None' : 'All'}
-                        </Button>
+              </FieldDescription>
+            </FieldContent>
+            <div className="flex shrink-0 items-center gap-1.5">
+              {showOnlyInvalidFeatures && errorCodeFilters.length > 0 && (
+                <Popover>
+                  <PopoverTrigger
+                    render={(
+                      <Button
+                        size="icon"
+                        variant={selectedErrorCodeCount === errorCodeFilters.length ? 'ghost' : 'outline'}
+                        className="size-8"
+                        aria-label="Filter validation error codes"
+                        title="Filter validation error codes"
+                      >
+                        <Filter data-icon />
+                      </Button>
+                    )}
+                  />
+                  <PopoverContent align="end" className="w-80 p-0">
+                    <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                          Error codes
+                        </p>
+                        <p className="text-xs text-foreground/60">
+                          {selectedErrorCodeCount} of {errorCodeFilters.length} selected
+                        </p>
                       </div>
-                      <div className="max-h-80 overflow-y-auto p-1.5">
-                        {errorCodeFilters.map((option) => {
-                          const isSelected = selectedErrorCodeSet === null || selectedErrorCodeSet.has(option.code)
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 shrink-0 px-2 text-xs"
+                        onClick={onToggleAllErrorCodeFilters}
+                      >
+                        {selectedErrorCodeCount === errorCodeFilters.length ? 'None' : 'All'}
+                      </Button>
+                    </div>
+                    <div className="max-h-80 overflow-y-auto p-1.5">
+                      {errorCodeFilters.map((option) => {
+                        const isSelected = selectedErrorCodeSet === null || selectedErrorCodeSet.has(option.code)
+                        const checkboxId = `error-code-${option.code}`
 
-                          return (
-                            <div
-                              key={option.code}
-                              role="checkbox"
-                              tabIndex={0}
-                              aria-checked={isSelected}
-                              onClick={() => onToggleErrorCodeFilter(option.code)}
-                              onKeyDown={(event) => {
-                                if (event.target !== event.currentTarget) {
-                                  return
-                                }
-
-                                if (event.key !== 'Enter' && event.key !== ' ') {
-                                  return
-                                }
-
-                                event.preventDefault()
-                                onToggleErrorCodeFilter(option.code)
-                              }}
-                              className="flex min-w-0 cursor-pointer items-start gap-2 rounded-sm px-2 py-1.5 transition outline-none hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-ring/60"
+                        return (
+                          <Field
+                            key={option.code}
+                            orientation="horizontal"
+                            className="items-start rounded-sm px-2 py-1.5 transition hover:bg-foreground/5"
+                          >
+                            <Checkbox
+                              id={checkboxId}
+                              checked={isSelected}
+                              onCheckedChange={() => onToggleErrorCodeFilter(option.code)}
+                              className="mt-0.5"
+                            />
+                            <FieldLabel
+                              htmlFor={checkboxId}
+                              className="min-w-0 flex-1 cursor-pointer items-start font-normal"
                             >
-                              <Checkbox
-                                checked={isSelected}
-                                onCheckedChange={() => onToggleErrorCodeFilter(option.code)}
-                                onClick={(event) => event.stopPropagation()}
-                                className="mt-0.5"
-                                aria-label={`Filter code ${option.code}`}
-                              />
                               <div className="min-w-0 flex-1">
                                 <div className="flex min-w-0 items-center gap-1.5">
                                   <span
@@ -5346,22 +5393,22 @@ const FeatureListPanel = memo(function FeatureListPanel({
                                   {option.description}
                                 </p>
                               </div>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                )}
-                <Switch
-                  checked={showOnlyInvalidFeatures}
-                  onCheckedChange={onShowOnlyInvalidFeaturesChange}
-                  className="shrink-0"
-                  aria-label="Show only objects with validation errors"
-                />
-              </div>
+                            </FieldLabel>
+                          </Field>
+                        )
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              )}
+              <Switch
+                id="show-invalid-features"
+                checked={showOnlyInvalidFeatures}
+                onCheckedChange={onShowOnlyInvalidFeaturesChange}
+                className="shrink-0"
+              />
             </div>
-          </div>
+          </Field>
         )}
       </div>
 
@@ -5517,14 +5564,7 @@ function ToolbarPickingButton({
 
   return (
     <ViewportControlTooltip show={showTooltip} label="Picking mode" hotkey="0-3">
-      <div
-        className="relative inline-flex"
-        onBlur={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget)) {
-            onMenuOpenChange(false)
-          }
-        }}
-      >
+      <div className="inline-flex">
         <Button
           type="button"
           variant="ghost"
@@ -5536,48 +5576,39 @@ function ToolbarPickingButton({
         >
           <MaskIcon src={iconSrc} className="size-3.5" />
         </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          onClick={() => onMenuOpenChange(!isMenuOpen)}
-          aria-label="Choose picking mode"
-          aria-expanded={isMenuOpen}
-          title="Choose picking mode"
-          className={cn('h-7 w-5 justify-center rounded-l-none border border-l-0 p-0', activeClassName)}
-        >
-          <ChevronDown className={cn('size-3 transition-transform', isMenuOpen && 'rotate-180')} />
-        </Button>
-        {isMenuOpen && (
-          <div className="absolute bottom-full right-0 z-30 mb-1 min-w-40 rounded-sm border border-border bg-popover p-1 shadow-lg">
-            {availableModes.map((entry) => {
-              const isSelected = entry === mode
-              const isAvailable = availableModes.includes(entry)
-
-              return (
-                <button
+        <DropdownMenu open={isMenuOpen} onOpenChange={onMenuOpenChange}>
+          <DropdownMenuTrigger
+            render={(
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="Choose picking mode"
+                title="Choose picking mode"
+                className={cn('h-7 w-5 justify-center rounded-l-none border border-l-0 p-0', activeClassName)}
+              >
+                <ChevronDown className={cn('size-3 transition-transform', isMenuOpen && 'rotate-180')} />
+              </Button>
+            )}
+          />
+          <DropdownMenuContent side="top" align="end" className="min-w-40 rounded-sm">
+            <DropdownMenuRadioGroup
+              value={mode}
+              onValueChange={(value) => onSelectMode(value as ViewerPickingMode)}
+            >
+              {availableModes.map((entry) => (
+                <DropdownMenuRadioItem
                   key={entry}
-                  type="button"
-                  disabled={!isAvailable}
-                  onClick={() => {
-                    onSelectMode(entry)
-                    onMenuOpenChange(false)
-                  }}
-                  className={cn(
-                    'flex h-8 w-full items-center gap-2 rounded-sm px-2 text-left text-xs',
-                    isSelected
-                      ? 'bg-primary/14 text-primary'
-                      : 'text-foreground hover:bg-accent/10',
-                    !isAvailable && 'cursor-not-allowed text-muted-foreground/35 hover:bg-transparent',
-                  )}
+                  value={entry}
+                  className="h-8 rounded-sm text-xs"
                 >
                   <MaskIcon src={getPickingModeIconUrl(entry)} className="size-3.5" />
                   <span>{getPickingModeLabel(entry)}</span>
-                </button>
-              )
-            })}
-          </div>
-        )}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </ViewportControlTooltip>
   )
@@ -5606,14 +5637,7 @@ function ToolbarAppearanceButton({
 
   return (
     <ViewportControlTooltip show={showTooltip} label="Appearance" hotkey="S">
-      <div
-        className="relative inline-flex"
-        onBlur={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget)) {
-            onMenuOpenChange(false)
-          }
-        }}
-      >
+      <div className="inline-flex">
         <Button
           type="button"
           variant="ghost"
@@ -5625,47 +5649,45 @@ function ToolbarAppearanceButton({
         >
           {getAppearanceModeIcon(mode)}
         </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          onClick={() => onMenuOpenChange(!isMenuOpen)}
-          aria-label="Choose appearance"
-          aria-expanded={isMenuOpen}
-          title="Choose appearance"
-          className={cn('h-7 w-5 justify-center rounded-l-none border border-l-0 p-0', activeClassName)}
-        >
-          <ChevronDown className={cn('size-3 transition-transform', isMenuOpen && 'rotate-180')} />
-        </Button>
-        {isMenuOpen && (
-          <div className="absolute bottom-full right-0 z-30 mb-1 min-w-40 rounded-sm border border-border bg-popover p-1 shadow-lg">
-            {VIEWER_APPEARANCE_MODES.map((entry) => {
-              const isSelected = entry === mode
-              const isAvailable = entry !== 'colormap' || colormapAvailable
+        <DropdownMenu open={isMenuOpen} onOpenChange={onMenuOpenChange}>
+          <DropdownMenuTrigger
+            render={(
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="Choose appearance"
+                title="Choose appearance"
+                className={cn('h-7 w-5 justify-center rounded-l-none border border-l-0 p-0', activeClassName)}
+              >
+                <ChevronDown className={cn('size-3 transition-transform', isMenuOpen && 'rotate-180')} />
+              </Button>
+            )}
+          />
+          <DropdownMenuContent side="top" align="end" className="min-w-40 rounded-sm">
+            <DropdownMenuRadioGroup
+              value={mode}
+              onValueChange={(value) => onSelectMode(value as ViewerAppearanceMode)}
+            >
+              {VIEWER_APPEARANCE_MODES.map((entry) => {
+                const isAvailable = entry !== 'colormap' || colormapAvailable
 
-              return (
-                <button
-                  key={entry}
-                  type="button"
-                  disabled={!isAvailable}
-                  title={!isAvailable ? 'Select an attribute to enable colormap coloring' : undefined}
-                  onClick={() => {
-                    onSelectMode(entry)
-                    onMenuOpenChange(false)
-                  }}
-                  className={cn(
-                    'flex h-8 w-full items-center gap-2 rounded-sm px-2 text-left text-xs',
-                    isSelected ? 'bg-primary/14 text-primary' : 'text-foreground hover:bg-accent/10',
-                    !isAvailable && 'cursor-not-allowed text-muted-foreground/35 hover:bg-transparent',
-                  )}
-                >
-                  {getAppearanceModeIcon(entry)}
-                  <span>{getAppearanceModeLabel(entry)}</span>
-                </button>
-              )
-            })}
-          </div>
-        )}
+                return (
+                  <DropdownMenuRadioItem
+                    key={entry}
+                    value={entry}
+                    disabled={!isAvailable}
+                    title={!isAvailable ? 'Select an attribute to enable colormap coloring' : undefined}
+                    className="h-8 rounded-sm text-xs"
+                  >
+                    {getAppearanceModeIcon(entry)}
+                    <span>{getAppearanceModeLabel(entry)}</span>
+                  </DropdownMenuRadioItem>
+                )
+              })}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </ViewportControlTooltip>
   )
@@ -5972,7 +5994,7 @@ const AttributeList = memo(function AttributeList({
   )
 
   return (
-    <dl className="m-0 min-w-0 space-y-2">
+    <dl className="m-0 flex min-w-0 flex-col gap-2">
       {Object.entries(attributes).map(([key, value]) => (
         <div
           key={key}
@@ -6126,7 +6148,7 @@ function InfoPanel({
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
-        <div className="space-y-1.5 p-1.5">
+        <div className="flex flex-col gap-1.5 p-1.5">
           {showPinnedSection && (
             <div className={cn(showAttributeSection && 'border-b border-border/45 pb-1')}>
               <PinnedAttributesInfoSection
@@ -6202,28 +6224,33 @@ function PinnedAttributesSettingsPopover({
 
   return (
     <div className="flex flex-col">
-      <div className="flex items-center justify-between gap-2 border-b border-border/55 px-3 py-2.5">
-        <div className="min-w-0">
-          <p className="text-xs font-medium text-foreground/86">Inherited values</p>
-          <p className="text-[11px] text-muted-foreground">Use parent value when missing</p>
-        </div>
+      <Field orientation="horizontal" className="border-b border-border/55 px-3 py-2.5">
+        <FieldContent>
+          <FieldLabel htmlFor="inherit-parent-attributes" className="text-xs text-foreground/86">
+            Inherited values
+          </FieldLabel>
+          <FieldDescription className="text-[11px]">Use parent value when missing</FieldDescription>
+        </FieldContent>
         <Switch
+          id="inherit-parent-attributes"
           checked={inheritsParent}
           onCheckedChange={onInheritsParentChange}
-          aria-label="Use parent attributes"
         />
-      </div>
+      </Field>
       <div className="border-b border-border/55 p-2">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
+        <InputGroup className="h-8">
+          <InputGroupAddon>
+            <Search aria-hidden="true" />
+          </InputGroupAddon>
+          <InputGroupInput
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search attributes…"
-            className="h-8 pl-7 text-xs"
+            aria-label="Search attributes"
+            className="text-xs"
             autoFocus
           />
-        </div>
+        </InputGroup>
       </div>
       <div className="max-h-64 overflow-y-auto p-1">
         {filteredOptions.length === 0 ? (
@@ -6526,57 +6553,40 @@ function ColorMapSelect({
   groups: readonly ColorMapGroup[]
   onChange: (colorMapId: AttributeColorMapId) => void
 }) {
-  const [open, setOpen] = useState(false)
-
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
-        render={(
-          <Button
-            type="button"
-            variant="outline"
-            aria-label="Attribute color map"
-            className="h-9 min-w-0 flex-1 justify-between gap-2 px-2.5 font-normal"
-          >
-            <ColorMapSwatch colorMapId={value} className="h-3 w-12 shrink-0" />
-            <span className="min-w-0 flex-1 truncate text-left text-sm">{formatColorMapName(value)}</span>
-            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-          </Button>
-        )}
-      />
-      <PopoverContent align="start" side="bottom" className="w-[var(--anchor-width)] p-1">
-        <div className="max-h-72 overflow-y-auto">
-          {groups.map((group) => (
-            <div key={group.label}>
-              <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                {group.label}
-              </div>
-              {group.options.map((entry) => {
-                const isSelected = entry === value
-                return (
-                  <button
-                    key={entry}
-                    type="button"
-                    className={cn(
-                      'flex w-full min-w-0 items-center gap-2 rounded-[3px] px-2 py-1.5 text-left text-sm hover:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
-                      isSelected && 'bg-accent/15',
-                    )}
-                    onClick={() => {
-                      onChange(entry)
-                      setOpen(false)
-                    }}
-                  >
-                    <ColorMapSwatch colorMapId={entry} className="h-3 w-12 shrink-0" />
-                    <span className="min-w-0 flex-1 truncate">{formatColorMapName(entry)}</span>
-                    {isSelected && <Check className="size-3.5 shrink-0 text-accent" />}
-                  </button>
-                )
-              })}
-            </div>
-          ))}
-        </div>
-      </PopoverContent>
-    </Popover>
+    <Select
+      value={value}
+      onValueChange={(nextValue) => {
+        if (nextValue) {
+          onChange(nextValue as AttributeColorMapId)
+        }
+      }}
+    >
+      <SelectTrigger
+        aria-label="Attribute color map"
+        className="h-9 min-w-0 flex-1 rounded-sm px-2.5 font-normal"
+      >
+        <ColorMapSwatch colorMapId={value} className="h-3 w-12 shrink-0" />
+        <SelectValue className="min-w-0 flex-1 truncate text-sm">
+          {formatColorMapName(value)}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent align="start" className="max-h-72 rounded-sm">
+        {groups.map((group) => (
+          <SelectGroup key={group.label}>
+            <SelectLabel className="text-[10px] font-medium uppercase tracking-[0.14em]">
+              {group.label}
+            </SelectLabel>
+            {group.options.map((entry) => (
+              <SelectItem key={entry} value={entry} className="rounded-[3px]">
+                <ColorMapSwatch colorMapId={entry} className="h-3 w-12 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">{formatColorMapName(entry)}</span>
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
 
@@ -6654,7 +6664,7 @@ function AttributeColorSection({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
         <div className="grid gap-1.5">
           <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
             Colormap
@@ -6703,7 +6713,7 @@ function AttributeColorSection({
           />
         ) : model?.kind === 'continuous' && canAdjust && domain && visibleDomain ? (
           <>
-            <div className="space-y-1">
+            <div className="flex flex-col gap-1">
               <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
                 <span>{model.continuousCount} colored</span>
                 <span>{model.missingCount} missing</span>
@@ -6818,7 +6828,7 @@ function CategoricalAttributeColorSection({
 
   if (isHighCardinality) {
     return (
-      <div className="space-y-2">
+      <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
           <span>{model.valueCount} colored</span>
           <span>{model.missingCount} missing</span>
@@ -6840,7 +6850,7 @@ function CategoricalAttributeColorSection({
           </div>
         </div>
         {repeatedCategories.length > 0 ? (
-          <div className="space-y-1">
+          <div className="flex flex-col gap-1">
             <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
               Top repeated values
             </p>
@@ -6878,7 +6888,7 @@ function CategoricalAttributeColorSection({
   const maxCategoryCount = Math.max(...displayCategories.map((category) => category.count), 1)
 
   return (
-    <div className="space-y-2">
+    <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
         <span>{model.valueCount} colored</span>
         <span>{model.categories.length} unique / {model.missingCount} missing</span>
@@ -6918,7 +6928,7 @@ function CategoryLegend({
   onCustomColorChange: (attributeKey: string, categoryKey: string, color: string) => void
 }) {
   return (
-    <div className="max-h-32 space-y-1 overflow-y-auto pr-1">
+    <div className="flex max-h-32 flex-col gap-1 overflow-y-auto pr-1">
       {categories.map((category) => (
         <div key={category.key} className="grid grid-cols-[0.75rem_minmax(0,1fr)_auto] items-center gap-2 text-xs">
           {isEditable && category.index >= 0 ? (
@@ -7300,7 +7310,7 @@ function InfoDialogContent({
               <div className="flex size-11 shrink-0 items-center justify-center rounded-sm border border-primary/20 bg-primary/10 text-primary">
                 <FileText className="size-5" />
               </div>
-              <div className="min-w-0 space-y-1">
+              <div className="flex min-w-0 flex-col gap-1">
                 <DialogTitle className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary">
                   File information
                 </DialogTitle>
@@ -7340,12 +7350,12 @@ function InfoDialogContent({
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="p-5">
             {cityJsonTabs.map(({ source, value, metadataEntries }) => (
-              <TabsContent key={value} value={value} className="mt-0 block space-y-4 data-hidden:hidden">
+              <TabsContent key={value} value={value} className="mt-0 flex flex-col gap-4 data-hidden:hidden">
                 <section>
                   <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                     CityJSON
                   </p>
-                  <dl className="mt-2.5 space-y-2 text-sm">
+                  <dl className="mt-2.5 flex flex-col gap-2 text-sm">
                     <InfoRow label="Source" value={source.location} mono />
                     <InfoRow label="Type" value={source.cityJsonKind} />
                     <InfoRow label="Version" value={source.cityJsonVersion ?? '—'} />
@@ -7372,7 +7382,7 @@ function InfoDialogContent({
                     <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                       Metadata
                     </p>
-                    <dl className="mt-2.5 space-y-2 text-sm">
+                    <dl className="mt-2.5 flex flex-col gap-2 text-sm">
                       {metadataEntries.map(([key, metadataValue]) => (
                         <InfoRow
                           key={key}
@@ -7387,12 +7397,12 @@ function InfoDialogContent({
             ))}
 
             {annotationSourceName && (
-              <TabsContent value="val3dity" className="mt-0 block space-y-4 data-hidden:hidden">
+              <TabsContent value="val3dity" className="mt-0 flex flex-col gap-4 data-hidden:hidden">
                 <section>
                   <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                     Val3dity report
                   </p>
-                  <dl className="mt-2.5 space-y-2 text-sm">
+                  <dl className="mt-2.5 flex flex-col gap-2 text-sm">
                     <InfoRow label="Source" value={annotationSourceLocation ?? annotationSourceName} mono />
                   </dl>
                 </section>
@@ -7413,7 +7423,7 @@ function InfoDialogContent({
                         Errors
                       </p>
                       {validationSummary.errorCounts.length > 0 ? (
-                        <div className="mt-2.5 space-y-2">
+                        <div className="mt-2.5 flex flex-col gap-2">
                           {validationSummary.errorCounts.map((error) => (
                             <div
                               key={`${error.code}:${error.description}`}
@@ -7478,14 +7488,15 @@ function Val3dityParametersPopover({
         </p>
       </div>
 
-      <div className="space-y-4 p-4">
-        <div className="grid gap-3 sm:grid-cols-2">
+      <FieldGroup className="gap-4 p-4">
+        <FieldGroup className="grid gap-3 sm:grid-cols-2">
           <Val3dityNumberInput
             id="val3dity-tol-snap"
             label="Snap tolerance"
             min="0"
             step="0.001"
             value={parameters.tolSnap}
+            invalid={!isValidVal3dityParameterValue(parameters.tolSnap, 0)}
             onChange={(value) => updateDraft('tolSnap', value)}
           />
           <Val3dityNumberInput
@@ -7493,6 +7504,7 @@ function Val3dityParametersPopover({
             label="Overlap tolerance"
             step="0.1"
             value={parameters.overlapTol}
+            invalid={!isValidVal3dityParameterValue(parameters.overlapTol, -Infinity)}
             onChange={(value) => updateDraft('overlapTol', value)}
           />
           <Val3dityNumberInput
@@ -7501,6 +7513,7 @@ function Val3dityParametersPopover({
             min="0"
             step="0.01"
             value={parameters.planarityD2pTol}
+            invalid={!isValidVal3dityParameterValue(parameters.planarityD2pTol, 0)}
             onChange={(value) => updateDraft('planarityD2pTol', value)}
           />
           <Val3dityNumberInput
@@ -7509,41 +7522,38 @@ function Val3dityParametersPopover({
             min="0"
             step="0.1"
             value={parameters.planarityNTol}
+            invalid={!isValidVal3dityParameterValue(parameters.planarityNTol, 0)}
             onChange={(value) => updateDraft('planarityNTol', value)}
           />
-        </div>
+        </FieldGroup>
 
-        <label className="flex flex-col gap-1.5" htmlFor="val3dity-primitive">
-          <span className="text-xs font-medium text-muted-foreground">Primitive</span>
-          <div className="relative">
-            <select
-              id="val3dity-primitive"
-              value={parameters.primitive}
-              onChange={(event) =>
-                onChange({
-                  ...parameters,
-                  primitive: event.target.value as Val3dityPrimitiveOption,
-                })}
-              className="flex h-10 w-full appearance-none rounded-sm border border-input bg-background/70 py-2 pl-3 pr-10 text-sm text-foreground shadow-sm outline-none transition focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
-            >
-              <option value="auto">Auto</option>
-              <option value="Solid">Solid</option>
-              <option value="MultiSurface">MultiSurface</option>
-              <option value="CompositeSurface">CompositeSurface</option>
-            </select>
-            <ChevronDown
-              aria-hidden="true"
-              className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-            />
-          </div>
-        </label>
+        <Field>
+          <FieldLabel htmlFor="val3dity-primitive" className="text-xs text-muted-foreground">
+            Primitive
+          </FieldLabel>
+          <NativeSelect
+            id="val3dity-primitive"
+            className="w-full"
+            value={parameters.primitive}
+            onChange={(event) =>
+              onChange({
+                ...parameters,
+                primitive: event.target.value as Val3dityPrimitiveOption,
+              })}
+          >
+            <NativeSelectOption value="auto">Auto</NativeSelectOption>
+            <NativeSelectOption value="Solid">Solid</NativeSelectOption>
+            <NativeSelectOption value="MultiSurface">MultiSurface</NativeSelectOption>
+            <NativeSelectOption value="CompositeSurface">CompositeSurface</NativeSelectOption>
+          </NativeSelect>
+        </Field>
 
         {hasInvalidNumber && (
-          <p className="rounded-sm border border-destructive/25 bg-destructive/8 px-3 py-2 text-sm text-destructive">
+          <FieldError className="rounded-sm border border-destructive/25 bg-destructive/8 px-3 py-2">
             Snap and planarity tolerances must be non-negative numbers; overlap tolerance must be numeric.
-          </p>
+          </FieldError>
         )}
-      </div>
+      </FieldGroup>
 
       <div className="flex justify-end border-t border-border/40 p-3">
         <Button
@@ -7564,6 +7574,7 @@ function Val3dityNumberInput({
   min,
   step,
   value,
+  invalid,
   onChange,
 }: {
   id: string
@@ -7571,11 +7582,12 @@ function Val3dityNumberInput({
   min?: string
   step: string
   value: string
+  invalid: boolean
   onChange: (value: string) => void
 }) {
   return (
-    <label className="block space-y-1.5" htmlFor={id}>
-      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+    <Field data-invalid={invalid} className="gap-1.5">
+      <FieldLabel htmlFor={id} className="text-xs text-muted-foreground">{label}</FieldLabel>
       <Input
         id={id}
         type="number"
@@ -7583,9 +7595,10 @@ function Val3dityNumberInput({
         min={min}
         step={step}
         value={value}
+        aria-invalid={invalid}
         onChange={(event) => onChange(event.target.value)}
       />
-    </label>
+    </Field>
   )
 }
 
@@ -7619,11 +7632,11 @@ function ChangelogDialogContent({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-5">
-        <div className="space-y-5">
+        <div className="flex flex-col gap-5">
           {sections.map((section) => (
             <section key={section.heading}>
               <h2 className="text-sm font-semibold text-foreground">{section.heading}</h2>
-              <ul className="mt-2 space-y-1.5 text-sm leading-6 text-foreground/82">
+              <ul className="mt-2 flex flex-col gap-1.5 text-sm leading-6 text-foreground/82">
                 {section.items.map((item, index) => (
                   <li key={`${section.heading}:${index}`} className="flex gap-2">
                     <span aria-hidden="true" className="mt-2 size-1 shrink-0 rounded-full bg-primary/70" />
@@ -7764,7 +7777,7 @@ function MetadataValue({
     }
 
     return (
-      <div className="space-y-2">
+      <div className="flex flex-col gap-2">
         {value.map((entry, index) => (
           <div key={index} className="rounded-sm border border-border/45 bg-background/60 px-2.5 py-2">
             <MetadataValue value={entry} />
@@ -7776,7 +7789,7 @@ function MetadataValue({
 
   if (typeof value === 'object') {
     return (
-      <dl className="mt-1 space-y-2 border-l border-border/45 pl-3">
+      <dl className="mt-1 flex flex-col gap-2 border-l border-border/45 pl-3">
         {Object.entries(value as Record<string, unknown>)
           .filter(([, nested]) => !isEmptyMetadataValue(nested))
           .map(([nestedKey, nestedValue]) => (
