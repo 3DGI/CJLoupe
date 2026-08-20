@@ -30,7 +30,6 @@ import {
   RotateCcw,
   RotateCw,
   Search,
-  SearchAlert,
   Share2,
   Columns3Cog,
   Shuffle,
@@ -398,6 +397,7 @@ function App() {
   const [isFileDialogOpen, setIsFileDialogOpen] = useState(false)
   const [isInfoDialogOpen, setIsInfoDialogOpen] = useState(false)
   const [isChangelogDialogOpen, setIsChangelogDialogOpen] = useState(false)
+  const [isVal3dityDialogOpen, setIsVal3dityDialogOpen] = useState(false)
   const [cityJsonUrlInput, setCityJsonUrlInput] = useState('')
   const [annotationUrlInput, setAnnotationUrlInput] = useState('')
   const [val3dityParameters, setVal3dityParameters] = useState<Val3dityParameterForm>(DEFAULT_VAL3DITY_PARAMETERS)
@@ -2521,6 +2521,18 @@ function App() {
       }
 
       if (
+        event.key.toLowerCase() === 'v' &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        dataset
+      ) {
+        event.preventDefault()
+        setIsVal3dityDialogOpen(true)
+        return
+      }
+
+      if (
         event.key.toLowerCase() === 'b' &&
         !event.ctrlKey &&
         !event.metaKey &&
@@ -2676,6 +2688,7 @@ function App() {
     isFileDialogOpen ||
     isInfoDialogOpen ||
     isChangelogDialogOpen ||
+    isVal3dityDialogOpen ||
     isErrorDialogVisible ||
     isLoading ||
     isDragging
@@ -2723,6 +2736,7 @@ function App() {
         { keys: 'Pinch', description: 'Zoom' },
         { keys: 'Panel', description: 'Browse objects and details' },
         { keys: 'S', description: 'Cycle appearance' },
+        { keys: 'V', description: 'Experimental val3dity runner' },
         { keys: 'B', description: 'Toggle sidebar' },
       ]
     : editMode
@@ -2732,12 +2746,14 @@ function App() {
           { keys: 'R', description: 'Cycle rings' },
           { keys: 'D', description: 'Delete selected face' },
           { keys: 'T', description: 'Top-down view' },
+          { keys: 'V', description: 'Experimental val3dity runner' },
           { keys: 'B', description: 'Toggle sidebar' },
         ]
       : [
           { keys: 'Click', description: getPickingModeDescription(effectivePickingMode) },
           { keys: 'Double Click', description: 'Recenter navigation' },
           { keys: 'T', description: 'Top-down view' },
+          { keys: 'V', description: 'Experimental val3dity runner' },
           { keys: 'B', description: 'Toggle sidebar' },
         ]
 
@@ -2965,9 +2981,6 @@ function App() {
                     onShowOnlyInvalidFeaturesChange={handleShowOnlyInvalidFeaturesChange}
                     onToggleErrorCodeFilter={handleToggleErrorCodeFilter}
                     onToggleAllErrorCodeFilters={handleToggleAllErrorCodeFilters}
-                    val3dityParameters={val3dityParameters}
-                    onVal3dityParametersChange={setVal3dityParameters}
-                    onValidate={dataset ? () => void validateCurrentDatasetWithVal3dity() : null}
                     onSelectFeature={handleSelectFeature}
                     onCenterObject={handleCenterObject}
                     onShowInfo={dataset ? () => setIsInfoDialogOpen(true) : null}
@@ -3583,6 +3596,19 @@ function App() {
             dataset={dataset}
             annotationSourceName={annotationSourceName}
             annotationSourceLocation={annotationSourceLocation}
+          />
+        )}
+      </Dialog>
+
+      <Dialog open={isVal3dityDialogOpen} onOpenChange={setIsVal3dityDialogOpen}>
+        {isVal3dityDialogOpen && dataset && (
+          <Val3dityParametersDialog
+            parameters={val3dityParameters}
+            onChange={setVal3dityParameters}
+            onRun={() => {
+              setIsVal3dityDialogOpen(false)
+              void validateCurrentDatasetWithVal3dity()
+            }}
           />
         )}
       </Dialog>
@@ -4996,9 +5022,6 @@ const FeatureListPanel = memo(function FeatureListPanel({
   onShowOnlyInvalidFeaturesChange,
   onToggleErrorCodeFilter,
   onToggleAllErrorCodeFilters,
-  val3dityParameters,
-  onVal3dityParametersChange,
-  onValidate,
   onSelectFeature,
   onCenterObject,
   onShowInfo,
@@ -5019,9 +5042,6 @@ const FeatureListPanel = memo(function FeatureListPanel({
   onShowOnlyInvalidFeaturesChange: (checked: boolean) => void
   onToggleErrorCodeFilter: (code: number) => void
   onToggleAllErrorCodeFilters: () => void
-  val3dityParameters: Val3dityParameterForm
-  onVal3dityParametersChange: (parameters: Val3dityParameterForm) => void
-  onValidate: (() => void) | null
   onSelectFeature: (featureId: string, objectId?: string | null) => void
   onCenterObject: (featureId: string, objectId: string) => void
   onShowInfo: (() => void) | null
@@ -5267,8 +5287,6 @@ const FeatureListPanel = memo(function FeatureListPanel({
     renderedItemIndices.push(selectedIndex)
     renderedItemIndices.sort((left, right) => left - right)
   }
-  const hasInvalidVal3dityParameters = !isValidVal3dityParameters(val3dityParameters)
-
   return (
     <>
       <div className="panel-header-surface flex flex-col gap-2.5 border-b p-4 pb-3">
@@ -5279,42 +5297,6 @@ const FeatureListPanel = memo(function FeatureListPanel({
               CityObjects ({datasetFeatureCount})
             </h1>
             <div className="flex items-center gap-1">
-              {onValidate && (
-                <div className="flex shrink-0 overflow-hidden rounded-sm border border-input bg-background/55">
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="size-8 rounded-none border-r border-border/55"
-                    onClick={onValidate}
-                    disabled={hasInvalidVal3dityParameters}
-                    aria-label="Run val3dity validation (experimental)"
-                    title={hasInvalidVal3dityParameters ? 'Fix val3dity parameters' : 'Run val3dity validation (experimental)'}
-                  >
-                    <SearchAlert className="size-4" />
-                  </Button>
-                  <Popover>
-                    <PopoverTrigger
-                      render={(
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-6 rounded-none"
-                          aria-label="Set val3dity parameters"
-                          title="Set val3dity parameters"
-                        >
-                          <ChevronDown className="size-3.5" />
-                        </Button>
-                      )}
-                    />
-                    <PopoverContent align="start" className="w-96 p-0">
-                      <Val3dityParametersPopover
-                        parameters={val3dityParameters}
-                        onChange={onVal3dityParametersChange}
-                      />
-                    </PopoverContent>
-                  </Popover>
-                </div>
-              )}
               {onShowInfo && (
                 <Button
                   size="icon"
@@ -7516,12 +7498,14 @@ function InfoDialogContent({
   )
 }
 
-function Val3dityParametersPopover({
+function Val3dityParametersDialog({
   parameters,
   onChange,
+  onRun,
 }: {
   parameters: Val3dityParameterForm
   onChange: (parameters: Val3dityParameterForm) => void
+  onRun: () => void
 }) {
   const hasInvalidNumber =
     !isValidVal3dityParameterValue(parameters.tolSnap, 0) ||
@@ -7534,14 +7518,17 @@ function Val3dityParametersPopover({
   }
 
   return (
-    <div>
-      <div className="border-b border-border/40 px-4 py-3">
-        <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary">
-          Val3dity parameters (experimental)
-        </p>
-      </div>
+    <DialogContent closeLabel="Close val3dity parameters" className="p-0">
+      <DialogHeader className="border-b border-border/40 p-5 pr-14">
+        <DialogTitle className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary">
+          Run val3dity (experimental)
+        </DialogTitle>
+        <DialogDescription>
+          Configure the validation, then run it against the current dataset. Be aware this is an experimental feature and it can give wrong results.
+        </DialogDescription>
+      </DialogHeader>
 
-      <FieldGroup className="gap-4 p-4">
+      <FieldGroup className="gap-4 p-5">
         <FieldGroup className="grid gap-3 sm:grid-cols-2">
           <Val3dityNumberInput
             id="val3dity-tol-snap"
@@ -7608,7 +7595,7 @@ function Val3dityParametersPopover({
         )}
       </FieldGroup>
 
-      <div className="flex justify-end border-t border-border/40 p-3">
+      <div className="flex items-center justify-between border-t border-border/40 p-4">
         <Button
           type="button"
           variant="outline"
@@ -7616,8 +7603,15 @@ function Val3dityParametersPopover({
         >
           Reset
         </Button>
+        <Button
+          type="button"
+          onClick={onRun}
+          disabled={hasInvalidNumber}
+        >
+          Run
+        </Button>
       </div>
-    </div>
+    </DialogContent>
   )
 }
 

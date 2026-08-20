@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Migrate to shadcn/ui with base ui
+- LoD chooser is now a dropdown menu
+- Remove experimental val3dity runner button
+
 ## 0.9.0 - 2026-08-18
 
 - Add shareable viewer-state snapshots: copy links for URL-backed scenes or download state-enriched CityJSON files and ZIP bundles for local scenes
