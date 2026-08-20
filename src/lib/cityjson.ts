@@ -108,12 +108,17 @@ export type LoadedValidationReport = {
 
 type Val3dityExtensionReport = {
   val3dityVersion?: string
+  val3dity_version?: string
   validity?: boolean
   parameters?: Record<string, number | string | boolean>
   featuresOverview?: Val3dityExtensionSummary[]
+  features_overview?: Val3dityExtensionSummary[]
   primitivesOverview?: Val3dityExtensionSummary[]
+  primitives_overview?: Val3dityExtensionSummary[]
   errorCodeSummary?: Val3dityExtensionErrorCodeCount[]
+  error_code_summary?: Val3dityExtensionErrorCodeCount[]
   datasetErrors?: Val3dityExtensionDatasetError[]
+  dataset_errors?: Val3dityExtensionDatasetError[]
 }
 
 type Val3dityExtensionSummary = {
@@ -137,6 +142,7 @@ type Val3dityExtensionDatasetError = {
 type Val3dityExtensionValidation = {
   validity?: boolean
   geometries?: Val3dityExtensionGeometryValidation[]
+  features?: Val3dityExtensionError[]
 }
 
 type Val3dityExtensionGeometryValidation = {
@@ -715,8 +721,9 @@ function createVal3dityExtensionSource(
     return null
   }
 
-  const versionLabel = typeof report?.val3dityVersion === 'string' && report.val3dityVersion.trim()
-    ? `val3dity ${report.val3dityVersion.trim()}`
+  const version = getVal3dityReportVersion(report)
+  const versionLabel = version
+    ? `val3dity ${version}`
     : 'val3dity'
 
   return {
@@ -734,10 +741,15 @@ function hasVal3dityReport(header: CityJsonHeader) {
 function getVal3dityReport(header: CityJsonHeader) {
   const report = header['+val3dity-report']
   return isRecord(report) &&
-    typeof report.val3dityVersion === 'string' &&
+    typeof getVal3dityReportVersion(report) === 'string' &&
     typeof report.validity === 'boolean'
     ? (report as Val3dityExtensionReport)
     : null
+}
+
+function getVal3dityReportVersion(report: Record<string, unknown> | Val3dityExtensionReport | null | undefined) {
+  const version = report?.val3dity_version ?? report?.val3dityVersion
+  return typeof version === 'string' && version.trim() ? version.trim() : null
 }
 
 function applyVal3dityExtensionValidation(
@@ -763,6 +775,10 @@ function applyVal3dityExtensionValidation(
         errors.push(parseVal3dityExtensionError(error, cityObjectId, geometryValidation.geometryIndex))
       }
     }
+
+    for (const error of validation.features ?? []) {
+      errors.push(...parseVal3dityExtensionFeatureErrors(error, cityObjectId))
+    }
   }
 
   if (validity == null && errors.length === 0 && !hasVal3dityExtensionReport) {
@@ -781,10 +797,39 @@ function getVal3dityExtensionValidation(cityObject: CityJsonObject): Val3dityExt
   return isRecord(validation) ? (validation as Val3dityExtensionValidation) : null
 }
 
+function parseVal3dityExtensionFeatureErrors(
+  error: Val3dityExtensionError,
+  fallbackCityObjectId: string,
+): ViewerValidationError[] {
+  const referencedGeometries = getVal3dityFeatureErrorGeometryReferences(error.sourceId)
+  if (referencedGeometries.length === 0) {
+    return [parseVal3dityExtensionError(error, fallbackCityObjectId, undefined, false)]
+  }
+
+  return referencedGeometries.map(({ cityObjectId, geometryIndex }) =>
+    parseVal3dityExtensionError(error, cityObjectId, geometryIndex, false),
+  )
+}
+
+function getVal3dityFeatureErrorGeometryReferences(sourceId: unknown) {
+  if (typeof sourceId !== 'string') {
+    return []
+  }
+
+  return sourceId.split('&&').flatMap((reference) => {
+    const parts = parseValidationIdParts(reference)
+    const geometryIndex = parseNullableInteger(parts.geom)
+    return typeof parts.coid === 'string' && parts.coid && geometryIndex != null
+      ? [{ cityObjectId: parts.coid, geometryIndex }]
+      : []
+  })
+}
+
 function parseVal3dityExtensionError(
   error: Val3dityExtensionError,
   fallbackCityObjectId: string,
   fallbackGeometryIndex: number | undefined,
+  parseSourceIdLocation = true,
 ): ViewerValidationError {
   const rawId = error.sourceId ?? ''
   const parts = parseValidationIdParts(rawId)
@@ -799,11 +844,16 @@ function parseVal3dityExtensionError(
     id: rawId,
     info: error.info ?? '',
     cityObjectId: fallbackCityObjectId,
-    geometryIndex: parseNullableIntegerValue(fallbackGeometryIndex) ?? parseNullableInteger(parts.geom),
-    shellIndex: parseNullableIntegerValue(location?.shellIndex) ?? parseNullableInteger(parts.shell),
-    faceIndex: parseNullableIntegerValue(location?.faceIndex) ?? parseNullableInteger(parts.face),
-    ringIndex: parseNullableIntegerValue(location?.ringIndex) ?? parseNullableInteger(parts.ring),
-    vertexIndex: parseNullableIntegerValue(location?.vertexIndex) ?? parseNullableInteger(parts.vertex),
+    geometryIndex: parseNullableIntegerValue(fallbackGeometryIndex) ??
+      (parseSourceIdLocation ? parseNullableInteger(parts.geom) : null),
+    shellIndex: parseNullableIntegerValue(location?.shellIndex) ??
+      (parseSourceIdLocation ? parseNullableInteger(parts.shell) : null),
+    faceIndex: parseNullableIntegerValue(location?.faceIndex) ??
+      (parseSourceIdLocation ? parseNullableInteger(parts.face) : null),
+    ringIndex: parseNullableIntegerValue(location?.ringIndex) ??
+      (parseSourceIdLocation ? parseNullableInteger(parts.ring) : null),
+    vertexIndex: parseNullableIntegerValue(location?.vertexIndex) ??
+      (parseSourceIdLocation ? parseNullableInteger(parts.vertex) : null),
     location: parseValidationPoint(pointCoordinates) ?? parseValidationLocation(error.info, error.description),
   }
 }

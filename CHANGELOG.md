@@ -5,6 +5,7 @@
 - Migrate to shadcn/ui with base ui
 - LoD chooser is now a dropdown menu
 - Remove experimental val3dity runner button
+- Add support for the val3dity CityJSON extension version 0.3.0
 
 ## 0.9.0 - 2026-08-18
 
