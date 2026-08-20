@@ -261,7 +261,8 @@ const EDIT_PICKING_MODES: ViewerPickingMode[] = ['none', 'face', 'vertex']
 const VIEWER_APPEARANCE_MODES: ViewerAppearanceMode[] = ['regular', 'semantic', 'normal', 'colormap']
 
 const FEATURE_LIST_ROW_HEIGHT = 58
-const CITY_OBJECT_TREE_ROW_ESTIMATE = 31
+const CITY_OBJECT_TREE_ROW_HEIGHT = 32
+const CITY_OBJECT_TREE_ROW_GAP = 4
 const FEATURE_SEPARATOR_HEIGHT_ESTIMATE = 18
 const FEATURE_LIST_ROW_GAP = 6
 const FEATURE_LIST_TOP_PADDING = 8
@@ -4359,7 +4360,10 @@ function objectSelectionKey(featureId: string, objectId?: string | null) {
 }
 
 function estimateFeatureListRowHeight(item: FeatureListItem, showFeatureSeparator: boolean) {
-  const objectRowsHeight = Math.max(item.objects.length, 1) * CITY_OBJECT_TREE_ROW_ESTIMATE
+  const objectRowCount = Math.max(item.objects.length, 1)
+  const objectRowsHeight =
+    objectRowCount * CITY_OBJECT_TREE_ROW_HEIGHT +
+    Math.max(objectRowCount - 1, 0) * CITY_OBJECT_TREE_ROW_GAP
   return showFeatureSeparator
     ? Math.max(FEATURE_LIST_ROW_HEIGHT, objectRowsHeight + FEATURE_SEPARATOR_HEIGHT_ESTIMATE)
     : objectRowsHeight
@@ -4909,7 +4913,18 @@ const FeatureListRow = memo(function FeatureListRow({
     }
 
     const reportHeight = () => {
+      // ResizeObserver callbacks can already be queued when virtualization
+      // detaches a row. A detached element measures as zero and must not be
+      // allowed to collapse the virtual layout.
+      if (!element.isConnected) {
+        return
+      }
+
       const measuredHeight = Math.ceil(element.getBoundingClientRect().height)
+      if (measuredHeight <= 0) {
+        return
+      }
+
       onHeightChange(
         rowHeightKey,
         showFeatureSeparator
@@ -5013,7 +5028,7 @@ const FeatureListPanel = memo(function FeatureListPanel({
   activeObjectId: string | null
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
-  const completedAutoScrollKeyRef = useRef<string | null>(null)
+  const handledAutoScrollKeyRef = useRef<string | null>(null)
   const [scrollTop, setScrollTop] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(0)
   const [rowHeights, setRowHeights] = useState<Map<string, number>>(() => new Map())
@@ -5069,6 +5084,10 @@ const FeatureListPanel = memo(function FeatureListPanel({
 
     return { rows, totalHeight }
   }, [filteredFeatureItems, rowHeights, showFeatureSeparators])
+  const rowLayoutRef = useRef(rowLayout)
+  useEffect(() => {
+    rowLayoutRef.current = rowLayout
+  }, [rowLayout])
 
   const filteredObjectCount = useMemo(
     () => filteredFeatureItems.reduce((count, item) => count + item.objects.length, 0),
@@ -5091,7 +5110,7 @@ const FeatureListPanel = memo(function FeatureListPanel({
     featureId: string,
     objectId?: string | null,
   ) => {
-    completedAutoScrollKeyRef.current = objectSelectionKey(featureId, objectId)
+    handledAutoScrollKeyRef.current = objectSelectionKey(featureId, objectId)
     onSelectFeature(featureId, objectId)
   }, [onSelectFeature])
 
@@ -5099,17 +5118,17 @@ const FeatureListPanel = memo(function FeatureListPanel({
     featureId: string,
     objectId: string,
   ) => {
-    completedAutoScrollKeyRef.current = objectSelectionKey(featureId, objectId)
+    handledAutoScrollKeyRef.current = objectSelectionKey(featureId, objectId)
     onCenterObject(featureId, objectId)
   }, [onCenterObject])
 
-  const scrollSelectedFeatureIntoView = useCallback(() => {
+  const scrollSelectedFeatureIntoView = useCallback((featureIndex: number) => {
     const viewport = viewportRef.current
-    if (!viewport || selectedIndex < 0) {
+    if (!viewport || featureIndex < 0) {
       return
     }
 
-    const selectedRow = rowLayout.rows[selectedIndex]
+    const selectedRow = rowLayoutRef.current.rows[featureIndex]
     if (!selectedRow) {
       return
     }
@@ -5132,7 +5151,7 @@ const FeatureListPanel = memo(function FeatureListPanel({
       top: Math.max(nextTop, 0),
       behavior: 'auto',
     })
-  }, [rowLayout.rows, selectedIndex, showFeatureSeparators])
+  }, [showFeatureSeparators])
 
   const scrollActiveObjectIntoView = useCallback(() => {
     const viewport = viewportRef.current
@@ -5175,18 +5194,18 @@ const FeatureListPanel = memo(function FeatureListPanel({
 
   useEffect(() => {
     if (!selectedFeatureId) {
-      completedAutoScrollKeyRef.current = null
+      handledAutoScrollKeyRef.current = null
       return
     }
 
     const selectionKey = objectSelectionKey(selectedFeatureId, activeObjectId)
-    if (selectedIndex < 0 || completedAutoScrollKeyRef.current === selectionKey) {
+    if (selectedIndex < 0 || handledAutoScrollKeyRef.current === selectionKey) {
       return
     }
 
-    scrollSelectedFeatureIntoView()
+    handledAutoScrollKeyRef.current = selectionKey
+    scrollSelectedFeatureIntoView(selectedIndex)
     if (!activeObjectId) {
-      completedAutoScrollKeyRef.current = selectionKey
       return
     }
 
@@ -5194,7 +5213,6 @@ const FeatureListPanel = memo(function FeatureListPanel({
     const scheduleObjectScroll = (attempt: number) => {
       const frameId = window.requestAnimationFrame(() => {
         if (scrollActiveObjectIntoView()) {
-          completedAutoScrollKeyRef.current = selectionKey
           return
         }
 
@@ -5202,7 +5220,7 @@ const FeatureListPanel = memo(function FeatureListPanel({
           return
         }
 
-        scrollSelectedFeatureIntoView()
+        scrollSelectedFeatureIntoView(selectedIndex)
         scheduleObjectScroll(attempt - 1)
       })
       frameIds.push(frameId)
@@ -5224,7 +5242,7 @@ const FeatureListPanel = memo(function FeatureListPanel({
   ])
 
   const overscanDistance = FEATURE_LIST_OVERSCAN * (
-    (showFeatureSeparators ? FEATURE_LIST_ROW_HEIGHT : CITY_OBJECT_TREE_ROW_ESTIMATE) +
+    (showFeatureSeparators ? FEATURE_LIST_ROW_HEIGHT : CITY_OBJECT_TREE_ROW_HEIGHT) +
     (showFeatureSeparators ? FEATURE_LIST_ROW_GAP : 0)
   )
   const visibleStart = Math.max(scrollTop - overscanDistance, 0)
@@ -5434,7 +5452,10 @@ const FeatureListPanel = memo(function FeatureListPanel({
 
       <ScrollArea className="min-h-0 flex-1" viewportRef={viewportRef}>
         {filteredFeatureItems.length > 0 ? (
-          <div className="relative" style={{ height: `${rowLayout.totalHeight}px` }}>
+          <div
+            className="relative"
+            style={{ height: `${rowLayout.totalHeight}px`, overflowAnchor: 'none' }}
+          >
             {renderedItemIndices.map((itemIndex) => {
               const item = filteredFeatureItems[itemIndex]
               if (!item) {
