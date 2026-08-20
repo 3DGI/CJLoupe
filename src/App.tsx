@@ -6624,7 +6624,7 @@ function ColorMapSelect({
           <span className="min-w-0 flex-1 truncate text-sm">{formatColorMapName(value)}</span>
         </SelectValue>
       </SelectTrigger>
-      <SelectContent align="start" className="max-h-72 rounded-sm">
+      <SelectContent align="start" className="rounded-sm">
         {groups.map((group) => (
           <SelectGroup key={group.label}>
             <SelectLabel className="text-[10px] font-medium uppercase tracking-[0.14em]">
