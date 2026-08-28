@@ -1023,7 +1023,7 @@ function App() {
         sourceText: report.sourceText,
       })
       waitForViewportDataset(nextDataset)
-      setShowOnlyInvalidFeatures(nextDataset.features.some((feature) => feature.errors.length > 0))
+      setShowOnlyInvalidFeatures(false)
       setSelectedErrorCodes(null)
       return nextDataset
     })
@@ -1226,7 +1226,7 @@ function App() {
     }
   }
 
-  const resetViewerState = useCallback((nextDataset: ViewerDataset) => {
+  const resetViewerState = useCallback(() => {
     setCameraFocalLength(DEFAULT_CAMERA_FOCAL_LENGTH)
     setSelectedFeatureId(null)
     setActiveObjectId(null)
@@ -1239,9 +1239,7 @@ function App() {
     setSelectedSemanticSurface(null)
     setEditMode(false)
     setHideOccludedEditEdges(true)
-    setShowOnlyInvalidFeatures(
-      Boolean(nextDataset.validationSource) && nextDataset.features.some((feature) => feature.errors.length > 0),
-    )
+    setShowOnlyInvalidFeatures(false)
     setSelectedErrorCodes(null)
     setAppearanceMode('regular')
     setIsolateSelectedFeature(false)
@@ -1444,7 +1442,7 @@ function App() {
     originalVerticesRef.current = new Map()
     originalObjectGeometriesRef.current = new Map()
     waitForViewportDataset(nextDataset)
-    resetViewerState(nextDataset)
+    resetViewerState()
     setDataset(nextDataset)
 
     if (viewerStateResolution.state) {
