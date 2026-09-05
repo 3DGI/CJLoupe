@@ -27,6 +27,11 @@ const state: ViewerShareStateV1 = {
     focalLength: 50,
     orthographicHalfHeight: null,
   },
+  panels: {
+    leftPanelCollapsed: true,
+    pinnedAttributesOpen: false,
+    semanticSurfaceOpen: true,
+  },
   selection: {
     featureId: 'gebouw-東京',
     objectId: 'object/één',
@@ -81,6 +86,14 @@ describe('viewer-state codec', () => {
     expect(() => decodeViewerState('not-json')).toThrow()
     const unsupported = encodeRawState({ ...state, version: 2 })
     expect(() => decodeViewerState(unsupported)).toThrow('version')
+    const invalidPanels = encodeRawState({ ...state, panels: { leftPanelCollapsed: 'yes' } })
+    expect(() => decodeViewerState(invalidPanels)).toThrow('structure')
+  })
+
+  test('accepts links created before panel state was captured', () => {
+    const legacyState = { ...state }
+    delete legacyState.panels
+    expect(decodeViewerState(encodeRawState(legacyState))).toEqual(legacyState)
   })
 })
 

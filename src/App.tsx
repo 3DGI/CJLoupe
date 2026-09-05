@@ -1371,6 +1371,7 @@ function App() {
       : restoredEditMode ? 'face' : 'object'
 
     setGeometryDisplayMode(restoredGeometryDisplayMode)
+    setIsPaneCollapsed(state.panels?.leftPanelCollapsed ?? false)
     setSelectedFeatureId(restoredFeature?.id ?? null)
     setActiveObjectId(restoredObject?.id ?? null)
     setActiveGeometryIndex(restoredGeometryIndex)
@@ -1387,7 +1388,11 @@ function App() {
     setMobileInspectMode(state.interaction.mobileInspectMode)
     setAppearanceMode(restoredAppearanceMode)
     setPinnedAttributeKeys(restoredPinnedAttributeKeys)
-    setIsPinnedAttributesOpen(restoredPinnedAttributeKeys.length > 0)
+    setIsPinnedAttributesOpen(state.panels?.pinnedAttributesOpen ?? restoredPinnedAttributeKeys.length > 0)
+    setInfoPanelOpenSections((current) => ({
+      ...current,
+      semantic: state.panels?.semanticSurfaceOpen ?? false,
+    }))
     setAttributeColorKey(restoredAttributeKey)
     setAttributeColorInheritsParent(attributeSettings?.inheritsParent ?? true)
     setAttributeColorDomain(restoredAttributeDomain)
@@ -2565,6 +2570,11 @@ function App() {
     return {
       version: VIEWER_STATE_VERSION,
       camera,
+      panels: {
+        leftPanelCollapsed: isPaneCollapsed,
+        pinnedAttributesOpen: isPinnedAttributesOpen,
+        semanticSurfaceOpen: infoPanelOpenSections.semantic,
+      },
       selection: {
         featureId: selectedFeatureId,
         objectId: activeObject?.id ?? null,
@@ -2626,6 +2636,9 @@ function App() {
     editMode,
     geometryDisplayMode,
     hideOccludedEditEdges,
+    infoPanelOpenSections.semantic,
+    isPaneCollapsed,
+    isPinnedAttributesOpen,
     isolateSelectedFeature,
     measurementActive,
     measurementPoints,

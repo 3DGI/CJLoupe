@@ -28,6 +28,11 @@ const VIEWER_STATE_MAX_ENCODED_LENGTH = 64 * 1024
 export type ViewerShareStateV1 = {
   version: typeof VIEWER_STATE_VERSION
   camera: ViewerCameraPose
+  panels?: {
+    leftPanelCollapsed: boolean
+    pinnedAttributesOpen: boolean
+    semanticSurfaceOpen: boolean
+  }
   selection: {
     featureId: string | null
     objectId: string | null
@@ -401,6 +406,10 @@ function isViewerShareStateV1(value: Record<string, unknown>): value is ViewerSh
     return false
   }
 
+  if (value.panels !== undefined && !isPanelState(value.panels)) {
+    return false
+  }
+
   const selection = value.selection
   const appearance = value.appearance
   const interaction = value.interaction
@@ -431,6 +440,13 @@ function isViewerShareStateV1(value: Record<string, unknown>): value is ViewerSh
     typeof measurement.active === 'boolean' &&
     Array.isArray(measurement.points) && measurement.points.length <= 2 && measurement.points.every(isVec3)
   )
+}
+
+function isPanelState(value: unknown) {
+  return isRecord(value) &&
+    typeof value.leftPanelCollapsed === 'boolean' &&
+    typeof value.pinnedAttributesOpen === 'boolean' &&
+    typeof value.semanticSurfaceOpen === 'boolean'
 }
 
 function isAttributeColorSettings(value: unknown) {
