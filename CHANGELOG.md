@@ -6,6 +6,7 @@
 - LoD chooser is now a dropdown menu
 - Remove experimental val3dity runner button
 - Add support for the val3dity CityJSON extension version 0.3.0
+- Store UI panel state in share links and shorten share URL's by using compression and omitting default values. 
 
 ## 0.9.0 - 2026-08-18
 
