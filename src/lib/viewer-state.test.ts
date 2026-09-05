@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { strFromU8, unzipSync } from 'fflate'
+import { deflateSync, inflateSync, strFromU8, strToU8, unzipSync } from 'fflate'
 
 import {
   CJLOUPE_VIEWER_STATE_PROPERTY,
@@ -79,7 +79,68 @@ describe('viewer-state codec', () => {
   test('round-trips Unicode state through base64url', () => {
     const encoded = encodeViewerState(state)
     expect(encoded).toMatch(/^[A-Za-z0-9_-]+$/)
+    expect(encoded.length).toBeLessThan(encodeRawState(state).length * 0.7)
     expect(decodeViewerState(encoded)).toEqual(state)
+  })
+
+  test('accepts uncompressed links with panel state', () => {
+    expect(decodeViewerState(encodeRawState(state))).toEqual(state)
+  })
+
+  test('accepts the original compressed format', () => {
+    expect(decodeViewerState(encodeCompressedState(state, 1))).toEqual(state)
+  })
+
+  test('omits default sections and restores them without losing explicit non-default values', () => {
+    const defaults: ViewerShareStateV1 = {
+      version: 1,
+      camera: state.camera,
+      panels: { leftPanelCollapsed: false, pinnedAttributesOpen: false, semanticSurfaceOpen: false },
+      selection: {
+        featureId: null, objectId: null, geometryDisplayMode: { kind: 'best' },
+        geometryIndex: null, faceIndex: null, faceRingIndex: 0, vertexIndex: null,
+        faceVertexEntryIndex: null, semanticSurfaceSelected: false,
+      },
+      appearance: { mode: 'semantic', attributeColor: null },
+      interaction: {
+        isolateSelectedFeature: false, editMode: false, pickingMode: 'object',
+        hideOccludedEditEdges: true, showVertexGizmo: false, mobileInspectMode: 'object',
+      },
+      filters: { searchQuery: '', showOnlyInvalidFeatures: false, selectedErrorCodes: null, pinnedAttributeKeys: [] },
+      measurement: { active: false, points: [] },
+    }
+    const encoded = encodeViewerState(defaults)
+    const bytes = Uint8Array.from(atob(encoded.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0))
+    expect(JSON.parse(strFromU8(inflateSync(bytes.subarray(1))))).toEqual({
+      version: 1, camera: { position: state.camera.position, target: state.camera.target }, panels: {},
+    })
+    expect(decodeViewerState(encoded)).toEqual(defaults)
+    expect(encoded.length).toBeLessThan(encodeCompressedState(defaults, 1).length)
+    const changed = {
+      ...defaults,
+      camera: { ...defaults.camera, focalLength: null },
+      interaction: { ...defaults.interaction, hideOccludedEditEdges: false },
+      filters: { ...defaults.filters, selectedErrorCodes: [] },
+    }
+    expect(decodeViewerState(encodeViewerState(changed))).toEqual(changed)
+  })
+
+  test('validates compact input after restoring defaults', () => {
+    expect(() => decodeViewerState(encodeCompressedState({ version: 1 }, 2))).toThrow('structure')
+    expect(() => decodeViewerState(encodeCompressedState({ ...state, interaction: null }, 2))).toThrow('structure')
+    expect(() => decodeViewerState(encodeCompressedState({ ...state, panels: { pinnedAttributesOpen: 'false' } }, 2)))
+      .toThrow('structure')
+  })
+
+  test('rejects corrupt compressed state and excessive decompressed data', () => {
+    expect(() => decodeViewerState('AQ')).toThrow()
+    expect(() => decodeViewerState('AQc')).toThrow()
+    const oversizedState = { ...state, filters: { ...state.filters, searchQuery: 'x'.repeat(256 * 1024) } }
+    expect(() => encodeViewerState(oversizedState)).toThrow('too large')
+    const compressed = deflateSync(strToU8(JSON.stringify(oversizedState)))
+    const encoded = btoa(String.fromCharCode(1, ...compressed))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+    expect(() => decodeViewerState(encoded)).toThrow()
   })
 
   test('rejects malformed and unsupported state', () => {
@@ -289,4 +350,10 @@ function encodeRawState(value: unknown) {
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
     .replace(/=+$/g, '')
+}
+
+function encodeCompressedState(value: unknown, marker: number) {
+  const compressed = deflateSync(strToU8(JSON.stringify(value)), { level: 9 })
+  return btoa(String.fromCharCode(marker, ...compressed))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
 }

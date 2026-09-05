@@ -1,4 +1,4 @@
-import { strToU8, zip } from 'fflate'
+import { deflateSync, inflateSync, strToU8, zip } from 'fflate'
 
 import type {
   Vec3,
@@ -24,6 +24,54 @@ export type { ViewerCameraPose } from './viewer-state-schema'
 export const VIEWER_STATE_QUERY_PARAM = 'state'
 
 const VIEWER_STATE_MAX_ENCODED_LENGTH = 64 * 1024
+const VIEWER_STATE_MAX_JSON_LENGTH = 256 * 1024
+// A binary format marker cannot be confused with the start of legacy JSON.
+const VIEWER_STATE_DEFLATE_MARKER = 1
+const VIEWER_STATE_COMPACT_DEFLATE_MARKER = 2
+
+// These are wire-format defaults: keep them stable even if UI defaults change.
+const VIEWER_STATE_DEFAULTS = {
+  camera: { kind: 'perspective', quaternion: [0, 0, 0, 1], up: [0, 0, 1], focalLength: 50, orthographicHalfHeight: null },
+  selection: {
+    featureId: null, objectId: null, geometryDisplayMode: { kind: 'best' },
+    geometryIndex: null, faceIndex: null, faceRingIndex: 0, vertexIndex: null,
+    faceVertexEntryIndex: null, semanticSurfaceSelected: false,
+  },
+  appearance: { mode: 'semantic', attributeColor: null },
+  interaction: {
+    isolateSelectedFeature: false, editMode: false, pickingMode: 'object',
+    hideOccludedEditEdges: true, showVertexGizmo: false, mobileInspectMode: 'object',
+  },
+  filters: { searchQuery: '', showOnlyInvalidFeatures: false, selectedErrorCodes: null, pinnedAttributeKeys: [] },
+  measurement: { active: false, points: [] },
+}
+const PANEL_DEFAULTS = { leftPanelCollapsed: false, pinnedAttributesOpen: false, semanticSurfaceOpen: false }
+const ATTRIBUTE_COLOR_DEFAULTS = {
+  inheritsParent: true, domain: null, colorMapId: 'viridis', reversed: false, categoricalSeed: 0, customColors: {},
+}
+
+function omitDefaults(value: Record<string, unknown>, defaults: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(value).flatMap(([key, entry]) => {
+    const fallback = defaults[key]
+    if (isRecord(entry) && isRecord(fallback)) {
+      const compact = omitDefaults(entry, fallback)
+      return Object.keys(compact).length ? [[key, compact]] : []
+    }
+    return JSON.stringify(entry) === JSON.stringify(fallback) ? [] : [[key, entry]]
+  }))
+}
+
+function restoreDefaults(value: Record<string, unknown>, defaults: Record<string, unknown>): Record<string, unknown> {
+  const result = { ...value }
+  for (const [key, fallback] of Object.entries(defaults)) {
+    if (!Object.hasOwn(value, key)) {
+      result[key] = structuredClone(fallback)
+    } else if (isRecord(value[key]) && isRecord(fallback)) {
+      result[key] = restoreDefaults(value[key], fallback)
+    }
+  }
+  return result
+}
 
 export type ViewerShareStateV1 = {
   version: typeof VIEWER_STATE_VERSION
@@ -93,7 +141,19 @@ export type UrlViewerStateResolution = EmbeddedViewerStateResolution & {
 }
 
 export function encodeViewerState(state: ViewerShareStateV1) {
-  const bytes = new TextEncoder().encode(JSON.stringify(state))
+  const compact = omitDefaults(state, VIEWER_STATE_DEFAULTS)
+  if (state.panels) compact.panels = omitDefaults(state.panels, PANEL_DEFAULTS)
+  if (state.appearance.attributeColor && isRecord(compact.appearance)) {
+    compact.appearance.attributeColor = omitDefaults(state.appearance.attributeColor, ATTRIBUTE_COLOR_DEFAULTS)
+  }
+  const json = strToU8(JSON.stringify(compact))
+  if (json.length > VIEWER_STATE_MAX_JSON_LENGTH) {
+    throw new Error('The current viewer state is too large to share.')
+  }
+  const compressed = deflateSync(json, { level: 9 })
+  const bytes = new Uint8Array(compressed.length + 1)
+  bytes[0] = VIEWER_STATE_COMPACT_DEFLATE_MARKER
+  bytes.set(compressed, 1)
   let binary = ''
   for (let offset = 0; offset < bytes.length; offset += 0x8000) {
     binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
@@ -121,7 +181,23 @@ export function decodeViewerState(encoded: string): ViewerShareStateV1 {
     const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')
     const binary = atob(padded)
     const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
-    decoded = JSON.parse(new TextDecoder().decode(bytes)) as unknown
+    const compact = bytes[0] === VIEWER_STATE_COMPACT_DEFLATE_MARKER
+    const json = compact || bytes[0] === VIEWER_STATE_DEFLATE_MARKER
+      ? inflateSync(bytes.subarray(1), { out: new Uint8Array(VIEWER_STATE_MAX_JSON_LENGTH + 1) })
+      : bytes
+    if (json.length > VIEWER_STATE_MAX_JSON_LENGTH) {
+      throw new Error('Decompressed viewer state is too large.')
+    }
+    decoded = JSON.parse(new TextDecoder().decode(json)) as unknown
+    if (compact && isRecord(decoded)) {
+      decoded = restoreDefaults(decoded, VIEWER_STATE_DEFAULTS)
+      if (isRecord(decoded) && isRecord(decoded.panels)) {
+        decoded.panels = restoreDefaults(decoded.panels, PANEL_DEFAULTS)
+      }
+      if (isRecord(decoded) && isRecord(decoded.appearance) && isRecord(decoded.appearance.attributeColor)) {
+        decoded.appearance.attributeColor = restoreDefaults(decoded.appearance.attributeColor, ATTRIBUTE_COLOR_DEFAULTS)
+      }
+    }
   } catch {
     throw new Error('The shared viewer state is not valid base64url JSON.')
   }
