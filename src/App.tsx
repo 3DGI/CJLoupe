@@ -332,6 +332,7 @@ function App() {
   const attributeColorDomainsByKeyRef = useRef<Map<string, AttributeColorDomain>>(new Map())
   const attributeColorMapIdsByKeyRef = useRef<Map<string, AttributeColorMapId>>(new Map())
   const attributeColorMapReversedByKeyRef = useRef<Map<string, boolean>>(new Map())
+  const attributeColorSeedsByKeyRef = useRef<Map<string, number>>(new Map())
   const preInspectPickingModeRef = useRef<ViewerPickingMode>('object')
   const inspectPickingModeRef = useRef<ViewerPickingMode>('face')
   const pendingViewportDatasetRef = useRef<ViewerDataset | null>(null)
@@ -840,7 +841,7 @@ function App() {
 
       const cachedDomain = attributeColorDomainsByKeyRef.current.get(attributeColorModel.key)
       return cachedDomain
-        ? clampAttributeColorDomain(cachedDomain, attributeColorModel.dataMin, attributeColorModel.dataMax)
+        ? cachedDomain
         : getDefaultAttributeColorDomain(attributeColorModel)
     })
   }, [attributeColorModel])
@@ -1264,6 +1265,7 @@ function App() {
     attributeColorDomainsByKeyRef.current = new Map()
     attributeColorMapIdsByKeyRef.current = new Map()
     attributeColorMapReversedByKeyRef.current = new Map()
+    attributeColorSeedsByKeyRef.current = new Map()
     preInspectPickingModeRef.current = 'object'
     inspectPickingModeRef.current = 'face'
     setViewportCenter(null)
@@ -1326,6 +1328,19 @@ function App() {
       nextDataset.features.flatMap((feature) => feature.objects.flatMap((object) => Object.keys(object.attributes))),
     )
     const attributeSettings = state.appearance.attributeColor
+    const restoredCustomColors: Record<string, Record<string, string>> = {}
+    for (const settings of state.appearance.attributeColors ?? []) {
+      if (!availableAttributeKeys.has(settings.key)) continue
+      if (isAttributeColorMapId(settings.colorMapId)) {
+        attributeColorMapIdsByKeyRef.current.set(settings.key, settings.colorMapId)
+      }
+      if (settings.domain) {
+        attributeColorDomainsByKeyRef.current.set(settings.key, { key: settings.key, ...settings.domain })
+      }
+      attributeColorMapReversedByKeyRef.current.set(settings.key, settings.reversed)
+      attributeColorSeedsByKeyRef.current.set(settings.key, settings.categoricalSeed)
+      restoredCustomColors[settings.key] = settings.customColors
+    }
     const restoredAttributeKey = attributeSettings && availableAttributeKeys.has(attributeSettings.key)
       ? attributeSettings.key
       : null
@@ -1349,11 +1364,7 @@ function App() {
     )
     const restoredAttributeDomain = restoredAttributeKey && attributeSettings?.domain &&
       restoredAttributeModel?.kind === 'continuous'
-        ? clampAttributeColorDomain(
-            { key: restoredAttributeKey, ...attributeSettings.domain },
-            restoredAttributeModel.dataMin,
-            restoredAttributeModel.dataMax,
-          )
+        ? { key: restoredAttributeKey, ...attributeSettings.domain }
         : null
     const restoredAppearanceMode = state.appearance.mode === 'colormap' && !restoredAttributeKey
       ? 'regular'
@@ -1401,13 +1412,14 @@ function App() {
     setAttributeCategoricalColorSeed(attributeSettings?.categoricalSeed ?? 0)
     setCustomCategoricalColorMaps(
       restoredAttributeKey && attributeSettings
-        ? { [restoredAttributeKey]: attributeSettings.customColors }
-        : {},
+        ? { ...restoredCustomColors, [restoredAttributeKey]: attributeSettings.customColors }
+        : restoredCustomColors,
     )
     if (restoredAttributeKey && restoredAttributeDomain) {
       attributeColorDomainsByKeyRef.current.set(restoredAttributeKey, restoredAttributeDomain)
     }
     if (restoredAttributeKey) {
+      attributeColorSeedsByKeyRef.current.set(restoredAttributeKey, attributeSettings?.categoricalSeed ?? 0)
       attributeColorMapIdsByKeyRef.current.set(restoredAttributeKey, restoredColorMapId)
       attributeColorMapReversedByKeyRef.current.set(restoredAttributeKey, attributeSettings?.reversed ?? false)
     }
@@ -1687,6 +1699,15 @@ function App() {
   }, [])
 
   const handleSelectAttributeColorKey = useCallback((key: string) => {
+    if (attributeColorKey) {
+      attributeColorMapIdsByKeyRef.current.set(attributeColorKey, attributeColorMapId)
+      attributeColorMapReversedByKeyRef.current.set(attributeColorKey, attributeColorMapReversed)
+      attributeColorSeedsByKeyRef.current.set(attributeColorKey, attributeCategoricalColorSeed)
+      if (activeAttributeColorDomain) {
+        attributeColorDomainsByKeyRef.current.set(attributeColorKey, activeAttributeColorDomain)
+      }
+    }
+    const categoricalSeed = attributeColorSeedsByKeyRef.current.get(key) ?? 0
     const cachedColorMapId = attributeColorMapIdsByKeyRef.current.get(key)
     const colorMapId = cachedColorMapId ?? DEFAULT_ATTRIBUTE_COLOR_MAP_ID
     const colorMapColors = getContinuousAttributeColorMapColors(colorMapId)
@@ -1696,25 +1717,27 @@ function App() {
       attributeColorInheritsParent,
       colorMapId,
       colorMapColors,
-      attributeCategoricalColorSeed,
+      categoricalSeed,
       customCategoricalColorMaps[key] ?? EMPTY_ATTRIBUTES,
     )
     const resolvedColorMapId = cachedColorMapId
       ?? (model?.kind === 'categorical' ? DEFAULT_CATEGORICAL_COLOR_MAP_ID : DEFAULT_ATTRIBUTE_COLOR_MAP_ID)
     const resolvedDomain = model?.kind === 'continuous'
-      ? clampAttributeColorDomain(
-        attributeColorDomainsByKeyRef.current.get(key) ?? getDefaultAttributeColorDomain(model),
-        model.dataMin,
-        model.dataMax,
-      )
+      ? attributeColorDomainsByKeyRef.current.get(key) ?? getDefaultAttributeColorDomain(model)
       : null
 
+    attributeColorMapIdsByKeyRef.current.set(key, resolvedColorMapId)
     setAttributeColorKey(key)
     setAttributeColorDomain(resolvedDomain)
     setAttributeColorMapId(resolvedColorMapId)
     setAttributeColorMapReversed(attributeColorMapReversedByKeyRef.current.get(key) ?? false)
+    setAttributeCategoricalColorSeed(categoricalSeed)
     setAppearanceMode('colormap')
   }, [
+    activeAttributeColorDomain,
+    attributeColorKey,
+    attributeColorMapId,
+    attributeColorMapReversed,
     attributeCategoricalColorSeed,
     attributeColorInheritsParent,
     customCategoricalColorMaps,
@@ -1733,6 +1756,7 @@ function App() {
   }, [])
 
   const handleRerandomizeCategoricalColors = useCallback(() => {
+    if (attributeColorKey) attributeColorSeedsByKeyRef.current.set(attributeColorKey, attributeCategoricalColorSeed + 1)
     setAttributeCategoricalColorSeed((current) => current + 1)
     if (attributeColorKey) {
       setCustomCategoricalColorMaps((current) => {
@@ -1741,7 +1765,7 @@ function App() {
         return rest
       })
     }
-  }, [attributeColorKey])
+  }, [attributeColorKey, attributeCategoricalColorSeed])
 
   const handleCustomCategoricalColorChange = useCallback((attributeKey: string, categoryKey: string, color: string) => {
     setCustomCategoricalColorMaps((current) => ({
@@ -2588,6 +2612,23 @@ function App() {
       },
       appearance: {
         mode: appearanceMode,
+        attributeColors: [...new Set([
+          ...attributeColorMapIdsByKeyRef.current.keys(),
+          ...attributeColorDomainsByKeyRef.current.keys(),
+          ...attributeColorSeedsByKeyRef.current.keys(),
+          ...Object.keys(customCategoricalColorMaps),
+        ])].filter((key) => key !== attributeColorKey).map((key) => {
+          const domain = attributeColorDomainsByKeyRef.current.get(key)
+          return {
+            key,
+            inheritsParent: attributeColorInheritsParent,
+            domain: domain ? { min: domain.min, max: domain.max } : null,
+            colorMapId: attributeColorMapIdsByKeyRef.current.get(key) ?? DEFAULT_ATTRIBUTE_COLOR_MAP_ID,
+            reversed: attributeColorMapReversedByKeyRef.current.get(key) ?? false,
+            categoricalSeed: attributeColorSeedsByKeyRef.current.get(key) ?? 0,
+            customColors: customCategoricalColorMaps[key] ?? {},
+          }
+        }),
         attributeColor: attributeColorKey
           ? {
               key: attributeColorKey,
@@ -8276,24 +8317,6 @@ function getDefaultAttributeColorDomain(model: ContinuousAttributeColorModel): A
     min: model.dataMin,
     max: model.dataMax,
   }
-}
-
-function clampAttributeColorDomain(
-  domain: AttributeColorDomain,
-  dataMin: number,
-  dataMax: number,
-): AttributeColorDomain {
-  const min = clampNumber(domain.min, dataMin, dataMax)
-  const max = clampNumber(domain.max, dataMin, dataMax)
-  return {
-    key: domain.key,
-    min: Math.min(min, max),
-    max: Math.max(min, max),
-  }
-}
-
-function clampNumber(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max)
 }
 
 function resolveObjectAttribute(

@@ -76,6 +76,25 @@ const state: ViewerShareStateV1 = {
 }
 
 describe('viewer-state codec', () => {
+  test('preserves inactive attribute palettes, ranges, and categorical overrides', () => {
+    const shared = {
+      ...state,
+      appearance: {
+        ...state.appearance,
+        attributeColors: [
+          { key: 'height', inheritsParent: true, domain: { min: -20, max: 250 }, colorMapId: 'plasma', reversed: true, categoricalSeed: 0, customColors: {} },
+          { key: 'function', inheritsParent: true, domain: null, colorMapId: 'random', reversed: false, categoricalSeed: 7, customColors: { residential: '#abcdef' } },
+        ],
+      },
+    }
+    expect(decodeViewerState(encodeViewerState(shared))).toEqual(shared)
+    const disabled = { ...shared, appearance: { ...shared.appearance, attributeColor: null } }
+    expect(decodeViewerState(encodeViewerState(disabled))).toEqual(disabled)
+    expect(() => decodeViewerState(encodeCompressedState({
+      ...shared, appearance: { ...shared.appearance, attributeColors: [{ key: 'height', domain: { min: 'bad', max: 10 } }] },
+    }, 2))).toThrow('structure')
+  })
+
   test('round-trips Unicode state through base64url', () => {
     const encoded = encodeViewerState(state)
     expect(encoded).toMatch(/^[A-Za-z0-9_-]+$/)

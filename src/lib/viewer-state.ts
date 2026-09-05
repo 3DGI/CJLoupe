@@ -94,6 +94,7 @@ export type ViewerShareStateV1 = {
   }
   appearance: {
     mode: ViewerAppearanceMode
+    attributeColors?: NonNullable<ViewerShareStateV1['appearance']['attributeColor']>[]
     attributeColor: {
       key: string
       inheritsParent: boolean
@@ -146,6 +147,9 @@ export function encodeViewerState(state: ViewerShareStateV1) {
   if (state.appearance.attributeColor && isRecord(compact.appearance)) {
     compact.appearance.attributeColor = omitDefaults(state.appearance.attributeColor, ATTRIBUTE_COLOR_DEFAULTS)
   }
+  if (state.appearance.attributeColors && isRecord(compact.appearance)) {
+    compact.appearance.attributeColors = state.appearance.attributeColors.map((settings) => omitDefaults(settings, ATTRIBUTE_COLOR_DEFAULTS))
+  }
   const json = strToU8(JSON.stringify(compact))
   if (json.length > VIEWER_STATE_MAX_JSON_LENGTH) {
     throw new Error('The current viewer state is too large to share.')
@@ -196,6 +200,11 @@ export function decodeViewerState(encoded: string): ViewerShareStateV1 {
       }
       if (isRecord(decoded) && isRecord(decoded.appearance) && isRecord(decoded.appearance.attributeColor)) {
         decoded.appearance.attributeColor = restoreDefaults(decoded.appearance.attributeColor, ATTRIBUTE_COLOR_DEFAULTS)
+      }
+      if (isRecord(decoded) && isRecord(decoded.appearance) && Array.isArray(decoded.appearance.attributeColors)) {
+        decoded.appearance.attributeColors = decoded.appearance.attributeColors.map((settings) =>
+          isRecord(settings) ? restoreDefaults(settings, ATTRIBUTE_COLOR_DEFAULTS) : settings,
+        )
       }
     }
   } catch {
@@ -503,6 +512,7 @@ function isViewerShareStateV1(value: Record<string, unknown>): value is ViewerSh
     typeof selection.semanticSurfaceSelected === 'boolean' &&
     isAppearanceMode(appearance.mode) &&
     (appearance.attributeColor === null || isAttributeColorSettings(appearance.attributeColor)) &&
+    (appearance.attributeColors === undefined || (Array.isArray(appearance.attributeColors) && appearance.attributeColors.every(isAttributeColorSettings))) &&
     typeof interaction.isolateSelectedFeature === 'boolean' &&
     typeof interaction.editMode === 'boolean' &&
     isPickingMode(interaction.pickingMode) &&
