@@ -1065,7 +1065,7 @@ function App() {
       return
     }
 
-    const trimmed = stripGzSuffix(url.trim())
+    const trimmed = url.trim()
     if (!trimmed) {
       return
     }
@@ -1518,8 +1518,8 @@ function App() {
     setError(null)
 
     try {
-      const cleanCjUrls = cjUrls.map((url) => stripGzSuffix(url.trim())).filter(Boolean)
-      const cleanValUrl = stripGzSuffix(valUrl.trim())
+      const cleanCjUrls = cjUrls.map((url) => url.trim()).filter(Boolean)
+      const cleanValUrl = valUrl.trim()
       const [loadedDatasets, report] = await Promise.all([
         Promise.all(cleanCjUrls.map((url) => loadCityJsonFromUrl(url, deriveSourceNameFromUrl(url)))),
         loadValidationReportFromUrl(cleanValUrl),
@@ -1543,7 +1543,7 @@ function App() {
   }, [applyDataset, finishLoadingIfViewportIsReady])
 
   const openCityJsonFromUrls = useCallback(async (urls: string[], appendToCurrentScene = false) => {
-    const trimmedUrls = urls.map((url) => stripGzSuffix(url.trim())).filter(Boolean)
+    const trimmedUrls = urls.map((url) => url.trim()).filter(Boolean)
     if (trimmedUrls.length === 0) {
       return
     }
@@ -7101,19 +7101,6 @@ function isCityJsonFileName(name: string) {
     name.endsWith('.city.json') ||
     name.endsWith('.cityjson')
   )
-}
-
-function stripGzSuffix(url: string) {
-  try {
-    const parsed = new URL(url)
-    if (parsed.pathname.toLowerCase().endsWith('.gz')) {
-      parsed.pathname = parsed.pathname.slice(0, -3)
-      return parsed.toString()
-    }
-    return url
-  } catch {
-    return url.toLowerCase().endsWith('.gz') ? url.slice(0, -3) : url
-  }
 }
 
 function tryParseHttpUrl(text: string): string | null {

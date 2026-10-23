@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix loading CityJSON and val3dity report URLs ending in `.gz` by preserving the original URL
 - Migrate to shadcn/ui with base ui
 - LoD chooser is now a dropdown menu
 - Remove experimental val3dity runner button
