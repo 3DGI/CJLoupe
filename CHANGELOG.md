@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Show parent attributes below the selected object's own attributes in the left panel, grouped by parent type
+- Show the Attributes tab before Geometries and select it by default
 - Fix loading CityJSON and val3dity report URLs ending in `.gz` by preserving the original URL
 - Migrate to shadcn/ui with base ui
 - LoD chooser is now a dropdown menu

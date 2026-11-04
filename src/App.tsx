@@ -391,7 +391,7 @@ function App() {
   const [attributeColorMapReversed, setAttributeColorMapReversed] = useState(false)
   const [attributeCategoricalColorSeed, setAttributeCategoricalColorSeed] = useState(0)
   const [customCategoricalColorMaps, setCustomCategoricalColorMaps] = useState<Record<string, Record<string, string>>>({})
-  const [detailTab, setDetailTab] = useState('geometries')
+  const [detailTab, setDetailTab] = useState('attributes')
   const [detailPaneMode, setDetailPaneMode] = useState<DetailPaneMode>('split')
   const [isDragging, setIsDragging] = useState(false)
   const [isHelpCollapsed, setIsHelpCollapsed] = useState(true)
@@ -444,6 +444,11 @@ function App() {
     selectedFeatureObjects[0] ??
     null
   const activeObjectAttributes = activeObject?.attributes ?? EMPTY_ATTRIBUTES
+  const parentAttributeObjects = useMemo(
+    () => collectObjectAncestors(activeObject, selectedFeatureObjects)
+      .filter((object) => Object.keys(object.attributes).length > 0),
+    [activeObject, selectedFeatureObjects],
+  )
   const detailTitleLabel = activeObject ? formatObjectDisplayId(activeObject.id) : selectedFeature?.label ?? 'No item selected'
   const resolvedActiveGeometryIndex = activeObject
     ? resolveObjectGeometryIndex(activeObject, geometryDisplayMode, activeGeometryIndex)
@@ -451,6 +456,10 @@ function App() {
   const activeObjectGeometry = getObjectGeometryByIndex(activeObject, resolvedActiveGeometryIndex)
   const activeObjectGeometryCount = activeObject?.geometries.length ?? 0
   const activeObjectAttributeCount = activeObject ? Object.keys(activeObject.attributes).length : 0
+  const detailAttributeCount = activeObjectAttributeCount + parentAttributeObjects.reduce(
+    (count, object) => count + Object.keys(object.attributes).length,
+    0,
+  )
   const selectedFace =
     activeObjectGeometry && selectedFaceIndex != null
       ? activeObjectGeometry.polygons[selectedFaceIndex] ?? null
@@ -501,7 +510,7 @@ function App() {
   }, [activeObjectId, selectedFeature])
   const visibleDetailErrorCount = visibleDetailErrors.length
   const hasDetailErrors = visibleDetailErrorCount > 0
-  const hasDetailAttributes = activeObjectAttributeCount > 0
+  const hasDetailAttributes = detailAttributeCount > 0
   const hasDetailGeometries = activeObjectGeometryCount > 0
   const hasDetailGeometryInfo = hasDetailGeometries || hasDetailErrors
   const pinnableAttributeOptions = useMemo(() => {
@@ -643,8 +652,8 @@ function App() {
     : null
   const showSemanticSurfaces = appearanceMode === 'semantic'
   const availableDetailTabs = [
-    hasDetailGeometryInfo ? 'geometries' : null,
     hasDetailAttributes ? 'attributes' : null,
+    hasDetailGeometryInfo ? 'geometries' : null,
   ].filter((value): value is string => value !== null)
   const hasDetailContent = availableDetailTabs.length > 0
   const resolvedDetailTab = availableDetailTabs.includes(detailTab) ? detailTab : (availableDetailTabs[0] ?? 'attributes')
@@ -1244,7 +1253,7 @@ function App() {
     setSelectedErrorCodes(null)
     setAppearanceMode('semantic')
     setIsolateSelectedFeature(false)
-    setDetailTab('geometries')
+    setDetailTab('attributes')
     setDetailPaneMode('split')
     setSearchQuery('')
     setFocusTarget(null)
@@ -3110,6 +3119,14 @@ function App() {
                     {detailPaneMode !== 'collapsed' && selectedFeature && hasDetailContent && (
                       <div className="-mx-4 -mb-2.5 border-b border-border px-4">
                         <TabsList className="gap-0">
+                          {hasDetailAttributes && (
+                            <TabsTrigger value="attributes" className="detail-tab gap-1.5">
+                              <span>Attributes</span>
+                              <span className="rounded-sm bg-foreground/8 px-1.5 py-0 text-[10px] text-muted-foreground">
+                                {detailAttributeCount}
+                              </span>
+                            </TabsTrigger>
+                          )}
                           {hasDetailGeometryInfo && (
                             <TabsTrigger value="geometries" className="detail-tab gap-1.5">
                               <span>Geometries</span>
@@ -3122,14 +3139,6 @@ function App() {
                                   <span>{visibleDetailErrorCount}</span>
                                 </span>
                               )}
-                            </TabsTrigger>
-                          )}
-                          {hasDetailAttributes && (
-                            <TabsTrigger value="attributes" className="detail-tab gap-1.5">
-                              <span>Attributes</span>
-                              <span className="rounded-sm bg-foreground/8 px-1.5 py-0 text-[10px] text-muted-foreground">
-                                {activeObjectAttributeCount}
-                              </span>
                             </TabsTrigger>
                           )}
                         </TabsList>
@@ -3148,7 +3157,9 @@ function App() {
                                   <TabsContent key={`${detailSelectionKey}::attributes`} value="attributes">
                                     <DetailAttributePanel
                                       objectAttributes={activeObjectAttributes}
+                                      parentObjects={parentAttributeObjects}
                                       canPinAttributes={!isMobileLayout}
+                                      canPinParentAttributes={!isMobileLayout && attributeColorInheritsParent}
                                       pinnedAttributeKeys={pinnedAttributeKeys}
                                       onPinAttribute={handlePinAttribute}
                                       onUnpinAttribute={handleUnpinAttribute}
@@ -5774,36 +5785,50 @@ function ToolbarAppearanceButton({
 
 const DetailAttributePanel = memo(function DetailAttributePanel({
   objectAttributes,
+  parentObjects,
   canPinAttributes,
+  canPinParentAttributes,
   pinnedAttributeKeys,
   onPinAttribute,
   onUnpinAttribute,
 }: {
   objectAttributes: Record<string, unknown>
+  parentObjects: ViewerCityObject[]
   canPinAttributes: boolean
+  canPinParentAttributes: boolean
   pinnedAttributeKeys: string[]
   onPinAttribute: (key: string) => void
   onUnpinAttribute: (key: string) => void
 }) {
-  const hasObjectAttributes = Object.keys(objectAttributes).length > 0
-
-  if (!hasObjectAttributes) {
-    return (
-      <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-4 py-6 text-sm text-muted-foreground">
-        No attributes available for the selected object.
-      </div>
-    )
-  }
-
   return (
-    <AttributeSection
-      attributes={objectAttributes}
-      emptyText="No attributes on the active object."
-      canPinAttributes={canPinAttributes}
-      pinnedAttributeKeys={pinnedAttributeKeys}
-      onPinAttribute={onPinAttribute}
-      onUnpinAttribute={onUnpinAttribute}
-    />
+    <div className="flex min-w-0 flex-col gap-4">
+      <section className="flex min-w-0 flex-col gap-2">
+        {parentObjects.length > 0 && (
+          <h3 className="text-xs font-medium text-muted-foreground">Object attributes</h3>
+        )}
+        <AttributeSection
+          attributes={objectAttributes}
+          emptyText="No attributes on the active object."
+          canPinAttributes={canPinAttributes}
+          pinnedAttributeKeys={pinnedAttributeKeys}
+          onPinAttribute={onPinAttribute}
+          onUnpinAttribute={onUnpinAttribute}
+        />
+      </section>
+      {parentObjects.map((parent) => (
+        <section key={parent.id} className="flex min-w-0 flex-col gap-2">
+          <h3 className="text-xs font-medium text-muted-foreground">Parent attributes · {parent.type}</h3>
+          <AttributeSection
+            attributes={parent.attributes}
+            emptyText="No attributes on this parent."
+            canPinAttributes={canPinParentAttributes}
+            pinnedAttributeKeys={pinnedAttributeKeys}
+            onPinAttribute={onPinAttribute}
+            onUnpinAttribute={onUnpinAttribute}
+          />
+        </section>
+      ))}
+    </div>
   )
 })
 
