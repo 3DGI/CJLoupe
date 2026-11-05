@@ -377,6 +377,7 @@ function App() {
   const [selectedErrorCodes, setSelectedErrorCodes] = useState<number[] | null>(null)
   const [appearanceMode, setAppearanceMode] = useState<ViewerAppearanceMode>('semantic')
   const [isolateSelectedFeature, setIsolateSelectedFeature] = useState(false)
+  const [showObjectExtents, setShowObjectExtents] = useState(false)
   const [pinnedAttributeKeys, setPinnedAttributeKeys] = useState<string[]>([])
   const [isPinnedAttributesOpen, setIsPinnedAttributesOpen] = useState(false)
   const [infoPanelOpenSections, setInfoPanelOpenSections] = useState<Record<InfoPanelSection, boolean>>({
@@ -1253,6 +1254,7 @@ function App() {
     setSelectedErrorCodes(null)
     setAppearanceMode('semantic')
     setIsolateSelectedFeature(false)
+    setShowObjectExtents(false)
     setDetailTab('attributes')
     setDetailPaneMode('split')
     setSearchQuery('')
@@ -3212,6 +3214,7 @@ function App() {
             cameraFocalLength={cameraFocalLength}
             hideOccludedEditEdges={hideOccludedEditEdges}
             isolateSelectedFeature={isolateSelectedFeature}
+            showObjectExtents={showObjectExtents}
             geometryDisplayMode={geometryDisplayMode}
             activeGeometryIndex={activeGeometryIndex}
             geometryRevision={geometryRevision}
@@ -3324,6 +3327,8 @@ function App() {
             )}
           >
             <MobileViewportToolbar
+              showObjectExtents={showObjectExtents}
+              onToggleObjectExtents={() => setShowObjectExtents((current) => !current)}
               hasSelectedFeature={Boolean(selectedFeature)}
               appearanceMode={appearanceMode}
               colormapAvailable={availableAttributeColorViewportState != null}
@@ -3347,6 +3352,8 @@ function App() {
               />
             )}
             <DesktopViewportToolbar
+              showObjectExtents={showObjectExtents}
+              onToggleObjectExtents={() => setShowObjectExtents((current) => !current)}
               editMode={editMode}
               xrayActive={!hideOccludedEditEdges}
               xrayDisabled={!editMode || !activeObjectGeometry}
@@ -3841,6 +3848,8 @@ function EditSelectionOverlay({
 }
 
 function MobileViewportToolbar({
+  showObjectExtents,
+  onToggleObjectExtents,
   hasSelectedFeature,
   appearanceMode,
   colormapAvailable,
@@ -3850,6 +3859,8 @@ function MobileViewportToolbar({
   onToggleMobileInspectMode,
   onCenterCurrentSelection,
 }: {
+  showObjectExtents: boolean
+  onToggleObjectExtents: () => void
   hasSelectedFeature: boolean
   appearanceMode: ViewerAppearanceMode
   colormapAvailable: boolean
@@ -3872,6 +3883,14 @@ function MobileViewportToolbar({
         isMenuOpen={isAppearanceMenuOpen}
         onMenuOpenChange={setIsAppearanceMenuOpen}
       />
+      <ToolbarToggleButton
+        active={showObjectExtents}
+        onClick={onToggleObjectExtents}
+        ariaLabel="Toggle geographical extents"
+        icon={<Box />}
+      >
+        Geographical extents
+      </ToolbarToggleButton>
       {showSemanticSurfaces && (
         <ToolbarToggleButton
           active={mobileInspectMode === 'surface'}
@@ -3925,6 +3944,8 @@ function VersionButton({
 }
 
 function DesktopViewportToolbar({
+  showObjectExtents,
+  onToggleObjectExtents,
   editMode,
   xrayActive,
   xrayDisabled,
@@ -3951,6 +3972,8 @@ function DesktopViewportToolbar({
   restoreGeometryDisabled,
   onClearSelection,
 }: {
+  showObjectExtents: boolean
+  onToggleObjectExtents: () => void
   editMode: boolean
   xrayActive: boolean
   xrayDisabled: boolean
@@ -4039,6 +4062,15 @@ function DesktopViewportToolbar({
         isMenuOpen={isAppearanceMenuOpen}
         onMenuOpenChange={setIsAppearanceMenuOpen}
       />
+      <ToolbarToggleButton
+        active={showObjectExtents}
+        onClick={onToggleObjectExtents}
+        ariaLabel="Toggle geographical extents"
+        icon={<Box />}
+        showTooltip={tooltipsVisible}
+      >
+        Geographical extents
+      </ToolbarToggleButton>
       <ToolbarPickingButton
         mode={pickingMode}
         editMode={editMode}

@@ -184,6 +184,7 @@ type CityViewportProps = {
   cameraFocalLength: number
   hideOccludedEditEdges: boolean
   isolateSelectedFeature: boolean
+  showObjectExtents: boolean
   geometryRevision: number
   viewportResetRevision: number
   topDownViewRevision: number
@@ -240,6 +241,7 @@ type Runtime = {
   edgeGroup: THREE.Group
   annotationGroup: THREE.Group
   measurementGroup: THREE.Group
+  objectExtentGroup: THREE.Group
   selectionOutlineScene: THREE.Scene
   selectionOutlineGroup: THREE.Group
   selectionOutlineTargets: [THREE.WebGLRenderTarget, THREE.WebGLRenderTarget]
@@ -574,6 +576,7 @@ function CityViewport({
   cameraFocalLength,
   hideOccludedEditEdges,
   isolateSelectedFeature,
+  showObjectExtents,
   geometryRevision,
   viewportResetRevision,
   topDownViewRevision,
@@ -828,6 +831,9 @@ function CityViewport({
     const measurementGroup = new THREE.Group()
     scene.add(measurementGroup)
 
+    const objectExtentGroup = new THREE.Group()
+    scene.add(objectExtentGroup)
+
     const selectionOutlineScene = new THREE.Scene()
     const selectionOutlineGroup = new THREE.Group()
     selectionOutlineScene.add(selectionOutlineGroup)
@@ -853,6 +859,7 @@ function CityViewport({
       edgeGroup,
       annotationGroup,
       measurementGroup,
+      objectExtentGroup,
       selectionOutlineScene,
       selectionOutlineGroup,
       selectionOutlineTargets,
@@ -1426,6 +1433,23 @@ function CityViewport({
       scheduleCameraSyncPose()
     })
   }, [data, scheduleCameraSyncPose])
+
+  useEffect(() => {
+    const runtime = runtimeRef.current
+    if (!runtime) return
+    rebuildObjectExtents(runtime, showObjectExtents ? data : null, theme)
+    renderViewport(runtime)
+    return () => clearTransientGroup(runtime.objectExtentGroup)
+  }, [data, showObjectExtents, theme])
+
+  useEffect(() => {
+    const runtime = runtimeRef.current
+    if (!runtime) return
+    for (const lines of runtime.objectExtentGroup.children) {
+      lines.visible = !isolateSelectedFeature || !selectedFeatureId || lines.userData.featureId === selectedFeatureId
+    }
+    renderViewport(runtime)
+  }, [data, showObjectExtents, isolateSelectedFeature, selectedFeatureId, theme])
 
   useEffect(() => {
     if (
@@ -6334,6 +6358,43 @@ function clearTransientGroup(group: THREE.Group) {
     }
 
     group.remove(child)
+  }
+}
+
+function rebuildObjectExtents(runtime: Runtime, data: ViewerDataset | null, theme: Theme) {
+  clearTransientGroup(runtime.objectExtentGroup)
+  if (!data) return
+
+  // One line buffer per feature keeps the overlay inexpensive for large scenes.
+  const edges = [[0, 1], [0, 2], [0, 4], [1, 3], [1, 5], [2, 3], [2, 6], [3, 7], [4, 5], [4, 6], [5, 7], [6, 7]]
+  for (const feature of data.features) {
+    const positions: number[] = []
+    for (const object of feature.objects) {
+      const extent = object.geographicalExtent
+      if (!extent) continue
+      for (const edge of edges) {
+        for (const corner of edge) {
+          positions.push(
+            extent[corner & 1 ? 3 : 0] - data.center[0],
+            extent[corner & 2 ? 4 : 1] - data.center[1],
+            extent[corner & 4 ? 5 : 2] - data.center[2],
+          )
+        }
+      }
+    }
+    if (positions.length === 0) continue
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+    const lines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({
+      color: theme === 'light' ? '#a55715' : '#ffc078',
+      depthTest: false,
+      depthWrite: false,
+      transparent: true,
+      opacity: 0.8,
+    }))
+    lines.userData.featureId = feature.id
+    lines.renderOrder = 9999
+    runtime.objectExtentGroup.add(lines)
   }
 }
 

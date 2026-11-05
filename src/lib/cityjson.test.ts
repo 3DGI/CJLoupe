@@ -7,6 +7,41 @@ const extensionReport = {
   validity: false,
 }
 
+describe('object geographical extents', () => {
+  test('preserves declared world coordinates without applying the vertex transform', () => {
+    const extent = [100, 200, 0, 110, 210, 10]
+    const dataset = parseCityJson(JSON.stringify({
+      type: 'CityJSON',
+      version: '2.0',
+      transform: { scale: [0.01, 0.01, 0.01], translate: [100, 200, 0] },
+      CityObjects: {
+        declared: { type: 'Building', geographicalExtent: extent, geometry: [solidGeometry()] },
+        absent: { type: 'Building', geometry: [solidGeometry()] },
+        invalid: { type: 'Building', geographicalExtent: [10, 0, 0, 1, 1, 1], geometry: [solidGeometry()] },
+      },
+      vertices: cubeVertices,
+    }), 'extents.city.json')
+    const objects = dataset.features.flatMap((feature) => feature.objects)
+    expect(objects.find((object) => object.id === 'declared')?.geographicalExtent).toEqual(extent)
+    expect(objects.find((object) => object.id === 'absent')?.geographicalExtent).toBeUndefined()
+    expect(objects.find((object) => object.id === 'invalid')?.geographicalExtent).toBeUndefined()
+  })
+
+  test('preserves declared extents in CityJSON sequences', () => {
+    const extent = [0, 0, 0, 1, 1, 1]
+    const dataset = parseCityJsonSequence([
+      JSON.stringify({ type: 'CityJSON', version: '2.0' }),
+      JSON.stringify({
+        type: 'CityJSONFeature',
+        id: 'building',
+        CityObjects: { building: { type: 'Building', geographicalExtent: extent, geometry: [solidGeometry()] } },
+        vertices: cubeVertices,
+      }),
+    ].join('\n'), 'extents.city.jsonl')
+    expect(dataset.features[0]?.objects[0]?.geographicalExtent).toEqual(extent)
+  })
+})
+
 describe('val3dity CityJSON extension v0.3.0', () => {
   test('reads snake_case report metadata and cross-feature errors', () => {
     const dataset = parseCityJson(JSON.stringify({

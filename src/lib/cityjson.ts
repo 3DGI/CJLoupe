@@ -9,6 +9,7 @@ import type {
   ViewerSemanticSurface,
   ViewerValidationError,
 } from '@/types/cityjson'
+import { readGeographicalExtent } from './object-extents'
 import {
   measureAsyncPerformance,
   measurePerformance,
@@ -43,6 +44,7 @@ type CityJsonSemantics = {
 
 type CityJsonObject = {
   type?: string
+  geographicalExtent?: unknown
   attributes?: Record<string, unknown>
   geometry?: CityJsonGeometry[]
   parents?: string[]
@@ -1105,6 +1107,7 @@ function createViewerObjects(cityObjects: Record<string, CityJsonObject>) {
       parsed: {
         id,
         type: object.type ?? 'CityObject',
+        geographicalExtent: readGeographicalExtent(object.geographicalExtent),
         attributes: getDisplayCityObjectAttributes(object),
         geometries,
         bestGeometryIndex: pickBestGeometryIndex(geometries),

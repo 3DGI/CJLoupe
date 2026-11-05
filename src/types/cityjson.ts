@@ -134,6 +134,7 @@ export interface ViewerObjectGeometry {
 export interface ViewerCityObject {
   id: string
   type: string
+  geographicalExtent?: ViewerFeature['extent']
   attributes: Record<string, unknown>
   geometries: ViewerObjectGeometry[]
   bestGeometryIndex: number | null
