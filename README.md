@@ -62,3 +62,9 @@ State-enriched CityJSON files remain regular CityJSON data. CJLoupe stores its s
 ## Limitations
 - No handling of [Appearance objects](https://www.cityjson.org/specs/2.0.2/#appearance-object)
 - The 'Best LOD' selection, does not show the parent object if child objects have a geometry as well.
+
+## Reusable modules
+
+CityJSON parsing, attribute colours and Three.js scene layers are available under
+`src/modules`. See [module usage and ownership](docs/modules.md) for entry points,
+examples and the boundary between shared rendering and CJLoupe editing.

@@ -1,12 +1,37 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { clearLayerGeometry } from '@/modules/cj-three/scene'
+import type { FeatureGeometryChange } from '@/features/editing/geometry-editor'
+import { buildObjectGeometryBlueprint, buildUngroupedObjectGeometry } from '@/modules/cj-three/geometry'
+import { createLayerState, previewColorDomain } from '@/modules/cj-three/layer'
+import { baseColorForType, computeFaceErrorGroups, SELECTION_TINT_COLOR, SELECTION_TINT_STRENGTH, SEMANTIC_SELECTION_TINT_STRENGTH, syncSemanticSurfaceSharedUniforms } from '@/modules/cj-three/materials'
+import type { SceneBuildOptions } from '@/modules/cj-three/scene'
+import { buildObjectMeshPresentation, collectObjectErrorFaceIndices, getRenderedGeometryTarget, rebuildFeatureGeometry as rebuildLayerFeature, rebuildScene as rebuildLayerScene, replaceBatchedRecordGeometry, resolveBatchedObjectColor, resolveObjectHit, syncBatchMaterials, syncRuntimeAttributeColor } from '@/modules/cj-three/scene'
+import type { AttributeColorUniforms, BatchedObjectRecord, LayerState, ObjectGeometryBlueprint, Theme, TriangleFaceIndices } from '@/modules/cj-three/types'
+import type { Ref } from 'react'
+import { useCallback, useEffect, useImperativeHandle, useRef } from 'react'
 import * as THREE from 'three'
+import { ArcballControls } from 'three/examples/jsm/controls/ArcballControls.js'
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js'
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js'
-import { ArcballControls } from 'three/examples/jsm/controls/ArcballControls.js'
-import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js'
+import type { CityViewportHandle } from './viewport-handle'
 
+import {
+  CAMERA_FOCAL_LENGTH_MAX,
+  isOrthographicCameraValue,
+  ORTHOGRAPHIC_CAMERA_VALUE,
+} from '@/lib/camera'
+import {
+  getObjectGeometryByIndex,
+  resolveObjectGeometries,
+  resolveObjectGeometry,
+  resolveObjectGeometryIndex,
+} from '@/lib/object-geometry'
+import { measurePerformance } from '@/lib/performance'
+import type { ViewerCameraPose } from '@/lib/viewer-state-schema'
+import { isViewerCameraPose } from '@/lib/viewer-state-schema'
+import { viewerObjectKey } from '@/modules/cityjson-core/identity'
 import type {
   PolygonRings,
   Vec3,
@@ -17,51 +42,18 @@ import type {
   ViewerFeature,
   ViewerFocusTarget,
   ViewerGeometryDisplayMode,
-  ViewerObjectGeometry,
   ViewerPickingMode,
-  ViewerSemanticSurface,
-  ViewerValidationError,
+  ViewerSemanticSurface
 } from '@/types/cityjson'
-import {
-  getObjectGeometryByIndex,
-  resolveObjectGeometries,
-  resolveObjectGeometry,
-  resolveObjectGeometryIndex,
-} from '@/lib/object-geometry'
-import {
-  CAMERA_FOCAL_LENGTH_MAX,
-  ORTHOGRAPHIC_CAMERA_VALUE,
-  isOrthographicCameraValue,
-} from '@/lib/camera'
-import { errorColor } from '@/lib/error-palette'
-import { measurePerformance, nowPerformance, recordPerformanceMeasure } from '@/lib/performance'
-import { semanticSurfaceColor } from '@/lib/semantic-surface-colors'
-import { viewerObjectKey } from '@/lib/utils'
-import { isViewerCameraPose } from '@/lib/viewer-state-schema'
-import type { ViewerCameraPose } from '@/lib/viewer-state-schema'
-
-type Theme = 'light' | 'dark'
 
 const VIEWPORT_FOG_DENSITY = {
   light: 0.000005,
   dark: 0.000005,
 } as const
 
-const PLANARITY_DISTANCE_TOLERANCE = 0.0001
-const PLANARITY_RELATIVE_TOLERANCE = 1e-7
-const NON_PLANAR_NORMAL_EXTRA_VERTEX_RATIO = 0.1
-const NON_PLANAR_NORMAL_EXTRA_VERTEX_MIN_BUDGET = 10000
-const NON_PLANAR_NORMAL_EXTRA_VERTEX_MAX_BUDGET = 500000
-const BATCH_TARGET_OBJECT_COUNT = 500
-const BATCH_MAX_OBJECT_COUNT = 900
-const BATCH_MAX_VERTEX_COUNT = 60000
-const BATCH_MAX_INDEX_COUNT = 120000
 const EDIT_VERTEX_PICK_RADIUS_PIXELS = 14
 const SELECTION_OUTLINE_THICKNESS_PIXELS = 4
 const SELECTION_OUTLINE_INTERACTIVE_TARGET_SCALE = 0.25
-const SELECTION_TINT_COLOR = '#7ee7e7'
-const SELECTION_TINT_STRENGTH = 0.18
-const SEMANTIC_SELECTION_TINT_STRENGTH = 0.34
 const MEASUREMENT_LINE_RENDER_ORDER = 10000
 const MEASUREMENT_MARKER_RENDER_ORDER = MEASUREMENT_LINE_RENDER_ORDER + 1
 const REFERENCE_VERTICAL_FOV_DEGREES = 50
@@ -88,8 +80,6 @@ type CameraSyncTransport = {
   channel: BroadcastChannel
 }
 
-const EMPTY_FACE_INDEX_SET = new Set<number>()
-
 const SELECTION_EFFECT_COLORS: Record<Theme, { outline: string }> = {
   light: {
     outline: '#7ee7e7',
@@ -99,93 +89,17 @@ const SELECTION_EFFECT_COLORS: Record<Theme, { outline: string }> = {
   },
 }
 
-const OBJECT_TYPE_COLORS: Record<Theme, Record<string, string>> = {
-  light: {
-    bridge: '#7aa6b8',
-    bridgeconstructiveelement: '#6f99aa',
-    bridgefurniture: '#96a7af',
-    bridgeinstallation: '#89b6c4',
-    bridgepart: '#86adbc',
-    bridgeroom: '#9db5bf',
-    building: '#b8aa94',
-    buildingconstructiveelement: '#a99b86',
-    buildingfurniture: '#c1b195',
-    buildinginstallation: '#c3aa83',
-    buildingpart: '#c2b29a',
-    buildingroom: '#d0c0a4',
-    cityfurniture: '#d1a14b',
-    cityobjectgroup: '#8d98a6',
-    genericcityobject: '#9aa3ad',
-    landuse: '#9cad72',
-    otherconstruction: '#9b9390',
-    plantcover: '#77a66a',
-    railway: '#646d76',
-    relieffeature: '#a99a7c',
-    road: '#6d747c',
-    solitaryvegetationobject: '#5f9862',
-    square: '#8a8177',
-    tinrelief: '#a58f6c',
-    transportationobject: '#737b84',
-    transportsquare: '#8a8177',
-    tunnel: '#8b7b9d',
-    tunnelconstructiveelement: '#7e6f91',
-    tunnelfurniture: '#9a8aa8',
-    tunnelhollowspace: '#9b8caf',
-    tunnelinstallation: '#8f80a2',
-    tunnelpart: '#9484a7',
-    waterbody: '#4f93b5',
-    waterway: '#4d89aa',
-  },
-  dark: {
-    bridge: '#6f9aae',
-    bridgeconstructiveelement: '#638c9f',
-    bridgefurniture: '#879aa4',
-    bridgeinstallation: '#78a8b9',
-    bridgepart: '#7ea2b2',
-    bridgeroom: '#8fa9b5',
-    building: '#9d927f',
-    buildingconstructiveelement: '#918675',
-    buildingfurniture: '#ab9b82',
-    buildinginstallation: '#a98f6d',
-    buildingpart: '#aa9b85',
-    buildingroom: '#b7a98f',
-    cityfurniture: '#b88939',
-    cityobjectgroup: '#7f8b99',
-    genericcityobject: '#8b96a1',
-    landuse: '#879863',
-    otherconstruction: '#89817f',
-    plantcover: '#67945e',
-    railway: '#5c6670',
-    relieffeature: '#938568',
-    road: '#626b74',
-    solitaryvegetationobject: '#528857',
-    square: '#7a736b',
-    tinrelief: '#907d5f',
-    transportationobject: '#68717b',
-    transportsquare: '#7a736b',
-    tunnel: '#7d6f93',
-    tunnelconstructiveelement: '#716485',
-    tunnelfurniture: '#897b9c',
-    tunnelhollowspace: '#8a7ca1',
-    tunnelinstallation: '#817397',
-    tunnelpart: '#857697',
-    waterbody: '#477f9f',
-    waterway: '#467895',
-  },
-}
-
-const FALLBACK_OBJECT_TYPE_COLORS: Record<Theme, readonly string[]> = {
-  light: ['#8b96a1', '#938c81', '#879672', '#7e97a3', '#998b9f'],
-  dark: ['#7f8b97', '#827b72', '#788a67', '#728b98', '#887c93'],
-}
-
 type CityViewportProps = {
+  ref?: Ref<CityViewportHandle>
   data: ViewerDataset | null
+  appearanceMode: ViewerAppearanceMode
+  attributeColor: ViewerAttributeColorState | null
+  theme: Theme
   cameraFocalLength: number
   hideOccludedEditEdges: boolean
   isolateSelectedFeature: boolean
   showObjectExtents: boolean
-  geometryRevision: number
+  geometryChange: FeatureGeometryChange | null
   viewportResetRevision: number
   topDownViewRevision: number
   focusRevision: number
@@ -198,12 +112,10 @@ type CityViewportProps = {
   selectedFaceIndex: number | null
   selectedFaceRingIndex: number
   selectedVertexIndex: number | null
-  appearanceMode: ViewerAppearanceMode
   pickingMode: ViewerPickingMode
   measurementActive: boolean
   measurementPoints: Vec3[]
   showVertexGizmo: boolean
-  attributeColor: ViewerAttributeColorState | null
   mobileInteraction: boolean
   mobileSelectionMode: 'object' | 'surface'
   cameraSyncChannel: string | null
@@ -226,16 +138,14 @@ type CityViewportProps = {
   onViewportCenterChange: (center: Vec3 | null) => void
   onMeasurePoint: (point: Vec3) => void
   onDataRendered: (data: ViewerDataset) => void
-  theme: Theme
 }
 
-type Runtime = {
+type Runtime = LayerState & {
   renderer: THREE.WebGLRenderer
   scene: THREE.Scene
   camera: ViewerCamera
   arcball: ArcballControls
   transform: TransformControls
-  rootGroup: THREE.Group
   cameraLightRig: THREE.Group
   handleGroup: THREE.Group
   edgeGroup: THREE.Group
@@ -253,11 +163,6 @@ type Runtime = {
   selectionOutlineTargetScale: number
   raycaster: THREE.Raycaster
   pointer: THREE.Vector2
-  meshesByRenderKey: Map<string, THREE.Mesh>
-  meshesByFeatureId: Map<string, THREE.Mesh[]>
-  batchedMeshes: THREE.BatchedMesh[]
-  batchedObjectsByRenderKey: Map<string, BatchedObjectRecord>
-  batchedObjectsByFeatureId: Map<string, BatchedObjectRecord[]>
   editPoints: THREE.Points | null
   selectedEditPoint: THREE.Points | null
   transformProxy: THREE.Object3D | null
@@ -269,20 +174,8 @@ type Runtime = {
   editActiveRingVertexEdges: LineSegments2 | null
   annotationVertexMarkers: THREE.Points[]
   featureDrafts: Map<string, Vec3[]>
-  sceneScale: number
   isArcballInteracting: boolean
   editPivot: Vec3 | null
-  theme: Theme
-  appearanceMode: ViewerAppearanceMode
-  attributeColor: ViewerAttributeColorState | null
-  attributeColorSharedUniforms: AttributeColorSharedUniforms
-  normalColorUniforms: NormalColorUniforms
-  selectionTintUniforms: SelectionTintUniforms
-  semanticSurfaceSharedUniforms: SemanticSurfaceSharedUniforms
-  semanticSurfaceTypeIds: Map<string, number>
-  shaderObjectIdsByObjectKey: Map<string, number>
-  nextShaderObjectId: number
-  preparedAttributeColorValuesByObjectKey: Record<string, number> | null
   ambientLight: THREE.AmbientLight
   hemisphereLight: THREE.HemisphereLight
   keyLight: THREE.DirectionalLight
@@ -290,80 +183,6 @@ type Runtime = {
   rimLight: THREE.DirectionalLight
 }
 
-type ObjectGeometryBlueprint = {
-  positions: Float32Array
-  normals: Float32Array
-  polygonTriangleIndices: number[][]
-}
-
-type TriangleFaceIndices = ArrayLike<number>
-
-type BatchedObjectRecord = {
-  key: string
-  featureId: string
-  objectId: string
-  objectType: string
-  hasRenderableChildren: boolean
-  geometryIndex: number
-  featureCenter: Vec3
-  baseColorLight: string
-  baseColorDark: string
-  triangleFaceIndices: TriangleFaceIndices
-  blueprint: ObjectGeometryBlueprint
-  batch: THREE.BatchedMesh
-  instanceId: number
-  geometryId: number
-}
-
-type BatchBuildItem = Omit<BatchedObjectRecord, 'batch' | 'instanceId' | 'geometryId'> & {
-  renderKey: string
-  geometry: THREE.BufferGeometry
-  tileKey: string
-  vertexCount: number
-  indexCount: number
-}
-
-type AttributeColorUniforms = {
-  value: { value: number }
-  hasValue: { value: number }
-  directColor: { value: THREE.Color }
-  selectionTint: { value: THREE.Color }
-  selectionTintStrength: { value: number }
-}
-
-type SelectionTintUniforms = {
-  selectedObjectId: { value: number }
-  selectedFaceIndex: { value: number }
-  color: { value: THREE.Color }
-  strength: { value: number }
-  semanticStrength: { value: number }
-}
-
-type AttributeColorSharedUniforms = {
-  enabled: { value: number }
-  direct: { value: number }
-  min: { value: number }
-  max: { value: number }
-  colors: { value: THREE.Color[] }
-  missingColor: { value: THREE.Color }
-  valueMap: { value: THREE.DataTexture }
-  valueMapSize: { value: THREE.Vector2 }
-}
-
-type SemanticSurfaceSharedUniforms = {
-  enabled: { value: number }
-  colors: { value: THREE.Color[] }
-}
-
-type NormalColorUniforms = {
-  enabled: { value: number }
-}
-
-type BatchColorMode = 'base' | 'semantic' | 'continuous-attribute'
-
-const ATTRIBUTE_COLOR_STOP_COUNT = 10
-const SEMANTIC_SURFACE_COLOR_SLOT_COUNT = 64
-const ATTRIBUTE_COLOR_DOMAIN_PREVIEW_EVENT = 'cjloupe:attribute-color-domain-preview'
 
 type ViewSelection = {
   selectedFeatureId: string | null
@@ -572,12 +391,13 @@ function createSelectionOutlineTarget() {
 }
 
 function CityViewport({
+  ref,
   data,
   cameraFocalLength,
   hideOccludedEditEdges,
   isolateSelectedFeature,
   showObjectExtents,
-  geometryRevision,
+  geometryChange,
   viewportResetRevision,
   topDownViewRevision,
   focusRevision,
@@ -816,7 +636,8 @@ function CityViewport({
     cameraLightRig.add(rimLight)
     cameraLightRig.add(rimLight.target)
 
-    const rootGroup = new THREE.Group()
+    const layerState = createLayerState({ theme: themeRef.current, appearanceMode: appearanceModeRef.current, attributeColor: attributeColorRef.current })
+    const rootGroup = layerState.rootGroup
     scene.add(rootGroup)
 
     const handleGroup = new THREE.Group()
@@ -848,6 +669,7 @@ function CityViewport({
     const selectionOutlineEffectQuad = new FullScreenQuad(new SelectionOutlineEffectMaterial())
 
     const runtime: Runtime = {
+      ...layerState,
       renderer,
       scene,
       camera,
@@ -871,11 +693,6 @@ function CityViewport({
       selectionOutlineTargetScale: 1,
       raycaster: new THREE.Raycaster(),
       pointer: new THREE.Vector2(),
-      meshesByRenderKey: new Map(),
-      meshesByFeatureId: new Map(),
-      batchedMeshes: [],
-      batchedObjectsByRenderKey: new Map(),
-      batchedObjectsByFeatureId: new Map(),
       editPoints: null,
       selectedEditPoint: null,
       transformProxy: null,
@@ -890,17 +707,6 @@ function CityViewport({
       sceneScale: 1,
       isArcballInteracting: false,
       editPivot: null,
-      theme: themeRef.current,
-      appearanceMode: appearanceModeRef.current === 'normal' ? 'regular' : appearanceModeRef.current,
-      attributeColor: attributeColorRef.current,
-      attributeColorSharedUniforms: createAttributeColorSharedUniforms(),
-      normalColorUniforms: createNormalColorUniforms(appearanceModeRef.current),
-      selectionTintUniforms: createSelectionTintUniforms(),
-      semanticSurfaceSharedUniforms: createSemanticSurfaceSharedUniforms(),
-      semanticSurfaceTypeIds: new Map(),
-      shaderObjectIdsByObjectKey: new Map(),
-      nextShaderObjectId: 1,
-      preparedAttributeColorValuesByObjectKey: null,
       ambientLight,
       hemisphereLight,
       keyLight,
@@ -1440,7 +1246,7 @@ function CityViewport({
     rebuildObjectExtents(runtime, showObjectExtents ? data : null, theme)
     renderViewport(runtime)
     return () => clearTransientGroup(runtime.objectExtentGroup)
-  }, [data, showObjectExtents, theme])
+  }, [data, geometryChange, showObjectExtents, theme])
 
   useEffect(() => {
     const runtime = runtimeRef.current
@@ -1518,8 +1324,9 @@ function CityViewport({
       )
     } else {
       const selection = selectionRef.current
-      if (selection.selectedFeatureId) {
-        const feature = currentData.features.find((candidate) => candidate.id === selection.selectedFeatureId)
+      const changedFeatureId = geometryChange?.featureId
+      if (changedFeatureId) {
+        const feature = currentData.features.find((candidate) => candidate.id === changedFeatureId)
         if (feature) {
           runtime.featureDrafts.set(feature.id, cloneFeatureVertices(feature))
           rebuildFeatureGeometry(runtime, currentData, feature.id, selection)
@@ -1541,7 +1348,7 @@ function CityViewport({
     previousIsolateSelectedFeatureRef.current = isolateSelectedFeatureRef.current
     renderViewport(runtime)
     reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
-  }, [geometryRevision, geometryDisplayMode, activeGeometryIndex])
+  }, [geometryChange, geometryDisplayMode, activeGeometryIndex])
 
   useEffect(() => {
     const runtime = runtimeRef.current
@@ -1730,41 +1537,23 @@ function CityViewport({
     reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
   }, [attributeColor])
 
-  useEffect(() => {
-    let pendingFrame: number | null = null
-    let pendingDomain: { min: number; max: number } | null = null
-
-    const flushPreview = () => {
-      pendingFrame = null
-      const runtime = runtimeRef.current
-      if (!runtime?.attributeColor || runtime.attributeColor.mode !== 'continuous' || !pendingDomain) {
-        return
-      }
-
-      runtime.attributeColorSharedUniforms.min.value = pendingDomain.min
-      runtime.attributeColorSharedUniforms.max.value = pendingDomain.max
-      renderViewport(runtime)
-    }
-
-    const handlePreview = (event: Event) => {
-      const detail = (event as CustomEvent<{ min: number; max: number }>).detail
-      if (!detail || !Number.isFinite(detail.min) || !Number.isFinite(detail.max)) {
-        return
-      }
-
-      pendingDomain = detail
-      if (pendingFrame == null) {
-        pendingFrame = window.requestAnimationFrame(flushPreview)
-      }
-    }
-
-    window.addEventListener(ATTRIBUTE_COLOR_DOMAIN_PREVIEW_EVENT, handlePreview)
-    return () => {
-      window.removeEventListener(ATTRIBUTE_COLOR_DOMAIN_PREVIEW_EVENT, handlePreview)
-      if (pendingFrame != null) {
-        window.cancelAnimationFrame(pendingFrame)
-      }
-    }
+  const previewFrameRef = useRef<number | null>(null)
+  const previewDomainRef = useRef<{ min: number; max: number } | null>(null)
+  useImperativeHandle(ref, () => ({
+    previewColorDomain(domain) {
+      if (!Number.isFinite(domain.min) || !Number.isFinite(domain.max)) return
+      previewDomainRef.current = domain
+      if (previewFrameRef.current != null) return
+      previewFrameRef.current = window.requestAnimationFrame(() => {
+        previewFrameRef.current = null
+        const runtime = runtimeRef.current
+        const pending = previewDomainRef.current
+        if (runtime && pending && previewColorDomain(runtime, pending)) renderViewport(runtime)
+      })
+    },
+  }), [])
+  useEffect(() => () => {
+    if (previewFrameRef.current != null) window.cancelAnimationFrame(previewFrameRef.current)
   }, [])
 
   useEffect(() => {
@@ -1854,10 +1643,6 @@ function resolveDisplayedObjectGeometries(
   return resolveObjectGeometries(object, selection.geometryDisplayMode)
 }
 
-function renderedGeometryKey(objectKey: string, geometryIndex: number) {
-  return `${objectKey}::geometry:${geometryIndex}`
-}
-
 function cloneFeatureVertices(feature: ViewerFeature) {
   return feature.vertices.map((vertex) => [...vertex] as Vec3)
 }
@@ -1873,135 +1658,6 @@ function ensureFeatureDraft(runtime: Runtime, feature: ViewerFeature) {
     runtime.featureDrafts.set(feature.id, draftVertices)
   }
   return draftVertices
-}
-
-function rebuildScene(
-  runtime: Runtime,
-  data: ViewerDataset,
-  selection: ViewSelection,
-) {
-  measurePerformance('cjvis:viewport:rebuild-scene-total', () => {
-    measurePerformance('cjvis:viewport:dispose-scene-contents', () => disposeSceneContents(runtime))
-    runtime.shaderObjectIdsByObjectKey.clear()
-    runtime.nextShaderObjectId = 1
-    syncSemanticSurfaceSharedUniforms(runtime, data)
-    runtime.featureDrafts = measurePerformance('cjvis:viewport:clone-feature-drafts', () => new Map())
-
-    const sizeX = data.extent[3] - data.extent[0]
-    const sizeY = data.extent[4] - data.extent[1]
-    const sizeZ = data.extent[5] - data.extent[2]
-    runtime.sceneScale = Math.max(sizeX, sizeY, sizeZ)
-    const batchItems: BatchBuildItem[] = []
-
-    measurePerformance('cjvis:viewport:build-object-geometries', () => {
-      for (const feature of data.features) {
-        const vertices = getRenderableFeatureVertices(runtime, feature)
-
-        // Center each feature's mesh geometry around the feature's own center
-        // to keep float32 vertex buffer values small and avoid GPU precision jitter.
-        const featureCenter: Vec3 = [
-          (feature.extent[0] + feature.extent[3]) * 0.5,
-          (feature.extent[1] + feature.extent[4]) * 0.5,
-          (feature.extent[2] + feature.extent[5]) * 0.5,
-        ]
-
-        for (const object of feature.objects) {
-          const objectGeometries = resolveDisplayedObjectGeometries(feature, object, selection)
-          if (objectGeometries.length === 0) {
-            continue
-          }
-
-          const nextObjectKey = viewerObjectKey(feature.id, object.id)
-
-          for (const objectGeometry of objectGeometries) {
-            const nextRenderKey = renderedGeometryKey(nextObjectKey, objectGeometry.index)
-
-            if (canBatchObject(runtime, feature, object, objectGeometry)) {
-              const blueprint = buildObjectGeometryBlueprint(
-                objectGeometry.polygons,
-                vertices,
-                featureCenter,
-                collectObjectErrorFaceIndices(
-                  feature.errors,
-                  object.id,
-                  objectGeometry.index,
-                  objectGeometry.sourceFaceIndices,
-                ),
-              )
-              const geometry = buildUngroupedObjectGeometry(blueprint)
-              applyBatchGeometryAttributes(
-                geometry,
-                blueprint,
-                runtime,
-                objectGeometry,
-                nextObjectKey,
-              )
-              geometry.computeBoundingBox()
-              batchItems.push({
-                key: nextObjectKey,
-                renderKey: nextRenderKey,
-                featureId: feature.id,
-                objectId: object.id,
-                objectType: object.type,
-                hasRenderableChildren: object.hasRenderableChildren,
-                geometryIndex: objectGeometry.index,
-                featureCenter,
-                baseColorLight: baseColorForType(object.type, 'light'),
-                baseColorDark: baseColorForType(object.type, 'dark'),
-                triangleFaceIndices: geometry.userData.triangleFaceIndices,
-                blueprint,
-                geometry,
-                tileKey: getBatchTileKey(featureCenter, data),
-                vertexCount: geometry.getAttribute('position')?.count ?? 0,
-                indexCount: geometry.getIndex()?.count ?? 0,
-              })
-            } else {
-              addStandaloneObjectMesh(
-                runtime,
-                data,
-                feature,
-                object,
-                objectGeometry,
-                vertices,
-                featureCenter,
-                nextRenderKey,
-              )
-            }
-          }
-        }
-      }
-    })
-
-    measurePerformance('cjvis:viewport:build-spatial-batches', () =>
-      buildSpatialBatches(runtime, data, batchItems, selection),
-    )
-    measurePerformance('cjvis:viewport:sync-batched-attribute-texture', () =>
-      syncBatchedAttributeValueTexture(runtime, runtime.attributeColor),
-    )
-  })
-}
-
-function canBatchObject(
-  runtime: Runtime,
-  feature: ViewerFeature,
-  object: ViewerFeature['objects'][number],
-  objectGeometry: ViewerObjectGeometry,
-) {
-  if (runtime.appearanceMode === 'semantic') {
-    return true
-  }
-
-  if (runtime.attributeColor) {
-    return true
-  }
-
-  const { faceGroups } = computeFaceErrorGroups(
-    feature.errors,
-    object.id,
-    objectGeometry.index,
-    objectGeometry.sourceFaceIndices,
-  )
-  return faceGroups.size === 0
 }
 
 function shouldRebuildForSemanticModeToggle(
@@ -2036,519 +1692,6 @@ function shouldRebuildForSemanticModeToggle(
   }
 
   return false
-}
-
-function applyBatchGeometryAttributes(
-  geometry: THREE.BufferGeometry,
-  blueprint: ObjectGeometryBlueprint,
-  runtime: Runtime,
-  objectGeometry: ViewerObjectGeometry,
-  objectKey: string,
-) {
-  const vertexCount = geometry.getAttribute('position')?.count ?? 0
-  const colors = new Float32Array(vertexCount * 3)
-  colors.fill(1)
-
-  const shaderObjectId = getShaderObjectId(runtime, objectKey)
-  const shaderObjectIds = new Float32Array(vertexCount)
-  shaderObjectIds.fill(shaderObjectId)
-
-  const semanticSurfaceTypeIds = new Float32Array(vertexCount)
-  fillSemanticSurfaceAttributes(
-    semanticSurfaceTypeIds,
-    blueprint,
-    objectGeometry.semanticSurfaces,
-    runtime.semanticSurfaceTypeIds,
-  )
-
-  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
-  geometry.setAttribute('shaderObjectId', new THREE.BufferAttribute(shaderObjectIds, 1))
-  geometry.setAttribute('semanticSurfaceTypeId', new THREE.BufferAttribute(semanticSurfaceTypeIds, 1))
-  setSelectionFaceIndexAttribute(geometry, blueprint)
-}
-
-function applyStandaloneGeometryAttributes(
-  geometry: THREE.BufferGeometry,
-  blueprint: ObjectGeometryBlueprint,
-  runtime: Runtime,
-  objectKey: string,
-) {
-  const vertexCount = geometry.getAttribute('position')?.count ?? 0
-  const shaderObjectId = getShaderObjectId(runtime, objectKey)
-  const shaderObjectIds = new Float32Array(vertexCount)
-  shaderObjectIds.fill(shaderObjectId)
-  geometry.setAttribute('shaderObjectId', new THREE.BufferAttribute(shaderObjectIds, 1))
-  setSelectionFaceIndexAttribute(geometry, blueprint)
-}
-
-function setSelectionFaceIndexAttribute(
-  geometry: THREE.BufferGeometry,
-  blueprint: ObjectGeometryBlueprint,
-) {
-  const vertexCount = geometry.getAttribute('position')?.count ?? 0
-  const selectionFaceIndices = new Float32Array(vertexCount)
-  selectionFaceIndices.fill(-1)
-
-  blueprint.polygonTriangleIndices.forEach((polygonIndices, faceIndex) => {
-    for (const vertexIndex of polygonIndices) {
-      selectionFaceIndices[vertexIndex] = faceIndex
-    }
-  })
-
-  geometry.setAttribute('selectionFaceIndex', new THREE.BufferAttribute(selectionFaceIndices, 1))
-}
-
-function fillSemanticSurfaceAttributes(
-  semanticSurfaceTypeIds: Float32Array,
-  blueprint: ObjectGeometryBlueprint,
-  semanticSurfaces: Array<ViewerSemanticSurface | null>,
-  semanticSurfaceTypeIdsByKey: Map<string, number>,
-) {
-  blueprint.polygonTriangleIndices.forEach((polygonIndices, faceIndex) => {
-    const surface = semanticSurfaces[faceIndex]
-    const surfaceTypeId = surface
-      ? semanticSurfaceTypeIdsByKey.get(semanticSurfaceTypeKey(surface.type)) ?? 0
-      : 0
-
-    for (const vertexIndex of polygonIndices) {
-      semanticSurfaceTypeIds[vertexIndex] = surfaceTypeId
-    }
-  })
-}
-
-function resolveInitialBatchedObjectColor(runtime: Runtime, item: BatchBuildItem) {
-  if (runtime.appearanceMode === 'semantic') {
-    return '#ffffff'
-  }
-
-  const attributeColor = runtime.attributeColor
-  if (attributeColor?.mode === 'direct') {
-    return attributeColor.directColorsByObjectKey?.[item.key] ?? attributeColor.missingColor
-  }
-
-  if (attributeColor?.mode === 'continuous') {
-    return '#ffffff'
-  }
-
-  return runtime.theme === 'light' ? item.baseColorLight : item.baseColorDark
-}
-
-function addStandaloneObjectMesh(
-  runtime: Runtime,
-  data: ViewerDataset,
-  feature: ViewerFeature,
-  object: ViewerFeature['objects'][number],
-  objectGeometry: ViewerObjectGeometry,
-  draftVertices: Vec3[],
-  featureCenter: Vec3,
-  renderKey: string,
-) {
-  const { blueprint, geometry, material } = buildObjectMeshPresentation(
-    runtime,
-    feature,
-    object,
-    objectGeometry,
-    draftVertices,
-    featureCenter,
-  )
-  const mesh = new THREE.Mesh(geometry, material)
-  mesh.position.set(
-    featureCenter[0] - data.center[0],
-    featureCenter[1] - data.center[1],
-    featureCenter[2] - data.center[2],
-  )
-  mesh.userData = {
-    featureId: feature.id,
-    objectId: object.id,
-    objectType: object.type,
-    hasRenderableChildren: object.hasRenderableChildren,
-    geometryIndex: objectGeometry.index,
-    featureCenter,
-    baseColorLight: baseColorForType(object.type, 'light'),
-    baseColorDark: baseColorForType(object.type, 'dark'),
-    triangleFaceIndices: geometry.userData.triangleFaceIndices,
-    geometryBlueprint: blueprint,
-  }
-  runtime.meshesByRenderKey.set(renderKey, mesh)
-  const featureMeshes = runtime.meshesByFeatureId.get(feature.id)
-  if (featureMeshes) {
-    featureMeshes.push(mesh)
-  } else {
-    runtime.meshesByFeatureId.set(feature.id, [mesh])
-  }
-  runtime.rootGroup.add(mesh)
-}
-
-function getBatchTileKey(center: Vec3, data: ViewerDataset) {
-  const gridDimension = Math.max(1, Math.ceil(Math.sqrt(data.features.length / BATCH_TARGET_OBJECT_COUNT)))
-  const spanX = Math.max(data.extent[3] - data.extent[0], 0.000001)
-  const spanY = Math.max(data.extent[4] - data.extent[1], 0.000001)
-  const x = Math.min(
-    gridDimension - 1,
-    Math.max(0, Math.floor(((center[0] - data.extent[0]) / spanX) * gridDimension)),
-  )
-  const y = Math.min(
-    gridDimension - 1,
-    Math.max(0, Math.floor(((center[1] - data.extent[1]) / spanY) * gridDimension)),
-  )
-  return `${x}:${y}`
-}
-
-function buildSpatialBatches(
-  runtime: Runtime,
-  data: ViewerDataset,
-  items: BatchBuildItem[],
-  selection: ViewSelection,
-) {
-  if (items.length === 0) {
-    return
-  }
-
-  const chunks = measurePerformance('cjvis:viewport:batch:chunk-items', () => chunkBatchItems(items))
-  const identity = new THREE.Matrix4()
-  const translation = new THREE.Matrix4()
-  const color = new THREE.Color()
-  let allocateBatchDuration = 0
-  let addGeometryDuration = 0
-  let addInstanceDuration = 0
-  let recordBatchDuration = 0
-  let computeBoundsDuration = 0
-
-  for (const chunk of chunks) {
-    const maxInstanceCount = chunk.length
-    const maxVertexCount = chunk.reduce((sum, item) => sum + item.vertexCount, 0)
-    const maxIndexCount = chunk.reduce((sum, item) => sum + item.indexCount, 0)
-    if (maxInstanceCount === 0 || maxVertexCount === 0 || maxIndexCount === 0) {
-      for (const item of chunk) {
-        item.geometry.dispose()
-      }
-      continue
-    }
-
-    let startedAt = nowPerformance()
-    const batch = new THREE.BatchedMesh(
-      maxInstanceCount,
-      maxVertexCount,
-      maxIndexCount,
-      createBatchMaterial(
-        getBatchColorMode(runtime),
-        runtime.attributeColorSharedUniforms,
-        runtime.semanticSurfaceSharedUniforms,
-        runtime.selectionTintUniforms,
-        runtime.normalColorUniforms,
-      ),
-    )
-    allocateBatchDuration += nowPerformance() - startedAt
-    batch.perObjectFrustumCulled = true
-    batch.sortObjects = false
-    batch.userData.recordsByInstanceId = new Map<number, BatchedObjectRecord>()
-    runtime.batchedMeshes.push(batch)
-    runtime.rootGroup.add(batch)
-
-    for (const item of chunk) {
-      startedAt = nowPerformance()
-      const geometryId = batch.addGeometry(item.geometry)
-      addGeometryDuration += nowPerformance() - startedAt
-
-      startedAt = nowPerformance()
-      const instanceId = batch.addInstance(geometryId)
-      translation.copy(identity)
-      translation.setPosition(
-        item.featureCenter[0] - data.center[0],
-        item.featureCenter[1] - data.center[1],
-        item.featureCenter[2] - data.center[2],
-      )
-      batch.setMatrixAt(instanceId, translation)
-      batch.setColorAt(instanceId, color.set(resolveInitialBatchedObjectColor(runtime, item)))
-      addInstanceDuration += nowPerformance() - startedAt
-
-      startedAt = nowPerformance()
-      const record: BatchedObjectRecord = {
-        key: item.key,
-        featureId: item.featureId,
-        objectId: item.objectId,
-        objectType: item.objectType,
-        hasRenderableChildren: item.hasRenderableChildren,
-        geometryIndex: item.geometryIndex,
-        featureCenter: item.featureCenter,
-        baseColorLight: item.baseColorLight,
-        baseColorDark: item.baseColorDark,
-        triangleFaceIndices: item.triangleFaceIndices,
-        blueprint: item.blueprint,
-        batch,
-        instanceId,
-        geometryId,
-      }
-      ;(batch.userData.recordsByInstanceId as Map<number, BatchedObjectRecord>).set(instanceId, record)
-      runtime.batchedObjectsByRenderKey.set(item.renderKey, record)
-      const featureRecords = runtime.batchedObjectsByFeatureId.get(item.featureId)
-      if (featureRecords) {
-        featureRecords.push(record)
-      } else {
-        runtime.batchedObjectsByFeatureId.set(item.featureId, [record])
-      }
-      item.geometry.dispose()
-      recordBatchDuration += nowPerformance() - startedAt
-    }
-
-    startedAt = nowPerformance()
-    batch.computeBoundingSphere()
-    batch.computeBoundingBox()
-    computeBoundsDuration += nowPerformance() - startedAt
-  }
-
-  recordPerformanceMeasure('cjvis:viewport:batch:allocate-meshes', allocateBatchDuration)
-  recordPerformanceMeasure('cjvis:viewport:batch:add-geometries', addGeometryDuration)
-  recordPerformanceMeasure('cjvis:viewport:batch:add-instances', addInstanceDuration)
-  recordPerformanceMeasure('cjvis:viewport:batch:record-objects', recordBatchDuration)
-  recordPerformanceMeasure('cjvis:viewport:batch:compute-bounds', computeBoundsDuration)
-  measurePerformance('cjvis:viewport:batch:apply-selection-appearance', () =>
-    applyBatchSelectionAppearance(runtime, selection, false, runtime.batchedObjectsByRenderKey.values()),
-  )
-}
-
-function chunkBatchItems(items: BatchBuildItem[]) {
-  const chunks: BatchBuildItem[][] = []
-  const itemsByTile = new Map<string, BatchBuildItem[]>()
-
-  for (const item of items) {
-    const tileItems = itemsByTile.get(item.tileKey)
-    if (tileItems) {
-      tileItems.push(item)
-    } else {
-      itemsByTile.set(item.tileKey, [item])
-    }
-  }
-
-  for (const tileItems of itemsByTile.values()) {
-    let current: BatchBuildItem[] = []
-    let vertexCount = 0
-    let indexCount = 0
-
-    const flush = () => {
-      if (current.length > 0) {
-        chunks.push(current)
-        current = []
-        vertexCount = 0
-        indexCount = 0
-      }
-    }
-
-    for (const item of tileItems) {
-      const exceedsObjectLimit = current.length >= BATCH_MAX_OBJECT_COUNT
-      const exceedsVertexLimit = current.length > 0 && vertexCount + item.vertexCount > BATCH_MAX_VERTEX_COUNT
-      const exceedsIndexLimit = current.length > 0 && indexCount + item.indexCount > BATCH_MAX_INDEX_COUNT
-      if (exceedsObjectLimit || exceedsVertexLimit || exceedsIndexLimit) {
-        flush()
-      }
-
-      current.push(item)
-      vertexCount += item.vertexCount
-      indexCount += item.indexCount
-    }
-
-    flush()
-  }
-
-  return chunks
-}
-
-function createBatchMaterial(
-  mode: BatchColorMode,
-  sharedUniforms: AttributeColorSharedUniforms,
-  semanticUniforms: SemanticSurfaceSharedUniforms,
-  selectionUniforms: SelectionTintUniforms,
-  normalUniforms: NormalColorUniforms,
-) {
-  const material = new THREE.MeshStandardMaterial({
-    color: '#ffffff',
-    roughness: 0.72,
-    metalness: 0.02,
-    vertexColors: true,
-    transparent: false,
-    opacity: 1,
-    depthWrite: true,
-    side: THREE.DoubleSide,
-  })
-  material.userData.batchColorMode = mode
-  if (mode === 'semantic') {
-    applyBatchedSemanticColoringToMaterial(material, semanticUniforms, selectionUniforms)
-  } else if (mode === 'continuous-attribute') {
-    applyBatchedContinuousAttributeColorToMaterial(material, sharedUniforms, selectionUniforms)
-  } else {
-    applyBatchedSelectionTintToMaterial(material, selectionUniforms)
-  }
-  applyNormalColorToMaterial(material, normalUniforms)
-  return material
-}
-
-function getBatchColorMode(runtime: Runtime): BatchColorMode {
-  if (runtime.appearanceMode === 'semantic') {
-    return 'semantic'
-  }
-
-  if (runtime.attributeColor?.mode === 'continuous') {
-    return 'continuous-attribute'
-  }
-
-  return 'base'
-}
-
-function syncBatchMaterials(runtime: Runtime) {
-  const mode = getBatchColorMode(runtime)
-  for (const batch of runtime.batchedMeshes) {
-    const currentMaterials = Array.isArray(batch.material) ? batch.material : [batch.material]
-    const currentMode = currentMaterials[0]?.userData.batchColorMode as BatchColorMode | undefined
-    if (currentMode === mode) {
-      continue
-    }
-
-    for (const material of currentMaterials) {
-      material.dispose()
-    }
-    batch.material = createBatchMaterial(
-      mode,
-      runtime.attributeColorSharedUniforms,
-      runtime.semanticSurfaceSharedUniforms,
-      runtime.selectionTintUniforms,
-      runtime.normalColorUniforms,
-    )
-  }
-}
-
-function syncRuntimeAttributeColor(
-  runtime: Runtime,
-  attributeColor: ViewerAttributeColorState | null,
-) {
-  const previousAttributeColor = runtime.attributeColor
-  const previousValuesByObjectKey = previousAttributeColor?.valuesByObjectKey ?? null
-  runtime.attributeColor = attributeColor
-  syncAttributeColorSharedUniforms(runtime.attributeColorSharedUniforms, attributeColor)
-  syncBatchMaterials(runtime)
-
-  if (
-    attributeColor?.mode === 'continuous' &&
-    (
-      previousAttributeColor?.mode !== 'continuous' ||
-      previousValuesByObjectKey !== attributeColor.valuesByObjectKey
-    )
-  ) {
-    syncBatchedAttributeValueTexture(runtime, attributeColor)
-  }
-
-  if (
-    attributeColor &&
-    (
-      runtime.preparedAttributeColorValuesByObjectKey !== attributeColor.valuesByObjectKey ||
-      previousValuesByObjectKey == null
-    )
-  ) {
-    applyAttributeColorToScene(runtime)
-    runtime.preparedAttributeColorValuesByObjectKey = attributeColor.valuesByObjectKey
-  }
-}
-
-function getRenderedGeometryTarget(
-  runtime: Runtime,
-  objectKey: string,
-  geometryIndex: number,
-) {
-  const renderKey = renderedGeometryKey(objectKey, geometryIndex)
-  return {
-    mesh: runtime.meshesByRenderKey.get(renderKey),
-    batchedRecord: runtime.batchedObjectsByRenderKey.get(renderKey),
-  }
-}
-
-function replaceBatchedRecordGeometry(
-  runtime: Runtime,
-  record: BatchedObjectRecord,
-  objectGeometry: ViewerObjectGeometry,
-  objectKey: string,
-  blueprint: ObjectGeometryBlueprint,
-) {
-  const nextGeometry = buildUngroupedObjectGeometry(blueprint)
-  applyBatchGeometryAttributes(
-    nextGeometry,
-    blueprint,
-    runtime,
-    objectGeometry,
-    objectKey,
-  )
-  try {
-    record.batch.setGeometryAt(record.geometryId, nextGeometry)
-    record.triangleFaceIndices = nextGeometry.userData.triangleFaceIndices
-    record.blueprint = blueprint
-    record.geometryIndex = objectGeometry.index
-    record.batch.computeBoundingSphere()
-    record.batch.computeBoundingBox()
-  } finally {
-    nextGeometry.dispose()
-  }
-}
-
-function rebuildFeatureGeometry(
-  runtime: Runtime,
-  data: ViewerDataset,
-  featureId: string,
-  selection: ViewSelection,
-  changedVertexIndex?: number,
-) {
-  const feature = data.features.find((candidate) => candidate.id === featureId)
-  if (!feature) {
-    return
-  }
-  const vertices = getRenderableFeatureVertices(runtime, feature)
-
-  for (const object of feature.objects) {
-    const objectGeometries = resolveDisplayedObjectGeometries(feature, object, selection)
-    if (objectGeometries.length === 0) {
-      continue
-    }
-
-    const objectKey = viewerObjectKey(featureId, object.id)
-    for (const objectGeometry of objectGeometries) {
-      if (changedVertexIndex != null) {
-        let hasChangedVertex = false
-        for (const vertexIndex of objectGeometry.vertexIndices) {
-          if (vertexIndex === changedVertexIndex) {
-            hasChangedVertex = true
-            break
-          }
-        }
-        if (!hasChangedVertex) {
-          continue
-        }
-      }
-
-      const { mesh, batchedRecord } = getRenderedGeometryTarget(runtime, objectKey, objectGeometry.index)
-      if (!mesh && !batchedRecord) {
-        continue
-      }
-
-      const center = (mesh?.userData.featureCenter as Vec3 | undefined) ?? batchedRecord?.featureCenter ?? data.center
-      const nextBlueprint = buildObjectGeometryBlueprint(
-        objectGeometry.polygons,
-        vertices,
-        center,
-        collectObjectErrorFaceIndices(
-          feature.errors,
-          object.id,
-          objectGeometry.index,
-          objectGeometry.sourceFaceIndices,
-        ),
-      )
-      if (mesh) {
-        const { faceGroups } = resolveObjectFaceGroups(runtime, feature, object, objectGeometry)
-        const nextGeometry = buildGroupedObjectGeometry(nextBlueprint, faceGroups)
-        replaceMeshGeometry(mesh, nextGeometry)
-        mesh.userData.geometryBlueprint = nextBlueprint
-        mesh.userData.geometryIndex = objectGeometry.index
-      } else if (batchedRecord) {
-        replaceBatchedRecordGeometry(runtime, batchedRecord, objectGeometry, objectKey, nextBlueprint)
-      }
-    }
-  }
 }
 
 function updateSelectionSurfacePresentation(
@@ -2666,541 +1809,6 @@ function updateObjectSurfacePresentation(
       )
       replaceBatchedRecordGeometry(runtime, batchedRecord, objectGeometry, objectKey, blueprint)
     }
-  }
-}
-
-function buildObjectMeshPresentation(
-  runtime: Runtime,
-  feature: ViewerFeature,
-  object: ViewerFeature['objects'][number],
-  objectGeometry: ViewerObjectGeometry,
-  vertices: Vec3[],
-  featureCenter: Vec3,
-  existingBlueprint?: ObjectGeometryBlueprint,
-) {
-  const blueprint = existingBlueprint ?? buildObjectGeometryBlueprint(
-    objectGeometry.polygons,
-    vertices,
-    featureCenter,
-    collectObjectErrorFaceIndices(
-      feature.errors,
-      object.id,
-      objectGeometry.index,
-      objectGeometry.sourceFaceIndices,
-    ),
-  )
-  const { faceGroups, groupColors } = resolveObjectFaceGroups(runtime, feature, object, objectGeometry)
-  const geometry = buildGroupedObjectGeometry(blueprint, faceGroups)
-  const objectKey = viewerObjectKey(feature.id, object.id)
-  applyStandaloneGeometryAttributes(geometry, blueprint, runtime, objectKey)
-  const semanticMode = runtime.appearanceMode === 'semantic'
-  const baseMaterial = createMaterial(object.type, runtime.theme, semanticMode)
-  applySelectionTintToMaterial(baseMaterial, runtime.selectionTintUniforms, semanticMode)
-  applyAttributeColorToMaterial(
-    baseMaterial,
-    runtime.attributeColor,
-    runtime.attributeColor?.valuesByObjectKey[objectKey] ?? null,
-    runtime.attributeColor?.directColorsByObjectKey?.[objectKey] ?? null,
-    runtime.attributeColorSharedUniforms,
-    runtime.selectionTintUniforms,
-  )
-  const materials = buildMaterialArray(
-    baseMaterial,
-    groupColors,
-    semanticMode ? createSemanticMaterial : createErrorMaterial,
-  )
-  for (const material of materials) {
-    applySelectionTintToMaterial(
-      material,
-      runtime.selectionTintUniforms,
-      Boolean(material.userData.isSemantic || material.userData.isSemanticBase),
-    )
-    applyNormalColorToMaterial(material, runtime.normalColorUniforms)
-  }
-
-  return {
-    blueprint,
-    geometry,
-    material: materials.length > 1 ? materials : baseMaterial,
-  }
-}
-
-function resolveObjectFaceGroups(
-  runtime: Runtime,
-  feature: ViewerFeature,
-  object: ViewerFeature['objects'][number],
-  objectGeometry: ViewerObjectGeometry,
-) {
-  return runtime.appearanceMode === 'semantic'
-    ? computeFaceSemanticGroups(objectGeometry.semanticSurfaces)
-    : computeFaceErrorGroups(feature.errors, object.id, objectGeometry.index, objectGeometry.sourceFaceIndices)
-}
-
-function collectObjectErrorFaceIndices(
-  errors: ViewerValidationError[],
-  objectId: string,
-  geometryIndex: number,
-  sourceFaceIndices: number[],
-) {
-  const faceIndices = new Set<number>()
-
-  for (const error of errors) {
-    if (
-      error.cityObjectId !== objectId ||
-      error.faceIndex == null ||
-      (error.geometryIndex != null && error.geometryIndex !== geometryIndex)
-    ) {
-      continue
-    }
-
-    const currentFaceIndex = getCurrentFaceIndexForSourceFace(sourceFaceIndices, error.faceIndex)
-    if (currentFaceIndex != null) {
-      faceIndices.add(currentFaceIndex)
-    }
-  }
-
-  return faceIndices
-}
-
-function buildObjectGeometryBlueprint(
-  polygons: PolygonRings[],
-  vertices: Vec3[],
-  center: Vec3,
-  triangleNormalFaceIndices: ReadonlySet<number> = EMPTY_FACE_INDEX_SET,
-): ObjectGeometryBlueprint {
-  let vertexCapacity = countRenderablePolygonVertices(polygons, vertices)
-  let positions = new Float32Array(vertexCapacity * 3)
-  let normals = new Float32Array(vertexCapacity * 3)
-  const polygonTriangleIndices: number[][] = []
-  let offset = 0
-  let nonPlanarNormalExtraVertexCount = 0
-  const nonPlanarNormalExtraVertexBudget = Math.min(
-    Math.max(
-      Math.floor(vertexCapacity * NON_PLANAR_NORMAL_EXTRA_VERTEX_RATIO),
-      NON_PLANAR_NORMAL_EXTRA_VERTEX_MIN_BUDGET,
-    ),
-    NON_PLANAR_NORMAL_EXTRA_VERTEX_MAX_BUDGET,
-  )
-
-  function ensureVertexCapacity(requiredVertexCount: number) {
-    if (requiredVertexCount <= vertexCapacity) {
-      return
-    }
-
-    const nextCapacity = Math.max(requiredVertexCount, Math.ceil(vertexCapacity * 1.5), vertexCapacity + 1024)
-    const nextPositions = new Float32Array(nextCapacity * 3)
-    const nextNormals = new Float32Array(nextCapacity * 3)
-    nextPositions.set(positions)
-    nextNormals.set(normals)
-    positions = nextPositions
-    normals = nextNormals
-    vertexCapacity = nextCapacity
-  }
-
-  for (let polyIndex = 0; polyIndex < polygons.length; polyIndex += 1) {
-    const sourcePolygon = polygons[polyIndex]
-    const allowTriangleNormals = triangleNormalFaceIndices.has(polyIndex)
-    if (
-      sourcePolygon.length === 1 &&
-      !allowTriangleNormals &&
-      !hasClosingDuplicateVertex(sourcePolygon[0], vertices)
-    ) {
-      const ring = sourcePolygon[0]
-      const polygonVertexCount = countRenderableRingVertices(ring, vertices)
-      if (polygonVertexCount < 3) {
-        polygonTriangleIndices.push([])
-        continue
-      }
-
-      const normal = computeIndexedRingNormal(ring, vertices)
-      ensureVertexCapacity(offset + polygonVertexCount)
-      fillIndexedRingBuffers(ring, vertices, center, normal, positions, normals, offset * 3)
-
-      if (polygonVertexCount === 3) {
-        polygonTriangleIndices.push([offset, offset + 1, offset + 2])
-      } else if (polygonVertexCount === 4 && isConvexIndexedRing(ring, vertices, normal)) {
-        polygonTriangleIndices.push([offset, offset + 1, offset + 2, offset, offset + 2, offset + 3])
-      } else {
-        const ringVertices = collectRingVertices(ring, vertices)
-        const triangles = triangulatePolygon([ringVertices])
-        const polygonIndices: number[] = []
-        for (const triangle of triangles) {
-          polygonIndices.push(offset + triangle[0], offset + triangle[1], offset + triangle[2])
-        }
-        polygonTriangleIndices.push(polygonIndices)
-      }
-
-      offset += polygonVertexCount
-      continue
-    }
-
-    const polygon = preparePolygonGeometry(
-      sourcePolygon,
-      vertices,
-      allowTriangleNormals,
-    )
-    if (polygon.compactVertexCount === 0) {
-      polygonTriangleIndices.push([])
-      continue
-    }
-
-    const polygonIndices: number[] = []
-    const extraTriangleVertexCount = polygon.triangleVertexCount - polygon.compactVertexCount
-    const useTriangleVertices =
-      polygon.isNonPlanar &&
-      extraTriangleVertexCount > 0 &&
-      nonPlanarNormalExtraVertexCount + extraTriangleVertexCount <= nonPlanarNormalExtraVertexBudget
-    const outputVertexCount = useTriangleVertices ? polygon.triangleVertexCount : polygon.compactVertexCount
-    ensureVertexCapacity(offset + outputVertexCount)
-    if (useTriangleVertices) {
-      const writtenVertexCount = appendTriangleRingVertexBuffers(
-        polygon.rings,
-        polygon.ringOffsets,
-        polygon.triangles,
-        center,
-        polygon.normal,
-        positions,
-        normals,
-        offset,
-        polygonIndices,
-      )
-      offset += writtenVertexCount
-      nonPlanarNormalExtraVertexCount += Math.max(writtenVertexCount - polygon.compactVertexCount, 0)
-    } else {
-      fillPolygonRingBuffers(polygon.rings, center, polygon.normal, positions, normals, offset * 3)
-      for (const triangle of polygon.triangles) {
-        polygonIndices.push(offset + triangle[0], offset + triangle[1], offset + triangle[2])
-      }
-      offset += polygon.compactVertexCount
-    }
-
-    polygonTriangleIndices.push(polygonIndices)
-  }
-
-  const usedComponentCount = offset * 3
-
-  const blueprint: ObjectGeometryBlueprint = {
-    positions: usedComponentCount === positions.length ? positions : positions.slice(0, usedComponentCount),
-    normals: usedComponentCount === normals.length ? normals : normals.slice(0, usedComponentCount),
-    polygonTriangleIndices,
-  }
-
-  return blueprint
-}
-
-function preparePolygonGeometry(
-  polygon: PolygonRings,
-  vertices: Vec3[],
-  allowTriangleNormals: boolean,
-) {
-  const rings: Vec3[][] = []
-  for (const ring of polygon) {
-    const preparedRing = removeClosingDuplicateVertex(collectRingVertices(ring, vertices))
-    if (preparedRing.length >= 3) {
-      rings.push(preparedRing)
-    }
-  }
-
-  if (rings.length === 0) {
-    return {
-      rings: [],
-      ringOffsets: [],
-      triangles: [],
-      normal: new THREE.Vector3(0, 0, 1),
-      isNonPlanar: false,
-      compactVertexCount: 0,
-      triangleVertexCount: 0,
-    }
-  }
-
-  const normal = computeNormal(rings[0])
-  const triangles = triangulatePolygon(rings)
-  let ringVertexCount = 0
-  for (const ring of rings) {
-    ringVertexCount += ring.length
-  }
-  const isNonPlanar = allowTriangleNormals && ringVertexCount > 3 && isNonPlanarPolygon(rings, normal)
-  const ringOffsets = isNonPlanar ? collectRingOffsets(rings) : []
-
-  return {
-    rings,
-    ringOffsets,
-    triangles,
-    normal,
-    isNonPlanar,
-    compactVertexCount: ringVertexCount,
-    triangleVertexCount: triangles.length * 3,
-  }
-}
-
-function collectRingOffsets(rings: Vec3[][]) {
-  const ringOffsets: number[] = []
-  let offset = 0
-  for (const ring of rings) {
-    ringOffsets.push(offset)
-    offset += ring.length
-  }
-  return ringOffsets
-}
-
-function countRenderablePolygonVertices(polygons: PolygonRings[], vertices: Vec3[]) {
-  let count = 0
-
-  for (const polygon of polygons) {
-    let polygonCount = 0
-    for (const ring of polygon) {
-      let ringCount = 0
-      for (const index of ring) {
-        if (Array.isArray(vertices[index])) {
-          ringCount += 1
-        }
-      }
-      if (ringCount >= 3) {
-        polygonCount += ringCount
-      }
-    }
-    count += polygonCount
-  }
-
-  return count
-}
-
-function countRenderableRingVertices(ring: number[], vertices: Vec3[]) {
-  let count = 0
-  for (const index of ring) {
-    if (Array.isArray(vertices[index])) {
-      count += 1
-    }
-  }
-  return count
-}
-
-function collectRingVertices(ring: number[], vertices: Vec3[]) {
-  const ringVertices: Vec3[] = []
-  for (const index of ring) {
-    const vertex = vertices[index]
-    if (Array.isArray(vertex)) {
-      ringVertices.push(vertex)
-    }
-  }
-  return ringVertices
-}
-
-function hasClosingDuplicateVertex(ring: number[], vertices: Vec3[]) {
-  if (ring.length < 2) {
-    return false
-  }
-
-  const first = vertices[ring[0]]
-  const last = vertices[ring[ring.length - 1]]
-  return Array.isArray(first) &&
-    Array.isArray(last) &&
-    samePoint(first, last)
-}
-
-function removeClosingDuplicateVertex(ringVertices: Vec3[]) {
-  if (ringVertices.length < 2) {
-    return ringVertices
-  }
-
-  const first = ringVertices[0]
-  const last = ringVertices[ringVertices.length - 1]
-  return samePoint(first, last)
-    ? ringVertices.slice(0, -1)
-    : ringVertices
-}
-
-function samePoint(first: Vec3, second: Vec3) {
-  return first[0] === second[0] && first[1] === second[1] && first[2] === second[2]
-}
-
-function fillIndexedRingBuffers(
-  ring: number[],
-  vertices: Vec3[],
-  center: Vec3,
-  normal: THREE.Vector3,
-  positions: Float32Array,
-  normals: Float32Array,
-  startOffset: number,
-) {
-  let componentOffset = startOffset
-
-  for (const index of ring) {
-    const vertex = vertices[index]
-    if (!Array.isArray(vertex)) {
-      continue
-    }
-
-    positions[componentOffset] = vertex[0] - center[0]
-    normals[componentOffset++] = normal.x
-    positions[componentOffset] = vertex[1] - center[1]
-    normals[componentOffset++] = normal.y
-    positions[componentOffset] = vertex[2] - center[2]
-    normals[componentOffset++] = normal.z
-  }
-}
-
-function fillPolygonRingBuffers(
-  rings: Vec3[][],
-  center: Vec3,
-  normal: THREE.Vector3,
-  positions: Float32Array,
-  normals: Float32Array,
-  startOffset: number,
-) {
-  let componentOffset = startOffset
-
-  for (const ring of rings) {
-    for (const vertex of ring) {
-      positions[componentOffset] = vertex[0] - center[0]
-      normals[componentOffset++] = normal.x
-      positions[componentOffset] = vertex[1] - center[1]
-      normals[componentOffset++] = normal.y
-      positions[componentOffset] = vertex[2] - center[2]
-      normals[componentOffset++] = normal.z
-    }
-  }
-}
-
-function appendTriangleRingVertexBuffers(
-  rings: Vec3[][],
-  ringOffsets: number[],
-  triangles: number[][],
-  center: Vec3,
-  fallbackNormal: THREE.Vector3,
-  positions: Float32Array,
-  normals: Float32Array,
-  startVertexOffset: number,
-  polygonIndices: number[],
-) {
-  let vertexOffset = startVertexOffset
-  let componentOffset = startVertexOffset * 3
-
-  for (const triangle of triangles) {
-    const first = getRingVertexAt(rings, ringOffsets, triangle[0])
-    const second = getRingVertexAt(rings, ringOffsets, triangle[1])
-    const third = getRingVertexAt(rings, ringOffsets, triangle[2])
-    if (!first || !second || !third) {
-      continue
-    }
-
-    const normal = computeTriangleNormal(first, second, third, fallbackNormal)
-    for (const vertexIndex of triangle) {
-      const vertex = getRingVertexAt(rings, ringOffsets, vertexIndex)
-      if (!vertex) {
-        continue
-      }
-
-      positions[componentOffset] = vertex[0] - center[0]
-      normals[componentOffset++] = normal.x
-      positions[componentOffset] = vertex[1] - center[1]
-      normals[componentOffset++] = normal.y
-      positions[componentOffset] = vertex[2] - center[2]
-      normals[componentOffset++] = normal.z
-      polygonIndices.push(vertexOffset++)
-    }
-  }
-
-  return vertexOffset - startVertexOffset
-}
-
-function getRingVertexAt(rings: Vec3[][], ringOffsets: number[], flatIndex: number) {
-  for (let ringIndex = ringOffsets.length - 1; ringIndex >= 0; ringIndex -= 1) {
-    const ringOffset = ringOffsets[ringIndex]
-    if (flatIndex >= ringOffset) {
-      return rings[ringIndex][flatIndex - ringOffset] ?? null
-    }
-  }
-
-  return null
-}
-
-function buildGroupedObjectGeometry(
-  blueprint: ObjectGeometryBlueprint,
-  faceGroups: Map<number, number>,
-) {
-  if (faceGroups.size === 0) {
-    return buildUngroupedObjectGeometry(blueprint)
-  }
-
-  const groupedIndices = new Map<number, number[]>()
-  const triangleFaceIndicesByGroup = new Map<number, number[]>()
-
-  blueprint.polygonTriangleIndices.forEach((polygonIndices, polyIndex) => {
-    if (polygonIndices.length === 0) {
-      return
-    }
-
-    const groupIndex = faceGroups.get(polyIndex) ?? 0
-    const groupIndices = groupedIndices.get(groupIndex) ?? []
-    appendNumbers(groupIndices, polygonIndices)
-    groupedIndices.set(groupIndex, groupIndices)
-
-    const groupFaceIndices = triangleFaceIndicesByGroup.get(groupIndex) ?? []
-    for (let triangleIndex = 0; triangleIndex < polygonIndices.length; triangleIndex += 3) {
-      groupFaceIndices.push(polyIndex)
-    }
-    triangleFaceIndicesByGroup.set(groupIndex, groupFaceIndices)
-  })
-
-  const geometry = new THREE.BufferGeometry()
-  geometry.setAttribute('position', new THREE.BufferAttribute(blueprint.positions, 3))
-  geometry.setAttribute('normal', new THREE.BufferAttribute(blueprint.normals, 3))
-
-  const allIndices: number[] = []
-  const triangleFaceIndices: number[] = []
-  const sortedKeys = Array.from(groupedIndices.keys()).toSorted((a, b) => a - b)
-  for (const key of sortedKeys) {
-    const groupIndices = groupedIndices.get(key) ?? []
-    const groupFaceIndices = triangleFaceIndicesByGroup.get(key) ?? []
-    const start = allIndices.length
-    appendNumbers(allIndices, groupIndices)
-    appendNumbers(triangleFaceIndices, groupFaceIndices)
-    geometry.addGroup(start, groupIndices.length, key)
-  }
-
-  geometry.setIndex(allIndices)
-  geometry.userData.triangleFaceIndices = triangleFaceIndices
-  geometry.computeBoundingSphere()
-  return geometry
-}
-
-function buildUngroupedObjectGeometry(blueprint: ObjectGeometryBlueprint) {
-  let indexCount = 0
-  let triangleCount = 0
-  for (const polygonIndices of blueprint.polygonTriangleIndices) {
-    indexCount += polygonIndices.length
-    triangleCount += polygonIndices.length / 3
-  }
-
-  const geometry = new THREE.BufferGeometry()
-  geometry.setAttribute('position', new THREE.BufferAttribute(blueprint.positions, 3))
-  geometry.setAttribute('normal', new THREE.BufferAttribute(blueprint.normals, 3))
-
-  const vertexCount = blueprint.positions.length / 3
-  const allIndices = vertexCount > 65535 ? new Uint32Array(indexCount) : new Uint16Array(indexCount)
-  const triangleFaceIndices = new Uint32Array(triangleCount)
-  let indexOffset = 0
-  let triangleOffset = 0
-
-  blueprint.polygonTriangleIndices.forEach((polygonIndices, polyIndex) => {
-    for (let index = 0; index < polygonIndices.length; index += 1) {
-      allIndices[indexOffset++] = polygonIndices[index]
-    }
-    for (let index = 0; index < polygonIndices.length; index += 3) {
-      triangleFaceIndices[triangleOffset++] = polyIndex
-    }
-  })
-
-  geometry.setIndex(new THREE.BufferAttribute(allIndices, 1))
-  geometry.userData.triangleFaceIndices = triangleFaceIndices
-  geometry.computeBoundingSphere()
-  return geometry
-}
-
-function appendNumbers(target: number[], source: ArrayLike<number>) {
-  for (let index = 0; index < source.length; index += 1) {
-    target.push(source[index])
   }
 }
 
@@ -3692,57 +2300,6 @@ function applyBatchSelectionAppearance(
       )
     }
   }
-}
-
-function syncBatchedAttributeValueTexture(
-  runtime: Runtime,
-  attributeColor: ViewerAttributeColorState | null,
-) {
-  const objectCount = Math.max(runtime.nextShaderObjectId, 1)
-  const textureSize = Math.max(1, Math.ceil(Math.sqrt(objectCount)))
-  const data = new Float32Array(textureSize * textureSize * 4)
-
-  if (attributeColor?.mode === 'continuous') {
-    for (const [objectKey, objectId] of runtime.shaderObjectIdsByObjectKey.entries()) {
-      const offset = objectId * 4
-      const value = attributeColor.valuesByObjectKey[objectKey]
-      data[offset] = value ?? 0
-      data[offset + 1] = value == null ? 0 : 1
-    }
-  }
-
-  const texture = new THREE.DataTexture(data, textureSize, textureSize, THREE.RGBAFormat, THREE.FloatType)
-  texture.magFilter = THREE.NearestFilter
-  texture.minFilter = THREE.NearestFilter
-  texture.wrapS = THREE.ClampToEdgeWrapping
-  texture.wrapT = THREE.ClampToEdgeWrapping
-  texture.generateMipmaps = false
-  texture.needsUpdate = true
-
-  const previousTexture = runtime.attributeColorSharedUniforms.valueMap.value
-  runtime.attributeColorSharedUniforms.valueMap.value = texture
-  runtime.attributeColorSharedUniforms.valueMapSize.value.set(textureSize, textureSize)
-  previousTexture.dispose()
-}
-
-function resolveBatchedObjectColor(
-  runtime: Runtime,
-  record: BatchedObjectRecord,
-) {
-  const attributeColor = runtime.attributeColor
-  if (attributeColor) {
-    if (attributeColor.mode === 'direct') {
-      return attributeColor.directColorsByObjectKey?.[record.key] ?? attributeColor.missingColor
-    }
-
-    return '#ffffff'
-  }
-
-  if (runtime.appearanceMode === 'semantic') {
-    return '#ffffff'
-  }
-
-  return runtime.theme === 'light' ? record.baseColorLight : record.baseColorDark
 }
 
 function collectAffectedBatchRecords(
@@ -4397,202 +2954,6 @@ function buildEdgeSegments(
   }
 }
 
-function triangulatePolygon(rings: Vec3[][]) {
-  if (rings.length === 1 && rings[0].length === 3) {
-    return [[0, 1, 2]]
-  }
-
-  const normal = computeNormal(rings[0])
-  const { origin, axisU, axisV } = makeBasis(rings[0][0], normal)
-
-  const outer = rings[0].map((vertex) => projectToPlane(vertex, origin, axisU, axisV))
-  const holes = rings.slice(1).map((ring) => ring.map((vertex) => projectToPlane(vertex, origin, axisU, axisV)))
-
-  if (holes.length === 0 && outer.length === 4 && isConvexProjectedRing(outer)) {
-    return [[0, 1, 2], [0, 2, 3]]
-  }
-
-  return THREE.ShapeUtils.triangulateShape(outer, holes)
-}
-
-function isConvexProjectedRing(points: THREE.Vector2[]) {
-  let sign = 0
-
-  for (let index = 0; index < points.length; index += 1) {
-    const previous = points[index]
-    const current = points[(index + 1) % points.length]
-    const next = points[(index + 2) % points.length]
-    const cross =
-      (current.x - previous.x) * (next.y - current.y) -
-      (current.y - previous.y) * (next.x - current.x)
-
-    if (Math.abs(cross) <= Number.EPSILON) {
-      continue
-    }
-
-    const currentSign = Math.sign(cross)
-    if (sign !== 0 && currentSign !== sign) {
-      return false
-    }
-    sign = currentSign
-  }
-
-  return sign !== 0
-}
-
-function isConvexIndexedRing(ring: number[], vertices: Vec3[], normal: THREE.Vector3) {
-  const ringVertices = collectRingVertices(ring, vertices)
-  if (ringVertices.length !== 4) {
-    return false
-  }
-
-  const { origin, axisU, axisV } = makeBasis(ringVertices[0], normal)
-  return isConvexProjectedRing(ringVertices.map((vertex) => projectToPlane(vertex, origin, axisU, axisV)))
-}
-
-function isNonPlanarPolygon(rings: Vec3[][], normal: THREE.Vector3) {
-  const origin = rings[0]?.[0]
-  if (!origin) {
-    return false
-  }
-
-  let maxDistanceSquared = 0
-  for (const ring of rings) {
-    for (const vertex of ring) {
-      const dx = vertex[0] - origin[0]
-      const dy = vertex[1] - origin[1]
-      const dz = vertex[2] - origin[2]
-      maxDistanceSquared = Math.max(maxDistanceSquared, dx * dx + dy * dy + dz * dz)
-    }
-  }
-
-  const tolerance = Math.max(
-    PLANARITY_DISTANCE_TOLERANCE,
-    Math.sqrt(maxDistanceSquared) * PLANARITY_RELATIVE_TOLERANCE,
-  )
-
-  for (const ring of rings) {
-    for (const vertex of ring) {
-      const signedDistance =
-        (vertex[0] - origin[0]) * normal.x +
-        (vertex[1] - origin[1]) * normal.y +
-        (vertex[2] - origin[2]) * normal.z
-      if (Math.abs(signedDistance) > tolerance) {
-        return true
-      }
-    }
-  }
-
-  return false
-}
-
-function computeNormal(points: Vec3[]) {
-  let nx = 0
-  let ny = 0
-  let nz = 0
-
-  for (let index = 0; index < points.length; index += 1) {
-    const current = points[index]
-    const next = points[(index + 1) % points.length]
-    nx += (current[1] - next[1]) * (current[2] + next[2])
-    ny += (current[2] - next[2]) * (current[0] + next[0])
-    nz += (current[0] - next[0]) * (current[1] + next[1])
-  }
-
-  const normal = new THREE.Vector3(nx, ny, nz)
-  if (normal.lengthSq() === 0) {
-    return new THREE.Vector3(0, 0, 1)
-  }
-
-  return normal.normalize()
-}
-
-function computeIndexedRingNormal(ring: number[], vertices: Vec3[]) {
-  let nx = 0
-  let ny = 0
-  let nz = 0
-  let first: Vec3 | null = null
-  let previous: Vec3 | null = null
-
-  for (const index of ring) {
-    const current = vertices[index]
-    if (!Array.isArray(current)) {
-      continue
-    }
-
-    if (!first) {
-      first = current
-    }
-    if (previous) {
-      nx += (previous[1] - current[1]) * (previous[2] + current[2])
-      ny += (previous[2] - current[2]) * (previous[0] + current[0])
-      nz += (previous[0] - current[0]) * (previous[1] + current[1])
-    }
-    previous = current
-  }
-
-  if (first && previous) {
-    nx += (previous[1] - first[1]) * (previous[2] + first[2])
-    ny += (previous[2] - first[2]) * (previous[0] + first[0])
-    nz += (previous[0] - first[0]) * (previous[1] + first[1])
-  }
-
-  const normal = new THREE.Vector3(nx, ny, nz)
-  if (normal.lengthSq() === 0) {
-    return new THREE.Vector3(0, 0, 1)
-  }
-
-  return normal.normalize()
-}
-
-function computeTriangleNormal(first: Vec3, second: Vec3, third: Vec3, fallbackNormal: THREE.Vector3) {
-  const ux = second[0] - first[0]
-  const uy = second[1] - first[1]
-  const uz = second[2] - first[2]
-  const vx = third[0] - first[0]
-  const vy = third[1] - first[1]
-  const vz = third[2] - first[2]
-  let nx = uy * vz - uz * vy
-  let ny = uz * vx - ux * vz
-  let nz = ux * vy - uy * vx
-  const length = Math.hypot(nx, ny, nz)
-
-  if (length === 0) {
-    return fallbackNormal
-  }
-
-  nx /= length
-  ny /= length
-  nz /= length
-
-  if (nx * fallbackNormal.x + ny * fallbackNormal.y + nz * fallbackNormal.z < 0) {
-    nx *= -1
-    ny *= -1
-    nz *= -1
-  }
-
-  return new THREE.Vector3(nx, ny, nz)
-}
-
-function makeBasis(originPoint: Vec3, normal: THREE.Vector3) {
-  const origin = new THREE.Vector3(originPoint[0], originPoint[1], originPoint[2])
-  const tangentSeed = Math.abs(normal.z) > 0.8 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 0, 1)
-  const axisU = new THREE.Vector3().crossVectors(normal, tangentSeed).normalize()
-  const axisV = new THREE.Vector3().crossVectors(normal, axisU).normalize()
-
-  return { origin, axisU, axisV }
-}
-
-function projectToPlane(
-  point: Vec3,
-  origin: THREE.Vector3,
-  axisU: THREE.Vector3,
-  axisV: THREE.Vector3,
-) {
-  const vector = new THREE.Vector3(point[0], point[1], point[2]).sub(origin)
-  return new THREE.Vector2(vector.dot(axisU), vector.dot(axisV))
-}
-
 function fitCameraToDataset(runtime: Runtime, data: ViewerDataset) {
   const sizeX = data.extent[3] - data.extent[0]
   const sizeY = data.extent[4] - data.extent[1]
@@ -4757,414 +3118,6 @@ function centerViewOnExtentPreservingOffset(
   setArcballPose(runtime, center, nextPosition)
 }
 
-function createMaterial(objectType: string, theme: Theme, semanticMode = false) {
-  const baseColor = semanticMode ? '#64748b' : baseColorForType(objectType, theme)
-  const material = new THREE.MeshStandardMaterial({
-    color: baseColor,
-    roughness: 0.82,
-    metalness: 0.02,
-    transparent: false,
-    opacity: 1,
-    depthWrite: true,
-    side: THREE.DoubleSide,
-  })
-
-  if (semanticMode) {
-    material.userData.isSemanticBase = true
-    material.userData.semanticColor = baseColor
-  }
-
-  return material
-}
-
-function applyAttributeColorToScene(runtime: Runtime) {
-  for (const mesh of runtime.meshesByRenderKey.values()) {
-    const featureId = mesh.userData.featureId as string | undefined
-    const objectId = mesh.userData.objectId as string | undefined
-    const objectKey = featureId && objectId ? viewerObjectKey(featureId, objectId) : null
-    const value = objectKey ? runtime.attributeColor?.valuesByObjectKey[objectKey] ?? null : null
-    const directColor = objectKey ? runtime.attributeColor?.directColorsByObjectKey?.[objectKey] ?? null : null
-    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
-    for (const material of materials) {
-      if (material instanceof THREE.MeshStandardMaterial) {
-        applyAttributeColorToMaterial(
-          material,
-          runtime.attributeColor,
-          value,
-          directColor,
-          runtime.attributeColorSharedUniforms,
-          runtime.selectionTintUniforms,
-        )
-      }
-    }
-  }
-}
-
-function applyAttributeColorToMaterial(
-  material: THREE.MeshStandardMaterial,
-  attributeColor: ViewerAttributeColorState | null,
-  value: number | null,
-  directColor: string | null,
-  sharedUniforms: AttributeColorSharedUniforms,
-  selectionUniforms: SelectionTintUniforms,
-) {
-  if (material.userData.isError || material.userData.isSemantic || material.userData.isSemanticBase) {
-    return
-  }
-
-  const existingUniforms = material.userData.attributeColorUniforms as AttributeColorUniforms | undefined
-  if (!attributeColor && !existingUniforms) {
-    return
-  }
-
-  const uniforms = existingUniforms ?? ensureAttributeColorUniforms(material, sharedUniforms, selectionUniforms)
-  uniforms.value.value = value ?? 0
-  uniforms.hasValue.value = value == null ? 0 : 1
-  uniforms.directColor.value.set(directColor ?? attributeColor?.missingColor ?? '#94a3b8')
-}
-
-function applySelectionTintToMaterial(
-  material: THREE.MeshStandardMaterial,
-  uniforms: SelectionTintUniforms,
-  semantic = false,
-) {
-  if (material.userData.isError || material.userData.hasSelectionTintShader) {
-    return
-  }
-
-  material.userData.hasSelectionTintShader = true
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.uSelectionTintObjectId = uniforms.selectedObjectId
-    shader.uniforms.uSelectionTintFaceIndex = uniforms.selectedFaceIndex
-    shader.uniforms.uSelectionTintColor = uniforms.color
-    shader.uniforms.uSelectionTintStrength = semantic ? uniforms.semanticStrength : uniforms.strength
-    shader.vertexShader = `
-      attribute float shaderObjectId;
-      attribute float selectionFaceIndex;
-      varying float vSelectionShaderObjectId;
-      varying float vSelectionFaceIndex;
-    ${shader.vertexShader}`.replace(
-      '#include <color_vertex>',
-      `
-      #include <color_vertex>
-      vSelectionShaderObjectId = shaderObjectId;
-      vSelectionFaceIndex = selectionFaceIndex;
-      `,
-    )
-    shader.fragmentShader = `
-      uniform float uSelectionTintObjectId;
-      uniform float uSelectionTintFaceIndex;
-      uniform vec3 uSelectionTintColor;
-      uniform float uSelectionTintStrength;
-      varying float vSelectionShaderObjectId;
-      varying float vSelectionFaceIndex;
-    ${shader.fragmentShader}`.replace(
-      '#include <color_fragment>',
-      `
-      #include <color_fragment>
-      if (
-        uSelectionTintFaceIndex >= 0.0 &&
-        abs(floor(vSelectionShaderObjectId + 0.5) - uSelectionTintObjectId) < 0.5 &&
-        abs(floor(vSelectionFaceIndex + 0.5) - uSelectionTintFaceIndex) < 0.5
-      ) {
-        diffuseColor.rgb = mix(diffuseColor.rgb, uSelectionTintColor, uSelectionTintStrength);
-      }
-      `,
-    )
-  }
-  material.customProgramCacheKey = () => `selection-face-tint-${semantic ? 'semantic' : 'base'}-v1`
-  material.needsUpdate = true
-}
-
-function applyBatchedSemanticColoringToMaterial(
-  material: THREE.MeshStandardMaterial,
-  semanticUniforms: SemanticSurfaceSharedUniforms,
-  selectionUniforms: SelectionTintUniforms,
-) {
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.uSemanticSurfaceEnabled = semanticUniforms.enabled
-    shader.uniforms.uSemanticSurfaceColors = semanticUniforms.colors
-    shader.uniforms.uSelectionTintObjectId = selectionUniforms.selectedObjectId
-    shader.uniforms.uSelectionTintFaceIndex = selectionUniforms.selectedFaceIndex
-    shader.uniforms.uSelectionTintColor = selectionUniforms.color
-    shader.uniforms.uSelectionTintStrength = selectionUniforms.semanticStrength
-    shader.vertexShader = `
-      attribute float shaderObjectId;
-      attribute float selectionFaceIndex;
-      attribute float semanticSurfaceTypeId;
-      varying float vSelectionShaderObjectId;
-      varying float vSelectionFaceIndex;
-      varying float vSemanticSurfaceTypeId;
-    ${shader.vertexShader}`.replace(
-      '#include <color_vertex>',
-      `
-      #include <color_vertex>
-      vSelectionShaderObjectId = shaderObjectId;
-      vSelectionFaceIndex = selectionFaceIndex;
-      vSemanticSurfaceTypeId = semanticSurfaceTypeId;
-      `,
-    )
-    shader.fragmentShader = `
-      uniform float uSemanticSurfaceEnabled;
-      uniform vec3 uSemanticSurfaceColors[${SEMANTIC_SURFACE_COLOR_SLOT_COUNT}];
-      uniform float uSelectionTintObjectId;
-      uniform float uSelectionTintFaceIndex;
-      uniform vec3 uSelectionTintColor;
-      uniform float uSelectionTintStrength;
-      varying float vSelectionShaderObjectId;
-      varying float vSelectionFaceIndex;
-      varying float vSemanticSurfaceTypeId;
-    ${shader.fragmentShader}`.replace(
-      '#include <color_fragment>',
-      `
-      #include <color_fragment>
-      if (uSemanticSurfaceEnabled > 0.5) {
-        vec3 semanticInstanceTint = diffuseColor.rgb;
-        float semanticSelectionTint = distance(semanticInstanceTint, vec3(1.0));
-        int semanticSurfaceTypeIndex = int(clamp(
-          floor(vSemanticSurfaceTypeId + 0.5),
-          0.0,
-          float(${SEMANTIC_SURFACE_COLOR_SLOT_COUNT - 1})
-        ));
-        diffuseColor.rgb = uSemanticSurfaceColors[semanticSurfaceTypeIndex];
-        if (semanticSelectionTint > 0.001) {
-          diffuseColor.rgb = mix(diffuseColor.rgb, semanticInstanceTint, ${SEMANTIC_SELECTION_TINT_STRENGTH.toFixed(2)});
-        }
-      }
-      if (
-        uSelectionTintFaceIndex >= 0.0 &&
-        abs(floor(vSelectionShaderObjectId + 0.5) - uSelectionTintObjectId) < 0.5 &&
-        abs(floor(vSelectionFaceIndex + 0.5) - uSelectionTintFaceIndex) < 0.5
-      ) {
-        diffuseColor.rgb = mix(diffuseColor.rgb, uSelectionTintColor, uSelectionTintStrength);
-      }
-      `,
-    )
-  }
-  material.customProgramCacheKey = () => 'batched-semantic-color-selection-tint-v3'
-  material.needsUpdate = true
-}
-
-function applyBatchedContinuousAttributeColorToMaterial(
-  material: THREE.MeshStandardMaterial,
-  sharedUniforms: AttributeColorSharedUniforms,
-  selectionUniforms: SelectionTintUniforms,
-) {
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.uAttributeColorEnabled = sharedUniforms.enabled
-    shader.uniforms.uAttributeColorMin = sharedUniforms.min
-    shader.uniforms.uAttributeColorMax = sharedUniforms.max
-    shader.uniforms.uAttributeColorStops = sharedUniforms.colors
-    shader.uniforms.uAttributeColorMissing = sharedUniforms.missingColor
-    shader.uniforms.uAttributeColorValueMap = sharedUniforms.valueMap
-    shader.uniforms.uAttributeColorValueMapSize = sharedUniforms.valueMapSize
-    shader.uniforms.uSelectionTintObjectId = selectionUniforms.selectedObjectId
-    shader.uniforms.uSelectionTintFaceIndex = selectionUniforms.selectedFaceIndex
-    shader.uniforms.uSelectionTintColor = selectionUniforms.color
-    shader.uniforms.uSelectionTintStrength = selectionUniforms.strength
-    shader.vertexShader = `
-      attribute float shaderObjectId;
-      attribute float selectionFaceIndex;
-      varying float vShaderObjectId;
-      varying float vSelectionFaceIndex;
-    ${shader.vertexShader}`.replace(
-      '#include <color_vertex>',
-      `
-      #include <color_vertex>
-      vShaderObjectId = shaderObjectId;
-      vSelectionFaceIndex = selectionFaceIndex;
-      `,
-    )
-    shader.fragmentShader = `
-      uniform float uAttributeColorEnabled;
-      uniform float uAttributeColorMin;
-      uniform float uAttributeColorMax;
-      uniform vec3 uAttributeColorStops[${ATTRIBUTE_COLOR_STOP_COUNT}];
-      uniform vec3 uAttributeColorMissing;
-      uniform sampler2D uAttributeColorValueMap;
-      uniform vec2 uAttributeColorValueMapSize;
-      uniform float uSelectionTintObjectId;
-      uniform float uSelectionTintFaceIndex;
-      uniform vec3 uSelectionTintColor;
-      uniform float uSelectionTintStrength;
-      varying float vShaderObjectId;
-      varying float vSelectionFaceIndex;
-    ${shader.fragmentShader}`.replace(
-      '#include <color_fragment>',
-      `
-      #include <color_fragment>
-      vec3 attributeInstanceTint = diffuseColor.rgb;
-      if (uAttributeColorEnabled > 0.5) {
-        float attributeObjectId = floor(vShaderObjectId + 0.5);
-        vec2 attributeMapUv = (
-          vec2(
-            mod(attributeObjectId, uAttributeColorValueMapSize.x),
-            floor(attributeObjectId / uAttributeColorValueMapSize.x)
-          ) + 0.5
-        ) / uAttributeColorValueMapSize;
-        vec4 attributeValueSample = texture2D(uAttributeColorValueMap, attributeMapUv);
-        if (attributeValueSample.g < 0.5) {
-          diffuseColor.rgb = uAttributeColorMissing;
-        } else {
-          float attributeValue = attributeValueSample.r;
-          float attributeRange = max(uAttributeColorMax - uAttributeColorMin, 0.000001);
-          float attributeT = clamp((attributeValue - uAttributeColorMin) / attributeRange, 0.0, 1.0);
-          float attributeMapPosition = attributeT * float(${ATTRIBUTE_COLOR_STOP_COUNT - 1});
-          float attributeStopFloor = min(floor(attributeMapPosition), float(${ATTRIBUTE_COLOR_STOP_COUNT - 2}));
-          int attributeStopIndex = int(attributeStopFloor);
-          float attributeMix = attributeMapPosition - attributeStopFloor;
-          diffuseColor.rgb = mix(
-            uAttributeColorStops[attributeStopIndex],
-            uAttributeColorStops[attributeStopIndex + 1],
-            attributeMix
-          );
-        }
-        if (distance(attributeInstanceTint, vec3(1.0)) > 0.001) {
-          diffuseColor.rgb = mix(diffuseColor.rgb, attributeInstanceTint, 0.42);
-        }
-      }
-      if (
-        uSelectionTintFaceIndex >= 0.0 &&
-        abs(floor(vShaderObjectId + 0.5) - uSelectionTintObjectId) < 0.5 &&
-        abs(floor(vSelectionFaceIndex + 0.5) - uSelectionTintFaceIndex) < 0.5
-      ) {
-        diffuseColor.rgb = mix(diffuseColor.rgb, uSelectionTintColor, uSelectionTintStrength);
-      }
-      `,
-    )
-  }
-  material.customProgramCacheKey = () => 'batched-continuous-attribute-texture-selection-v2'
-  material.needsUpdate = true
-}
-
-function applyBatchedSelectionTintToMaterial(
-  material: THREE.MeshStandardMaterial,
-  selectionUniforms: SelectionTintUniforms,
-) {
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.uSelectionTintObjectId = selectionUniforms.selectedObjectId
-    shader.uniforms.uSelectionTintFaceIndex = selectionUniforms.selectedFaceIndex
-    shader.uniforms.uSelectionTintColor = selectionUniforms.color
-    shader.uniforms.uSelectionTintStrength = selectionUniforms.strength
-    shader.vertexShader = `
-      attribute float shaderObjectId;
-      attribute float selectionFaceIndex;
-      varying float vSelectionShaderObjectId;
-      varying float vSelectionFaceIndex;
-    ${shader.vertexShader}`.replace(
-      '#include <color_vertex>',
-      `
-      #include <color_vertex>
-      vSelectionShaderObjectId = shaderObjectId;
-      vSelectionFaceIndex = selectionFaceIndex;
-      `,
-    )
-    shader.fragmentShader = `
-      uniform float uSelectionTintObjectId;
-      uniform float uSelectionTintFaceIndex;
-      uniform vec3 uSelectionTintColor;
-      uniform float uSelectionTintStrength;
-      varying float vSelectionShaderObjectId;
-      varying float vSelectionFaceIndex;
-    ${shader.fragmentShader}`.replace(
-      '#include <color_fragment>',
-      `
-      #include <color_fragment>
-      if (
-        uSelectionTintFaceIndex >= 0.0 &&
-        abs(floor(vSelectionShaderObjectId + 0.5) - uSelectionTintObjectId) < 0.5 &&
-        abs(floor(vSelectionFaceIndex + 0.5) - uSelectionTintFaceIndex) < 0.5
-      ) {
-        diffuseColor.rgb = mix(diffuseColor.rgb, uSelectionTintColor, uSelectionTintStrength);
-      }
-      `,
-    )
-  }
-  material.customProgramCacheKey = () => 'batched-selection-face-tint-v1'
-  material.needsUpdate = true
-}
-
-function createAttributeColorSharedUniforms(): AttributeColorSharedUniforms {
-  const valueMap = new THREE.DataTexture(new Float32Array(4), 1, 1, THREE.RGBAFormat, THREE.FloatType)
-  valueMap.magFilter = THREE.NearestFilter
-  valueMap.minFilter = THREE.NearestFilter
-  valueMap.wrapS = THREE.ClampToEdgeWrapping
-  valueMap.wrapT = THREE.ClampToEdgeWrapping
-  valueMap.generateMipmaps = false
-  valueMap.needsUpdate = true
-
-  return {
-    enabled: { value: 0 },
-    direct: { value: 0 },
-    min: { value: 0 },
-    max: { value: 1 },
-    colors: {
-      value: Array.from({ length: ATTRIBUTE_COLOR_STOP_COUNT }, () => new THREE.Color('#440154')),
-    },
-    missingColor: { value: new THREE.Color('#94a3b8') },
-    valueMap: { value: valueMap },
-    valueMapSize: { value: new THREE.Vector2(1, 1) },
-  }
-}
-
-function createSelectionTintUniforms(): SelectionTintUniforms {
-  return {
-    selectedObjectId: { value: -1 },
-    selectedFaceIndex: { value: -1 },
-    color: { value: new THREE.Color(SELECTION_TINT_COLOR) },
-    strength: { value: SELECTION_TINT_STRENGTH },
-    semanticStrength: { value: SEMANTIC_SELECTION_TINT_STRENGTH },
-  }
-}
-
-function createNormalColorUniforms(appearanceMode: ViewerAppearanceMode): NormalColorUniforms {
-  return {
-    enabled: { value: appearanceMode === 'normal' ? 1 : 0 },
-  }
-}
-
-function applyNormalColorToMaterial(
-  material: THREE.MeshStandardMaterial,
-  uniforms: NormalColorUniforms,
-) {
-  const previousOnBeforeCompile = material.onBeforeCompile
-  const previousProgramCacheKey = material.customProgramCacheKey()
-
-  material.onBeforeCompile = (shader, renderer) => {
-    previousOnBeforeCompile.call(material, shader, renderer)
-    shader.uniforms.uNormalColorEnabled = uniforms.enabled
-    shader.vertexShader = `
-      varying vec3 vWorldNormalColor;
-    ${shader.vertexShader}`.replace(
-      '#include <normal_vertex>',
-      `
-      #include <normal_vertex>
-      vWorldNormalColor = normalize(transpose(mat3(viewMatrix)) * transformedNormal);
-      `,
-    )
-    shader.fragmentShader = `
-      uniform float uNormalColorEnabled;
-      varying vec3 vWorldNormalColor;
-    ${shader.fragmentShader}`.replace(
-      '#include <tonemapping_fragment>',
-      `
-      #include <tonemapping_fragment>
-      vec3 normalColorDirection = normalize(vWorldNormalColor);
-      #ifdef DOUBLE_SIDED
-        normalColorDirection *= gl_FrontFacing ? 1.0 : -1.0;
-      #endif
-      gl_FragColor.rgb = mix(
-        gl_FragColor.rgb,
-        normalColorDirection * 0.5 + 0.5,
-        uNormalColorEnabled
-      );
-      `,
-    )
-  }
-  material.customProgramCacheKey = () => `${previousProgramCacheKey}-normal-color-v1`
-  material.needsUpdate = true
-}
-
 function syncSelectionTintUniforms(runtime: Runtime, selection: ViewSelection) {
   const objectKey =
     selection.selectedFeatureId && selection.activeObjectId
@@ -5178,239 +3131,6 @@ function syncSelectionTintUniforms(runtime: Runtime, selection: ViewSelection) {
   runtime.selectionTintUniforms.color.value.set(SELECTION_TINT_COLOR)
   runtime.selectionTintUniforms.strength.value = SELECTION_TINT_STRENGTH
   runtime.selectionTintUniforms.semanticStrength.value = SEMANTIC_SELECTION_TINT_STRENGTH
-}
-
-function createSemanticSurfaceSharedUniforms(): SemanticSurfaceSharedUniforms {
-  const colors = Array.from(
-    { length: SEMANTIC_SURFACE_COLOR_SLOT_COUNT },
-    () => new THREE.Color('#64748b'),
-  )
-  return {
-    enabled: { value: 0 },
-    colors: { value: colors },
-  }
-}
-
-function syncSemanticSurfaceSharedUniforms(runtime: Runtime, data: ViewerDataset) {
-  runtime.semanticSurfaceSharedUniforms.enabled.value = runtime.appearanceMode === 'semantic' ? 1 : 0
-  runtime.semanticSurfaceTypeIds.clear()
-
-  const colors = runtime.semanticSurfaceSharedUniforms.colors.value
-  for (const color of colors) {
-    color.set('#64748b')
-  }
-
-  let nextTypeId = 1
-  for (const feature of data.features) {
-    for (const object of feature.objects) {
-      for (const geometry of object.geometries) {
-        for (const surface of geometry.semanticSurfaces) {
-          if (!surface || nextTypeId >= SEMANTIC_SURFACE_COLOR_SLOT_COUNT) {
-            continue
-          }
-
-          const key = semanticSurfaceTypeKey(surface.type)
-          if (runtime.semanticSurfaceTypeIds.has(key)) {
-            continue
-          }
-
-          runtime.semanticSurfaceTypeIds.set(key, nextTypeId)
-          colors[nextTypeId]?.set(semanticSurfaceColor(surface.type))
-          nextTypeId += 1
-        }
-      }
-    }
-  }
-}
-
-function getShaderObjectId(runtime: Runtime, objectKey: string) {
-  const existing = runtime.shaderObjectIdsByObjectKey.get(objectKey)
-  if (existing != null) {
-    return existing
-  }
-
-  const nextId = runtime.nextShaderObjectId++
-  runtime.shaderObjectIdsByObjectKey.set(objectKey, nextId)
-  return nextId
-}
-
-function semanticSurfaceTypeKey(surfaceType: string) {
-  return surfaceType.trim().toLowerCase()
-}
-
-function syncAttributeColorSharedUniforms(
-  uniforms: AttributeColorSharedUniforms,
-  attributeColor: ViewerAttributeColorState | null,
-) {
-  uniforms.enabled.value = attributeColor ? 1 : 0
-  if (!attributeColor) {
-    return
-  }
-
-  uniforms.min.value = attributeColor.domainMin
-  uniforms.max.value = attributeColor.domainMax
-  uniforms.direct.value = attributeColor.mode === 'direct' ? 1 : 0
-  syncAttributeColorStops(uniforms.colors.value, attributeColor.colors)
-  uniforms.missingColor.value.set(attributeColor.missingColor)
-}
-
-function ensureAttributeColorUniforms(
-  material: THREE.MeshStandardMaterial,
-  sharedUniforms: AttributeColorSharedUniforms,
-  selectionUniforms: SelectionTintUniforms,
-): AttributeColorUniforms {
-  const existing = material.userData.attributeColorUniforms as AttributeColorUniforms | undefined
-  if (existing) {
-    return existing
-  }
-
-  const uniforms: AttributeColorUniforms = {
-    value: { value: 0 },
-    hasValue: { value: 0 },
-    directColor: { value: new THREE.Color('#94a3b8') },
-    selectionTint: { value: new THREE.Color(SELECTION_TINT_COLOR) },
-    selectionTintStrength: { value: 0 },
-  }
-
-  material.userData.attributeColorUniforms = uniforms
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.uAttributeColorEnabled = sharedUniforms.enabled
-    shader.uniforms.uAttributeColorValue = uniforms.value
-    shader.uniforms.uAttributeColorHasValue = uniforms.hasValue
-    shader.uniforms.uAttributeColorDirect = sharedUniforms.direct
-    shader.uniforms.uAttributeColorDirectColor = uniforms.directColor
-    shader.uniforms.uAttributeColorMin = sharedUniforms.min
-    shader.uniforms.uAttributeColorMax = sharedUniforms.max
-    shader.uniforms.uAttributeColorStops = sharedUniforms.colors
-    shader.uniforms.uAttributeColorMissing = sharedUniforms.missingColor
-    shader.uniforms.uSelectionTint = uniforms.selectionTint
-    shader.uniforms.uSelectionTintStrength = uniforms.selectionTintStrength
-    shader.uniforms.uSelectionTintObjectId = selectionUniforms.selectedObjectId
-    shader.uniforms.uSelectionTintFaceIndex = selectionUniforms.selectedFaceIndex
-    shader.uniforms.uSelectionFaceTintStrength = selectionUniforms.strength
-    shader.fragmentShader = `
-      uniform float uAttributeColorEnabled;
-      uniform float uAttributeColorValue;
-      uniform float uAttributeColorHasValue;
-      uniform float uAttributeColorDirect;
-      uniform vec3 uAttributeColorDirectColor;
-      uniform float uAttributeColorMin;
-      uniform float uAttributeColorMax;
-      uniform vec3 uAttributeColorStops[${ATTRIBUTE_COLOR_STOP_COUNT}];
-      uniform vec3 uAttributeColorMissing;
-      uniform vec3 uSelectionTint;
-      uniform float uSelectionTintStrength;
-      uniform float uSelectionTintObjectId;
-      uniform float uSelectionTintFaceIndex;
-      uniform float uSelectionFaceTintStrength;
-      varying float vSelectionShaderObjectId;
-      varying float vSelectionFaceIndex;
-    ${shader.fragmentShader}`.replace(
-      '#include <color_fragment>',
-      `
-      #include <color_fragment>
-      if (uAttributeColorEnabled > 0.5) {
-        if (uAttributeColorHasValue < 0.5) {
-          diffuseColor.rgb = uAttributeColorMissing;
-        } else if (uAttributeColorDirect > 0.5) {
-          diffuseColor.rgb = uAttributeColorDirectColor;
-        } else {
-          float attributeRange = max(uAttributeColorMax - uAttributeColorMin, 0.000001);
-          float attributeT = clamp((uAttributeColorValue - uAttributeColorMin) / attributeRange, 0.0, 1.0);
-          float attributeMapPosition = attributeT * float(${ATTRIBUTE_COLOR_STOP_COUNT - 1});
-          float attributeStopFloor = min(floor(attributeMapPosition), float(${ATTRIBUTE_COLOR_STOP_COUNT - 2}));
-          int attributeStopIndex = int(attributeStopFloor);
-          float attributeMix = attributeMapPosition - attributeStopFloor;
-          diffuseColor.rgb = mix(
-            uAttributeColorStops[attributeStopIndex],
-            uAttributeColorStops[attributeStopIndex + 1],
-            attributeMix
-          );
-        }
-      }
-      if (uSelectionTintStrength > 0.0) {
-        diffuseColor.rgb = mix(diffuseColor.rgb, uSelectionTint, uSelectionTintStrength);
-      }
-      if (
-        uSelectionTintFaceIndex >= 0.0 &&
-        abs(floor(vSelectionShaderObjectId + 0.5) - uSelectionTintObjectId) < 0.5 &&
-        abs(floor(vSelectionFaceIndex + 0.5) - uSelectionTintFaceIndex) < 0.5
-      ) {
-        diffuseColor.rgb = mix(diffuseColor.rgb, uSelectionTint, uSelectionFaceTintStrength);
-      }
-      `,
-    )
-    shader.vertexShader = `
-      attribute float shaderObjectId;
-      attribute float selectionFaceIndex;
-      varying float vSelectionShaderObjectId;
-      varying float vSelectionFaceIndex;
-    ${shader.vertexShader}`.replace(
-      '#include <color_vertex>',
-      `
-      #include <color_vertex>
-      vSelectionShaderObjectId = shaderObjectId;
-      vSelectionFaceIndex = selectionFaceIndex;
-      `,
-    )
-  }
-  material.customProgramCacheKey = () => 'attribute-color-v6-selection-face-tint'
-  material.needsUpdate = true
-  return uniforms
-}
-
-function syncAttributeColorStops(target: THREE.Color[], colors: readonly string[]) {
-  const fallback = colors[0] ?? '#440154'
-  for (let index = 0; index < ATTRIBUTE_COLOR_STOP_COUNT; index += 1) {
-    target[index]?.set(colors[index] ?? fallback)
-  }
-}
-
-function baseColorForType(objectType: string, theme: Theme) {
-  const key = objectType.trim().toLowerCase()
-  const matchedColor = OBJECT_TYPE_COLORS[theme][key]
-  if (matchedColor) {
-    return matchedColor
-  }
-
-  const fallbackPalette = FALLBACK_OBJECT_TYPE_COLORS[theme]
-  let hash = 0
-  for (let index = 0; index < key.length; index += 1) {
-    hash += key.charCodeAt(index)
-  }
-  return fallbackPalette[hash % fallbackPalette.length]
-}
-
-function createErrorMaterial(color: string) {
-  const mat = new THREE.MeshStandardMaterial({
-    color,
-    emissive: color,
-    emissiveIntensity: 0.08,
-    roughness: 0.64,
-    metalness: 0.02,
-    transparent: false,
-    opacity: 1,
-    depthWrite: true,
-    side: THREE.DoubleSide,
-  })
-  mat.userData.isError = true
-  mat.userData.errorColor = color
-  return mat
-}
-
-function createSemanticMaterial(color: string) {
-  const mat = new THREE.MeshStandardMaterial({
-    color,
-    roughness: 0.8,
-    metalness: 0.02,
-    transparent: false,
-    opacity: 1,
-    depthWrite: true,
-    side: THREE.DoubleSide,
-  })
-  mat.userData.isSemantic = true
-  mat.userData.semanticColor = color
-  return mat
 }
 
 function applyViewportTheme(runtime: Runtime, theme: Theme) {
@@ -5540,91 +3260,6 @@ function getViewportPalette(theme: Theme) {
   }
 }
 
-function computeFaceErrorGroups(
-  errors: ViewerValidationError[],
-  objectId: string,
-  geometryIndex: number,
-  sourceFaceIndices: number[],
-): { faceGroups: Map<number, number>; groupColors: Map<number, string> } {
-  const codeToGroup = new Map<number, number>()
-  let nextGroup = 1
-  const faceGroups = new Map<number, number>()
-  const groupColors = new Map<number, string>()
-
-  for (const error of errors) {
-    if (
-      error.cityObjectId !== objectId ||
-      error.faceIndex == null ||
-      (error.geometryIndex != null && error.geometryIndex !== geometryIndex)
-    ) {
-      continue
-    }
-
-    const currentFaceIndex = getCurrentFaceIndexForSourceFace(sourceFaceIndices, error.faceIndex)
-    if (currentFaceIndex == null || faceGroups.has(currentFaceIndex)) {
-      continue
-    }
-
-    let group = codeToGroup.get(error.code)
-    if (group == null) {
-      group = nextGroup++
-      codeToGroup.set(error.code, group)
-      groupColors.set(group, errorColor(error.code))
-    }
-    faceGroups.set(currentFaceIndex, group)
-  }
-
-  return { faceGroups, groupColors }
-}
-
-function getCurrentFaceIndexForSourceFace(sourceFaceIndices: number[], sourceFaceIndex: number) {
-  const currentFaceIndex = sourceFaceIndices.indexOf(sourceFaceIndex)
-  return currentFaceIndex >= 0 ? currentFaceIndex : null
-}
-
-function computeFaceSemanticGroups(
-  semanticSurfaces: Array<ViewerSemanticSurface | null>,
-): { faceGroups: Map<number, number>; groupColors: Map<number, string> } {
-  const typeToGroup = new Map<string, number>()
-  const faceGroups = new Map<number, number>()
-  const groupColors = new Map<number, string>()
-  let nextGroup = 1
-
-  semanticSurfaces.forEach((surface, faceIndex) => {
-    if (!surface) {
-      return
-    }
-
-    let group = typeToGroup.get(surface.type)
-    if (group == null) {
-      group = nextGroup++
-      typeToGroup.set(surface.type, group)
-      groupColors.set(group, semanticSurfaceColor(surface.type))
-    }
-
-    faceGroups.set(faceIndex, group)
-  })
-
-  return { faceGroups, groupColors }
-}
-
-function buildMaterialArray(
-  baseMaterial: THREE.MeshStandardMaterial,
-  groupColors: Map<number, string>,
-  createGroupMaterial: (color: string) => THREE.MeshStandardMaterial,
-): THREE.MeshStandardMaterial[] {
-  if (groupColors.size === 0) {
-    return [baseMaterial]
-  }
-  const maxGroup = Math.max(...groupColors.keys())
-  const materials: THREE.MeshStandardMaterial[] = [baseMaterial]
-  for (let i = 1; i <= maxGroup; i++) {
-    const color = groupColors.get(i)
-    materials.push(color ? createGroupMaterial(color) : baseMaterial)
-  }
-  return materials
-}
-
 function updateRaycastPointer(runtime: Runtime, event: MouseEvent) {
   const rect = runtime.renderer.domElement.getBoundingClientRect()
   runtime.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
@@ -5637,58 +3272,6 @@ function getPickableObjects(runtime: Runtime) {
     ...[...runtime.meshesByRenderKey.values()].filter((mesh) => mesh.visible),
     ...runtime.batchedMeshes.filter((batch) => batch.visible),
   ]
-}
-
-function resolveObjectHit(hit: THREE.Intersection) {
-  const batchId = (hit as THREE.Intersection & { batchId?: number }).batchId
-  if (typeof batchId === 'number' && hit.object instanceof THREE.BatchedMesh) {
-    const recordsByInstanceId = hit.object.userData.recordsByInstanceId as Map<number, BatchedObjectRecord> | undefined
-    const record = recordsByInstanceId?.get(batchId) ?? null
-    if (!record) {
-      return null
-    }
-
-    const geometryRange = hit.object.getGeometryRangeAt(record.geometryId)
-    if (!geometryRange) {
-      return null
-    }
-    const localFaceIndex = typeof hit.faceIndex === 'number'
-      ? hit.faceIndex - Math.floor((geometryRange.start ?? 0) / 3)
-      : null
-    const faceIndex =
-      localFaceIndex != null && localFaceIndex >= 0
-        ? record.triangleFaceIndices[localFaceIndex] ?? null
-        : null
-    return {
-      key: record.key,
-      featureId: record.featureId,
-      objectId: record.objectId,
-      geometryIndex: record.geometryIndex,
-      faceIndex,
-    }
-  }
-
-  if (hit.object instanceof THREE.Mesh) {
-    const triangleFaceIndices = (hit.object.userData.triangleFaceIndices as TriangleFaceIndices | undefined) ?? []
-    const featureId = hit.object.userData.featureId as string | undefined
-    const objectId = hit.object.userData.objectId as string | undefined
-    if (!featureId || !objectId) {
-      return null
-    }
-
-    return {
-      key: viewerObjectKey(featureId, objectId),
-      featureId,
-      objectId,
-      geometryIndex: hit.object.userData.geometryIndex as number | null | undefined,
-      faceIndex:
-        typeof hit.faceIndex === 'number'
-          ? triangleFaceIndices[hit.faceIndex] ?? null
-          : null,
-    }
-  }
-
-  return null
 }
 
 function createCameraSyncClientId() {
@@ -6399,25 +3982,8 @@ function rebuildObjectExtents(runtime: Runtime, data: ViewerDataset | null, them
 }
 
 function disposeSceneContents(runtime: Runtime) {
-  for (const mesh of runtime.meshesByRenderKey.values()) {
-    mesh.geometry.dispose()
-    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
-    for (const mat of materials) mat.dispose()
-    runtime.rootGroup.remove(mesh)
-  }
-  runtime.meshesByRenderKey.clear()
-  runtime.meshesByFeatureId.clear()
   clearSelectionOutlineProxy(runtime)
-
-  for (const batch of runtime.batchedMeshes) {
-    const materials = Array.isArray(batch.material) ? batch.material : [batch.material]
-    for (const mat of materials) mat.dispose()
-    batch.dispose()
-    runtime.rootGroup.remove(batch)
-  }
-  runtime.batchedMeshes = []
-  runtime.batchedObjectsByRenderKey.clear()
-  runtime.batchedObjectsByFeatureId.clear()
+  clearLayerGeometry(runtime)
 
   clearEditPointOverlays(runtime)
   clearTransientGroup(runtime.annotationGroup)
@@ -6430,6 +3996,23 @@ function disposeSceneContents(runtime: Runtime) {
   runtime.editVertexEdges = null
   runtime.editHighlightVertexEdges = null
   runtime.editActiveRingVertexEdges = null
+}
+
+
+function sceneBuildOptions(runtime: Runtime, selection: ViewSelection): SceneBuildOptions {
+  return {
+    geometryDisplayMode: selection.geometryDisplayMode,
+    geometriesForObject: (feature, object) => resolveDisplayedObjectGeometries(feature, object, selection),
+    verticesForFeature: feature => getRenderableFeatureVertices(runtime, feature),
+  }
+}
+function rebuildScene(runtime: Runtime, data: ViewerDataset, selection: ViewSelection) {
+  disposeSceneContents(runtime)
+  runtime.featureDrafts.clear()
+  rebuildLayerScene(runtime, data, sceneBuildOptions(runtime, selection))
+}
+function rebuildFeatureGeometry(runtime: Runtime, data: ViewerDataset, featureId: string, selection: ViewSelection, changedVertexIndex?: number) {
+  rebuildLayerFeature(runtime, data, featureId, sceneBuildOptions(runtime, selection), changedVertexIndex)
 }
 
 export { CityViewport }

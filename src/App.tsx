@@ -1,54 +1,48 @@
+import type { CityViewportHandle } from '@/components/viewer/viewport-handle'
+import { useAttributeColors } from '@/features/colors/use-attribute-colors'
+import type { FeatureGeometryChange } from '@/features/editing/geometry-editor'
+import { createGeometryEditor } from '@/features/editing/geometry-editor'
+import type { DatasetInput, SceneLoadRequest } from '@/features/loading/load-scene'
+import { assembleScene, loadReport, loadSceneSources } from '@/features/loading/load-scene'
+import { useDatasetLoading } from '@/features/loading/use-dataset-loading'
+import { useViewerSelection } from '@/features/selection/use-viewer-selection'
+import { useViewerSharing } from '@/features/sharing/use-viewer-sharing'
+import { DetailAttributePanel, DetailGeometryPanel, InfoPanel, SemanticSurfacePanel } from '@/features/viewer/components/detail-panels'
+import { ChangelogDialogContent, InfoDialogContent, Val3dityParametersDialog } from '@/features/viewer/components/dialogs'
+import { CopyIdButton, FeatureListPanel } from '@/features/viewer/components/feature-list'
+import { DesktopViewportStatusBar, DesktopViewportToolbar, EditSelectionOverlay, MobileViewportToolbar, VersionButton, ViewportGeometryModeBar, ViewportHelpPanel } from '@/features/viewer/components/toolbar'
+import type { DetailPaneMode, ErrorCodeFilterOption, FeatureListItem, HelpItem, InfoPanelSection, MobileInspectMode, MobilePanelView, Val3dityParameterForm } from '@/features/viewer/presentation'
+import { CAMERA_FOLLOW_QUERY_PARAM, DEFAULT_CAMERA_FOCAL_LENGTH, DEFAULT_VAL3DITY_PARAMETERS, EMPTY_ATTRIBUTES, EMPTY_CITY_OBJECTS, GITHUB_REPO_URL, VIEWER_APPEARANCE_MODES, buildCameraFollowerUrl, buildVal3dityValidationOptions, collectObjectAncestors, countDatasetObjects, countErrorsByObjectId, createCameraSyncChannelId, distanceBetweenPoints, formatObjectDisplayId, getAvailablePickingModes, getCameraFollowChannelFromUrl, getCurrentFaceIndexForSourceFace, getFaceVertexCycle, getPickingModeDescription, getThemeModeLabel, isCityJsonFileName, isEditableTarget, isValidVal3dityParameters, nextPickingMode, tryParseHttpUrl, waitForNextPaint } from '@/features/viewer/presentation'
+import { buildAttributeColorModel } from '@/lib/attribute-colors'
+import type { AttributeColorDomain, AttributeColorMapId } from '@/modules/colors/palettes'
+import { DEFAULT_ATTRIBUTE_COLOR_MAP_ID, DEFAULT_CATEGORICAL_COLOR_MAP_ID, getContinuousAttributeColorMapColors, getDefaultAttributeColorDomain, isAttributeColorMapId } from '@/modules/colors/palettes'
 import {
-  ArrowDown,
   Box,
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronUp,
-  Camera,
-  Check,
-  CircleHelp,
-  Copy,
-  Crosshair,
-  ExternalLink,
-  Filter,
-  FolderOpen,
   FileText,
-  Layers,
-  Link2,
-  Link2Off,
+  FolderOpen,
   Maximize2,
   Minimize2,
   Moon,
-  ListTree,
-  Palette,
-  Pin,
-  PinOff,
-  Pyramid,
-  Ruler,
-  ArrowLeftRight,
-  RotateCcw,
-  RotateCw,
-  Search,
   Share2,
-  Columns3Cog,
-  Shuffle,
-  SquareMousePointer,
-  CircleX,
   Sun,
   SunMoon,
-  TableProperties,
-  Upload,
-  X,
   TriangleAlert,
+  Upload,
+  X
 } from 'lucide-react'
-import { Suspense, lazy, memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent, ReactElement, ReactNode } from 'react'
+import type { ChangeEvent } from 'react'
+import { Suspense, lazy, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import gitIconBlackUrl from '@/assets/git-icon-black.svg'
+import gitIconWhiteUrl from '@/assets/git-icon-white.svg'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
-import { Checkbox } from '@/components/ui/checkbox'
-import { ColorPicker, ColorPickerHex, ColorPickerInput } from '@/components/ui/color-picker'
 import {
   Dialog,
   DialogContent,
@@ -57,20 +51,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import {
   Field,
-  FieldContent,
-  FieldDescription,
-  FieldError,
   FieldGroup,
-  FieldLabel,
+  FieldLabel
 } from '@/components/ui/field'
 import {
   InputGroup,
@@ -78,17 +61,18 @@ import {
   InputGroupButton,
   InputGroupInput,
 } from '@/components/ui/input-group'
-import { Kbd } from '@/components/ui/kbd'
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useTheme } from '@/components/use-theme'
 import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+  ORTHOGRAPHIC_CAMERA_VALUE
+} from '@/lib/camera'
+import type { LoadedValidationReport } from '@/lib/cityjson'
+import {
+  assertValidationAnnotationsMatchDataset,
+  classifyJsonFile,
+  mergeValidationAnnotations
+} from '@/lib/cityjson'
 import {
   collectAvailableLods,
   getGeometryDisplayModeKey,
@@ -96,78 +80,26 @@ import {
   normalizeObjectGeometryIndex,
   resolveObjectGeometryIndex,
 } from '@/lib/object-geometry'
-import { errorColor } from '@/lib/error-palette'
-import {
-  CAMERA_FOCAL_LENGTH_MIN,
-  ORTHOGRAPHIC_CAMERA_VALUE,
-  isOrthographicCameraValue,
-} from '@/lib/camera'
-import { semanticSurfaceColor } from '@/lib/semantic-surface-colors'
-import { Button } from '@/components/ui/button'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { Input } from '@/components/ui/input'
-import { MaskIcon } from '@/components/ui/mask-icon'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { Slider } from '@/components/ui/slider'
-import { Switch } from '@/components/ui/switch'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import type { ThemeMode } from '@/components/theme-context'
-import { useTheme } from '@/components/use-theme'
-import cubeIconUrl from '@/assets/blender-icons/cube.svg'
-import editModeIconUrl from '@/assets/blender-icons/editmode_hlt.svg'
-import faceSelectIconUrl from '@/assets/blender-icons/facesel.svg'
-import gitIconBlackUrl from '@/assets/git-icon-black.svg'
-import gitIconWhiteUrl from '@/assets/git-icon-white.svg'
-import materialIconUrl from '@/assets/blender-icons/material.svg'
-import objectOriginIconUrl from '@/assets/blender-icons/object_origin.svg'
-import pointcloudPointIconUrl from '@/assets/blender-icons/pointcloud_point.svg'
-import restrictSelectOffIconUrl from '@/assets/blender-icons/restrict_select_off.svg'
-import restrictSelectOnIconUrl from '@/assets/blender-icons/restrict_select_on.svg'
-import trackerIconUrl from '@/assets/blender-icons/tracker.svg'
-import vertexSelectIconUrl from '@/assets/blender-icons/vertexsel.svg'
-import changelogText from '../CHANGELOG.md?raw'
-import packageJson from '../package.json'
-import {
-  assertValidationAnnotationsMatchDataset,
-  classifyJsonFile,
-  combineViewerDatasets,
-  loadCityJsonFromFile,
-  loadCityJsonFromUrl,
-  loadValidationReportFromFile,
-  loadValidationReportFromUrl,
-  mergeValidationAnnotations,
-} from '@/lib/cityjson'
-import type { LoadedValidationReport } from '@/lib/cityjson'
+import { cn } from '@/lib/utils'
 import { validateDatasetWithVal3dity } from '@/lib/val3dity-wasm'
-import type { Val3dityValidationOptions } from '@/lib/val3dity-wasm'
-import { cn, viewerObjectKey } from '@/lib/utils'
-import {
-  createViewerShareOutput,
-  getViewerShareMode,
-  getViewerStateFromUrl,
-  resolveViewerStateForDataset,
-  VIEWER_STATE_VERSION,
-  VIEWER_STATE_QUERY_PARAM,
-} from '@/lib/viewer-state'
 import type { ViewerCameraPose, ViewerShareStateV1 } from '@/lib/viewer-state'
+import {
+  VIEWER_STATE_VERSION,
+  getViewerStateFromUrl,
+  resolveViewerStateForDataset
+} from '@/lib/viewer-state'
 import type {
-  PolygonRings,
   Vec3,
-  ViewerAttributeColorState,
   ViewerAppearanceMode,
-  ViewerCityObject,
   ViewerDataset,
-  ViewerFeature,
   ViewerFocusTarget,
   ViewerGeometryDisplayMode,
-  ViewerObjectGeometry,
   ViewerPickingMode,
   ViewerSemanticSurface,
   ViewerValidationError,
-  ViewerValidationSource,
+  ViewerValidationSource
 } from '@/types/cityjson'
+import changelogText from '../CHANGELOG.md?raw'
 
 type ExampleDatasetConfig = {
   id: string
@@ -187,152 +119,17 @@ const EXAMPLE_DATASETS: readonly ExampleDatasetConfig[] = [
     validationReportUrl: `${import.meta.env.BASE_URL}samples/val-report.json`,
   },
 ]
-const VAL3DITY_ERRORS_URL = 'https://val3dity.readthedocs.io/2.6.0/errors/'
-const GITHUB_REPO_URL = 'https://github.com/3DGI/CJLoupe'
-const APP_VERSION = packageJson.version
-const CAMERA_FOLLOW_QUERY_PARAM = 'cameraFollow'
-const DEFAULT_CAMERA_FOCAL_LENGTH = 50
-const BAG_BUILDING_ID_PREFIX = 'NL.IMBAG.Pand.'
-const DEFAULT_VAL3DITY_PARAMETERS: Val3dityParameterForm = {
-  tolSnap: '0.001',
-  planarityD2pTol: '0.01',
-  planarityNTol: '20.0',
-  overlapTol: '-1.0',
-  primitive: 'Solid',
-}
-
-type DetailPaneMode = 'split' | 'collapsed' | 'fullscreen'
-type MobileInspectMode = 'object' | 'surface'
-type MobilePanelView = 'features' | 'details'
-type InfoPanelSection = 'pinned' | 'attribute' | 'semantic'
-type Val3dityPrimitiveOption = 'auto' | 'Solid' | 'MultiSurface' | 'CompositeSurface'
-type Val3dityParameterForm = {
-  tolSnap: string
-  planarityD2pTol: string
-  planarityNTol: string
-  overlapTol: string
-  primitive: Val3dityPrimitiveOption
-}
-type HelpItem = { keys: string; description: string }
-type ContinuousAttributeColorMapId = keyof typeof ATTRIBUTE_COLOR_MAPS
-type QualitativeAttributeColorMapId = keyof typeof QUALITATIVE_COLOR_MAPS
-type AttributeColorMapId = ContinuousAttributeColorMapId | QualitativeAttributeColorMapId | 'random'
-type AttributeColorDomain = { key: string; min: number; max: number }
-type ContinuousAttributeColorModel = {
-  kind: 'continuous'
-  key: string
-  valuesByObjectKey: Record<string, number>
-  values: number[]
-  dataMin: number
-  dataMax: number
-  continuousCount: number
-  missingCount: number
-  objectCount: number
-  bins: AttributeColorBin[]
-}
-type CategoricalAttributeColorModel = {
-  kind: 'categorical'
-  key: string
-  valuesByObjectKey: Record<string, number>
-  directColorsByObjectKey: Record<string, string>
-  categories: AttributeColorCategory[]
-  valueCount: number
-  missingCount: number
-  objectCount: number
-}
-type AttributeColorModel = ContinuousAttributeColorModel | CategoricalAttributeColorModel
-type AttributeColorBin = {
-  start: number
-  end: number
-  count: number
-  color: string
-}
-type AttributeColorCategory = {
-  key: string
-  label: string
-  count: number
-  color: string
-  index: number
-}
-
-const VIEW_PICKING_MODES: ViewerPickingMode[] = ['none', 'object', 'face']
-const EDIT_PICKING_MODES: ViewerPickingMode[] = ['none', 'face', 'vertex']
-const VIEWER_APPEARANCE_MODES: ViewerAppearanceMode[] = ['regular', 'semantic', 'normal', 'colormap']
-
-const FEATURE_LIST_ROW_HEIGHT = 58
-const CITY_OBJECT_TREE_ROW_HEIGHT = 32
-const CITY_OBJECT_TREE_ROW_GAP = 4
-const FEATURE_SEPARATOR_HEIGHT_ESTIMATE = 18
-const FEATURE_LIST_ROW_GAP = 6
-const FEATURE_LIST_TOP_PADDING = 8
-const FEATURE_LIST_BOTTOM_PADDING = 12
-const FEATURE_LIST_OVERSCAN = 6
-const OBJECT_LIST_VISIBILITY_INSET = 4
-const EMPTY_CITY_OBJECTS: ViewerCityObject[] = []
-const EMPTY_ATTRIBUTES: Record<string, unknown> = {}
-const ATTRIBUTE_COLOR_MISSING = '#94a3b8'
-const ATTRIBUTE_COLOR_BIN_COUNT = 24
-const ATTRIBUTE_COLOR_MAPS = {
-  viridis: ['#440154', '#482878', '#3e4989', '#31688e', '#26828e', '#1f9e89', '#35b779', '#6ece58', '#b5de2b', '#fde725'],
-  plasma: ['#0d0887', '#46039f', '#7201a8', '#9c179e', '#bd3786', '#d8576b', '#ed7953', '#fb9f3a', '#fdca26', '#f0f921'],
-  inferno: ['#000004', '#1b0c41', '#4a0c6b', '#781c6d', '#a52c60', '#cf4446', '#ed6925', '#fb9b06', '#f7d13d', '#fcffa4'],
-  magma: ['#000004', '#180f3d', '#440f76', '#721f81', '#9e2f7f', '#cd4071', '#f1605d', '#fd9668', '#feca8d', '#fcfdbf'],
-  cividis: ['#00204d', '#173c6d', '#345d7e', '#4f7c7b', '#6c9974', '#8bb56b', '#accd66', '#d0e264', '#fdea45', '#ffffe5'],
-  turbo: ['#30123b', '#4145ab', '#4675ed', '#39a2fc', '#1bcfd4', '#24eca6', '#61fc6c', '#a4fc3b', '#f9b233', '#7a0403'],
-  coolwarm: ['#3b4cc0', '#5977e3', '#82a6fb', '#b1cbfc', '#dddcdc', '#f2cbb7', '#f7a889', '#e7745b', '#c53334', '#b40426'],
-} as const
-const QUALITATIVE_COLOR_MAPS = {
-  tableau10: ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc948', '#b07aa1', '#ff9da7', '#9c755f', '#bab0ac'],
-  set3: ['#8dd3c7', '#ffffb3', '#bebada', '#fb8072', '#80b1d3', '#fdb462', '#b3de69', '#fccde5', '#d9d9d9', '#bc80bd', '#ccebc5', '#ffed6f'],
-  paired: ['#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99', '#e31a1c', '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a', '#ffff99', '#b15928'],
-  dark2: ['#1b9e77', '#d95f02', '#7570b3', '#e7298a', '#66a61e', '#e6ab02', '#a6761d', '#666666'],
-} as const
-const DEFAULT_ATTRIBUTE_COLOR_MAP_ID: AttributeColorMapId = 'viridis'
-const DEFAULT_CATEGORICAL_COLOR_MAP_ID: AttributeColorMapId = 'tableau10'
-type ColorMapGroup = { label: string; options: readonly AttributeColorMapId[] }
-const CONTINUOUS_COLORMAP_GROUPS: readonly ColorMapGroup[] = [
-  { label: 'Sequential', options: ['viridis', 'plasma', 'inferno', 'magma', 'cividis', 'turbo'] },
-  { label: 'Diverging', options: ['coolwarm'] },
-]
-const CATEGORICAL_COLORMAP_GROUPS: readonly ColorMapGroup[] = [
-  { label: 'Qualitative', options: ['random', ...Object.keys(QUALITATIVE_COLOR_MAPS) as QualitativeAttributeColorMapId[]] },
-  { label: 'Sequential', options: ['viridis', 'plasma', 'inferno', 'magma', 'cividis', 'turbo'] },
-  { label: 'Diverging', options: ['coolwarm'] },
-]
-const ATTRIBUTE_COLOR_DOMAIN_PREVIEW_EVENT = 'cjloupe:attribute-color-domain-preview'
-const CATEGORICAL_ATTRIBUTE_DISPLAY_LIMIT = 32
-const CATEGORICAL_ATTRIBUTE_HIGH_CARDINALITY_LIMIT = 200
-const CATEGORICAL_ATTRIBUTE_SINGLETON_RATIO = 0.85
-
 const CityViewport = lazy(() =>
   import('@/components/viewer/city-viewport').then((module) => ({ default: module.CityViewport })),
 )
 
-type FeatureListItem = {
-  feature: ViewerFeature
-  objects: ViewerCityObject[]
-  errorCountsByObjectId: Map<string, number>
-  errorCount: number
-  isInvalid: boolean
-  searchText: string
-}
-
-type ErrorCodeFilterOption = {
-  code: number
-  description: string
-  count: number
-}
-
 function App() {
+  const [isMobileLayout, setIsMobileLayout] = useState(() => window.matchMedia('(max-width: 900px)').matches)
+  const { selectedFeatureId, activeObjectId, geometryDisplayMode, activeGeometryIndex, selectedFaceIndex, selectedFaceRingIndex, selectedVertexIndex, selectedFaceVertexEntryIndex, selectedSemanticSurface, setSelectedFeatureId, setActiveObjectId, setGeometryDisplayMode, setActiveGeometryIndex, setSelectedFaceIndex, setSelectedFaceRingIndex, setSelectedVertexIndex, setSelectedFaceVertexEntryIndex, setSelectedSemanticSurface, patchSelection, resetSelection } = useViewerSelection()
+  const viewportRef = useRef<CityViewportHandle>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const annotationInputRef = useRef<HTMLInputElement>(null)
   const fileDialogTriggerRef = useRef<HTMLButtonElement>(null)
-  const originalVerticesRef = useRef<Map<string, Vec3[]>>(new Map())
-  const originalObjectGeometriesRef = useRef<Map<string, Map<string, ViewerObjectGeometry[]>>>(new Map())
-  const attributeColorDomainsByKeyRef = useRef<Map<string, AttributeColorDomain>>(new Map())
-  const attributeColorMapIdsByKeyRef = useRef<Map<string, AttributeColorMapId>>(new Map())
-  const attributeColorMapReversedByKeyRef = useRef<Map<string, boolean>>(new Map())
-  const attributeColorSeedsByKeyRef = useRef<Map<string, number>>(new Map())
   const preInspectPickingModeRef = useRef<ViewerPickingMode>('object')
   const inspectPickingModeRef = useRef<ViewerPickingMode>('face')
   const pendingViewportDatasetRef = useRef<ViewerDataset | null>(null)
@@ -344,25 +141,18 @@ function App() {
   )
   const pendingCameraPoseRef = useRef<ViewerCameraPose | null>(null)
   const latestCameraPoseRef = useRef<ViewerCameraPose | null>(null)
-  const shareStatusTimerRef = useRef<number | null>(null)
 
   const [cameraFollowChannel, setCameraFollowChannel] = useState(() => getCameraFollowChannelFromUrl())
   const [cameraPublishChannel, setCameraPublishChannel] = useState<string | null>(null)
   const [dataset, setDataset] = useState<ViewerDataset | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [isPaneCollapsed, setIsPaneCollapsed] = useState(false)
+  const [error, setError] = useState<string | null>(() => new URLSearchParams(window.location.search).has('cj') ? null : initialViewerStateResolution.warning)
+  const [isLoading, setIsLoading] = useState(() => new URLSearchParams(window.location.search).has('cj'))
+  const [isPaneCollapsed, setIsPaneCollapsed] = useState(isMobileLayout)
   const [editMode, setEditMode] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null)
-  const [activeObjectId, setActiveObjectId] = useState<string | null>(null)
-  const [geometryDisplayMode, setGeometryDisplayMode] = useState<ViewerGeometryDisplayMode>({ kind: 'best' })
-  const [activeGeometryIndex, setActiveGeometryIndex] = useState<number | null>(null)
-  const [selectedFaceIndex, setSelectedFaceIndex] = useState<number | null>(null)
-  const [selectedFaceRingIndex, setSelectedFaceRingIndex] = useState(0)
-  const [selectedVertexIndex, setSelectedVertexIndex] = useState<number | null>(null)
-  const [selectedFaceVertexEntryIndex, setSelectedFaceVertexEntryIndex] = useState<number | null>(null)
-  const [geometryRevision, setGeometryRevision] = useState(0)
+  const [geometryEditor] = useState(createGeometryEditor)
+  const [geometryChange, setGeometryChange] = useState<FeatureGeometryChange | null>(null)
+  const geometryRevision = geometryChange?.revision ?? 0
   const [viewportResetRevision, setViewportResetRevision] = useState(0)
   const [topDownViewRevision, setTopDownViewRevision] = useState(0)
   const [focusRevision, setFocusRevision] = useState(0)
@@ -376,6 +166,7 @@ function App() {
   const [showOnlyInvalidFeatures, setShowOnlyInvalidFeatures] = useState(false)
   const [selectedErrorCodes, setSelectedErrorCodes] = useState<number[] | null>(null)
   const [appearanceMode, setAppearanceMode] = useState<ViewerAppearanceMode>('semantic')
+  const { attributeColorDomainsByKeyRef, attributeColorMapIdsByKeyRef, attributeColorMapReversedByKeyRef, attributeColorSeedsByKeyRef, attributeColorKey, setAttributeColorKey, attributeColorInheritsParent, setAttributeColorInheritsParent, setAttributeColorDomain, attributeColorMapId, setAttributeColorMapId, attributeColorMapReversed, setAttributeColorMapReversed, attributeCategoricalColorSeed, setAttributeCategoricalColorSeed, customCategoricalColorMaps, setCustomCategoricalColorMaps, attributeColorModel, activeAttributeColorDomain, availableAttributeColorViewportState, attributeColorViewportState } = useAttributeColors(dataset, appearanceMode)
   const [isolateSelectedFeature, setIsolateSelectedFeature] = useState(false)
   const [showObjectExtents, setShowObjectExtents] = useState(false)
   const [pinnedAttributeKeys, setPinnedAttributeKeys] = useState<string[]>([])
@@ -385,25 +176,17 @@ function App() {
     attribute: true,
     semantic: false,
   })
-  const [attributeColorKey, setAttributeColorKey] = useState<string | null>(null)
-  const [attributeColorInheritsParent, setAttributeColorInheritsParent] = useState(true)
-  const [attributeColorDomain, setAttributeColorDomain] = useState<AttributeColorDomain | null>(null)
-  const [attributeColorMapId, setAttributeColorMapId] = useState<AttributeColorMapId>(DEFAULT_ATTRIBUTE_COLOR_MAP_ID)
-  const [attributeColorMapReversed, setAttributeColorMapReversed] = useState(false)
-  const [attributeCategoricalColorSeed, setAttributeCategoricalColorSeed] = useState(0)
-  const [customCategoricalColorMaps, setCustomCategoricalColorMaps] = useState<Record<string, Record<string, string>>>({})
   const [detailTab, setDetailTab] = useState('attributes')
   const [detailPaneMode, setDetailPaneMode] = useState<DetailPaneMode>('split')
   const [isDragging, setIsDragging] = useState(false)
   const [isHelpCollapsed, setIsHelpCollapsed] = useState(true)
-  const [isFileDialogOpen, setIsFileDialogOpen] = useState(false)
+  const [isFileDialogOpen, setIsFileDialogOpen] = useState(() => !new URLSearchParams(window.location.search).has('cj') && !initialViewerStateResolution.warning)
   const [isInfoDialogOpen, setIsInfoDialogOpen] = useState(false)
   const [isChangelogDialogOpen, setIsChangelogDialogOpen] = useState(false)
   const [isVal3dityDialogOpen, setIsVal3dityDialogOpen] = useState(false)
   const [cityJsonUrlInput, setCityJsonUrlInput] = useState('')
   const [annotationUrlInput, setAnnotationUrlInput] = useState('')
   const [val3dityParameters, setVal3dityParameters] = useState<Val3dityParameterForm>(DEFAULT_VAL3DITY_PARAMETERS)
-  const [isMobileLayout, setIsMobileLayout] = useState(false)
   const [mobileInspectMode, setMobileInspectMode] = useState<MobileInspectMode>('object')
   const [mobilePanelView, setMobilePanelView] = useState<MobilePanelView>('features')
   const [dismissedErrorMessage, setDismissedErrorMessage] = useState<string | null>(null)
@@ -413,16 +196,8 @@ function App() {
     revision: number
     pose: ViewerCameraPose
   } | null>(null)
-  const [isSharing, setIsSharing] = useState(false)
-  const [shareStatus, setShareStatus] = useState('')
   const [hasCameraPose, setHasCameraPose] = useState(false)
-  const [selectedSemanticSurface, setSelectedSemanticSurface] = useState<{
-    featureId: string
-    objectId: string
-    geometryIndex: number
-    faceIndex: number
-    surface: ViewerSemanticSurface | null
-  } | null>(null)
+  const runLoad = useDatasetLoading({ pendingDataset: pendingViewportDatasetRef, setError, setIsLoading, setLoadingMessage, setIsFileDialogOpen })
   const dragCountRef = useRef(0)
   const { theme, themeMode, toggleTheme } = useTheme()
   const annotationSourceName = dataset?.validationSource?.name ?? null
@@ -568,89 +343,6 @@ function App() {
     })
   }, [activeObject, activeObjectAttributes, attributeColorInheritsParent, pinnedAttributeKeys, selectedFeatureObjects])
   const pinnedAttributeCount = pinnedAttributeKeys.length
-  const attributeColorMapColors = useMemo(() => {
-    const base = getContinuousAttributeColorMapColors(attributeColorMapId)
-    return attributeColorMapReversed ? [...base].reverse() : base
-  }, [attributeColorMapId, attributeColorMapReversed])
-  const customCategoricalColorsForAttribute = attributeColorKey
-    ? customCategoricalColorMaps[attributeColorKey] ?? EMPTY_ATTRIBUTES
-    : EMPTY_ATTRIBUTES
-  const attributeColorModel = useMemo(
-    () => buildAttributeColorModel(
-      dataset,
-      attributeColorKey,
-      attributeColorInheritsParent,
-      attributeColorMapId,
-      attributeColorMapColors,
-      attributeCategoricalColorSeed,
-      customCategoricalColorsForAttribute as Record<string, string>,
-    ),
-    [
-      attributeColorInheritsParent,
-      attributeColorKey,
-      attributeColorMapColors,
-      attributeColorMapId,
-      attributeCategoricalColorSeed,
-      customCategoricalColorsForAttribute,
-      dataset,
-    ],
-  )
-  const activeAttributeColorDomain = useMemo(() => {
-    if (!attributeColorModel || attributeColorModel.kind !== 'continuous') {
-      return null
-    }
-
-    if (attributeColorDomain?.key === attributeColorModel.key) {
-      return attributeColorDomain
-    }
-
-    return {
-      key: attributeColorModel.key,
-      min: attributeColorModel.dataMin,
-      max: attributeColorModel.dataMax,
-    }
-  }, [attributeColorDomain, attributeColorModel])
-  const availableAttributeColorViewportState = useMemo<ViewerAttributeColorState | null>(() => {
-    if (!attributeColorModel) {
-      return null
-    }
-
-    if (attributeColorModel.kind === 'categorical') {
-      if (attributeColorModel.valueCount === 0) {
-        return null
-      }
-
-      return {
-        mode: 'direct',
-        valuesByObjectKey: attributeColorModel.valuesByObjectKey,
-        directColorsByObjectKey: attributeColorModel.directColorsByObjectKey,
-        domainMin: 0,
-        domainMax: Math.max(attributeColorModel.categories.length - 1, 1),
-        dataMin: 0,
-        dataMax: Math.max(attributeColorModel.categories.length - 1, 1),
-        colors: attributeColorModel.categories.slice(0, 10).map((category) => category.color),
-        missingColor: ATTRIBUTE_COLOR_MISSING,
-      }
-    }
-
-    if (!activeAttributeColorDomain || attributeColorModel.continuousCount === 0) {
-      return null
-    }
-
-    return {
-      mode: 'continuous',
-      valuesByObjectKey: attributeColorModel.valuesByObjectKey,
-      domainMin: activeAttributeColorDomain.min,
-      domainMax: activeAttributeColorDomain.max,
-      dataMin: attributeColorModel.dataMin,
-      dataMax: attributeColorModel.dataMax,
-      colors: attributeColorMapColors,
-      missingColor: ATTRIBUTE_COLOR_MISSING,
-    }
-  }, [activeAttributeColorDomain, attributeColorMapColors, attributeColorModel])
-  const attributeColorViewportState = appearanceMode === 'colormap'
-    ? availableAttributeColorViewportState
-    : null
   const showSemanticSurfaces = appearanceMode === 'semantic'
   const availableDetailTabs = [
     hasDetailAttributes ? 'attributes' : null,
@@ -771,60 +463,45 @@ function App() {
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(max-width: 900px)')
-    const updateLayout = () => setIsMobileLayout(mediaQuery.matches)
-
-    updateLayout()
+    const updateLayout = () => {
+      setIsMobileLayout(mediaQuery.matches)
+      if (!mediaQuery.matches) return
+      setIsPaneCollapsed(true)
+      setIsHelpCollapsed(true)
+      setDetailPaneMode('split')
+      setEditMode(false)
+      setHideOccludedEditEdges(true)
+      patchSelection({ selectedFaceIndex: null, selectedFaceRingIndex: 0, selectedVertexIndex: null, selectedFaceVertexEntryIndex: null })
+      setMeasurementActive(false)
+      setMeasurementPoints([])
+    }
     mediaQuery.addEventListener('change', updateLayout)
     return () => mediaQuery.removeEventListener('change', updateLayout)
-  }, [])
+  }, [patchSelection])
 
   useEffect(() => {
     document.title = dataset?.sourceName ? `CJLoupe - ${dataset.sourceName}` : 'CJLoupe'
   }, [dataset?.sourceName])
 
-  useEffect(() => {
-    if (!isMobileLayout) {
-      return
-    }
-
-    setIsPaneCollapsed(true)
-    setIsHelpCollapsed(true)
-    setDetailPaneMode('split')
-    setEditMode(false)
-    setHideOccludedEditEdges(true)
-    setSelectedFaceIndex(null)
-    setSelectedFaceRingIndex(0)
-    setSelectedVertexIndex(null)
-    setSelectedFaceVertexEntryIndex(null)
-    setMeasurementActive(false)
-    setMeasurementPoints([])
-  }, [isMobileLayout])
-
-  useEffect(() => {
+  // Reconcile dependent preferences before committing a render, instead of effects
+  // that first render stale controls and then schedule another commit.
+  const [previousAppearanceMode, setPreviousAppearanceMode] = useState(appearanceMode)
+  if (previousAppearanceMode !== appearanceMode) {
+    setPreviousAppearanceMode(appearanceMode)
     if (!showSemanticSurfaces) {
       setMobileInspectMode('object')
       setSelectedSemanticSurface(null)
     }
-  }, [showSemanticSurfaces])
-
-  useEffect(() => {
-    if (appearanceMode === 'colormap' && !availableAttributeColorViewportState) {
-      setAppearanceMode('regular')
-    }
-  }, [appearanceMode, availableAttributeColorViewportState])
-
-  useEffect(() => {
-    if (!selectedFeatureId) {
-      setMobilePanelView('features')
-    }
-  }, [selectedFeatureId])
+  }
+  if (appearanceMode === 'colormap' && !availableAttributeColorViewportState) setAppearanceMode('regular')
+  if (!selectedFeatureId && mobilePanelView !== 'features') setMobilePanelView('features')
 
   useEffect(() => {
     if (attributeColorKey && !pinnedAttributeKeys.includes(attributeColorKey)) {
       setAttributeColorKey(null)
       setAttributeColorDomain(null)
     }
-  }, [attributeColorKey, pinnedAttributeKeys])
+  }, [attributeColorKey, pinnedAttributeKeys, setAttributeColorDomain, setAttributeColorKey])
 
   useEffect(() => {
     if (!attributeColorKey || !attributeColorModel) return
@@ -836,7 +513,7 @@ function App() {
     if (attributeColorMapId !== wanted) {
       setAttributeColorMapId(wanted)
     }
-  }, [attributeColorKey, attributeColorModel, attributeColorMapId])
+  }, [attributeColorKey, attributeColorModel, attributeColorMapId, attributeColorMapIdsByKeyRef, setAttributeColorMapId])
 
   useEffect(() => {
     if (!attributeColorModel || attributeColorModel.kind !== 'continuous') {
@@ -854,17 +531,19 @@ function App() {
         ? cachedDomain
         : getDefaultAttributeColorDomain(attributeColorModel)
     })
-  }, [attributeColorModel])
+  }, [attributeColorDomainsByKeyRef, attributeColorModel, setAttributeColorDomain])
 
-  useEffect(() => {
+  const [previousError, setPreviousError] = useState(error)
+  if (previousError !== error) {
+    setPreviousError(error)
     setDismissedErrorMessage(null)
-  }, [error])
+  }
 
   useEffect(() => {
     if (geometryDisplayMode.kind === 'lod' && !availableLods.includes(geometryDisplayMode.lod)) {
       setGeometryDisplayMode({ kind: 'best' })
     }
-  }, [availableLods, geometryDisplayMode])
+  }, [availableLods, geometryDisplayMode, setGeometryDisplayMode])
 
   useEffect(() => {
     if (!activeObject) {
@@ -878,7 +557,7 @@ function App() {
     if (normalizedGeometryIndex !== activeGeometryIndex) {
       setActiveGeometryIndex(normalizedGeometryIndex)
     }
-  }, [activeGeometryIndex, activeObject])
+  }, [activeGeometryIndex, activeObject, setActiveGeometryIndex])
 
   useEffect(() => {
     if (!activeObjectGeometry) {
@@ -924,13 +603,7 @@ function App() {
         surface,
       }
     })
-  }, [
-    activeObjectGeometry,
-    activeObjectId,
-    selectedFaceIndex,
-    selectedFeatureId,
-    selectedVertexIndex,
-  ])
+  }, [activeObjectGeometry, activeObjectId, selectedFaceIndex, selectedFeatureId, selectedVertexIndex, setSelectedFaceIndex, setSelectedFaceRingIndex, setSelectedFaceVertexEntryIndex, setSelectedSemanticSurface, setSelectedVertexIndex])
 
   useEffect(() => {
     if (editMode || !dataset) {
@@ -960,17 +633,13 @@ function App() {
         surface,
       }
     })
-  }, [activeObjectId, dataset, editMode, selectedFeatureId])
+  }, [activeObjectId, dataset, editMode, selectedFeatureId, setSelectedSemanticSurface])
 
   const waitForViewportDataset = useCallback((nextDataset: ViewerDataset) => {
     pendingViewportDatasetRef.current = nextDataset
   }, [])
 
-  const finishLoadingIfViewportIsReady = useCallback(() => {
-    if (!pendingViewportDatasetRef.current) {
-      setIsLoading(false)
-    }
-  }, [])
+
 
   const handleViewportDataRendered = useCallback((renderedDataset: ViewerDataset) => {
     if (pendingViewportDatasetRef.current !== renderedDataset) {
@@ -989,153 +658,57 @@ function App() {
     setIsLoading(false)
   }, [])
 
-  async function openCityJsonFiles(files: File[], appendToCurrentScene = false) {
-    if (files.length === 0) {
-      return
-    }
-
-    setIsLoading(true)
-    setLoadingMessage(files.length > 1 ? `Loading ${files.length} CityJSON files…` : null)
-    setError(null)
-    setIsFileDialogOpen(false)
-
-    try {
-      const loadedDatasets = await Promise.all(files.map((file) => loadCityJsonFromFile(file)))
-      const nextDataset = combineViewerDatasets(
-        appendToCurrentScene && dataset ? [dataset, ...loadedDatasets] : loadedDatasets,
-      )
-      applyDataset(nextDataset, { restoreEmbeddedState: !appendToCurrentScene })
-    } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : 'Failed to parse selected files.'
-      setError(message)
-    } finally {
-      setLoadingMessage(null)
-      finishLoadingIfViewportIsReady()
-    }
+  async function openCityJsonFiles(files: File[], append = false) {
+    if (files.length) await loadScene({ sources: files.map(file => ({ kind: 'file', file })), append })
   }
+  async function openCityJsonFile(file: File, append = false) { await openCityJsonFiles([file], append) }
 
-  async function openCityJsonFile(file: File, appendToCurrentScene = false) {
-    await openCityJsonFiles([file], appendToCurrentScene)
-  }
-
-  function applyLoadedAnnotations(
-    currentDataset: ViewerDataset,
+  const applyLoadedAnnotations = useCallback((
+    expectedDataset: ViewerDataset,
     report: LoadedValidationReport,
     source: Omit<ViewerValidationSource, 'sourceText'>,
-  ) {
-    assertValidationAnnotationsMatchDataset(currentDataset, report.annotations)
-    setDataset((current) => {
-      if (!current) {
-        return current
-      }
+  ) => {
+    const current = datasetRef.current
+    if (!current || current !== expectedDataset) return
+    assertValidationAnnotationsMatchDataset(current, report.annotations)
+    const nextDataset = mergeValidationAnnotations(current, report.annotations, { ...source, sourceText: report.sourceText })
+    datasetRef.current = nextDataset
+    waitForViewportDataset(nextDataset)
+    setShowOnlyInvalidFeatures(false)
+    setSelectedErrorCodes(null)
+    setDataset(nextDataset)
+  }, [waitForViewportDataset])
 
-      const nextDataset = mergeValidationAnnotations(current, report.annotations, {
-        ...source,
-        sourceText: report.sourceText,
-      })
-      waitForViewportDataset(nextDataset)
-      setShowOnlyInvalidFeatures(false)
-      setSelectedErrorCodes(null)
-      return nextDataset
+  async function openAnnotations(source: DatasetInput) {
+    const current = datasetRef.current
+    if (!current) { setError('Open a CityJSON file before loading annotations.'); return }
+    await runLoad({
+      load: signal => loadReport(source, signal),
+      apply: report => applyLoadedAnnotations(current, report, report.source),
+      fallback: 'Failed to load annotation report.',
     })
   }
-
-  async function openAnnotationFile(file: File) {
-    if (!dataset) {
-      setError('Open a CityJSON file before loading annotations.')
-      return
-    }
-
-    setIsLoading(true)
-    setError(null)
-    setIsFileDialogOpen(false)
-
-    try {
-      const report = await loadValidationReportFromFile(file)
-      applyLoadedAnnotations(
-        dataset,
-        report,
-        {
-          name: file.name,
-          location: getFileSourceLocation(file),
-          sourceKind: 'file',
-        },
-      )
-    } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : 'Failed to parse annotation report.'
-      setError(message)
-    } finally {
-      finishLoadingIfViewportIsReady()
-    }
-  }
-
+  async function openAnnotationFile(file: File) { await openAnnotations({ kind: 'file', file }) }
   async function openAnnotationFromUrl(url: string) {
-    if (!dataset) {
-      setError('Open a CityJSON file before loading annotations.')
-      return
-    }
-
-    const trimmed = url.trim()
-    if (!trimmed) {
-      return
-    }
-
-    setIsLoading(true)
-    setError(null)
-    setIsFileDialogOpen(false)
+    if (!url.trim()) return
     setAnnotationUrlInput('')
-
-    try {
-      const report = await loadValidationReportFromUrl(trimmed)
-      applyLoadedAnnotations(
-        dataset,
-        report,
-        {
-          name: deriveSourceNameFromUrl(trimmed),
-          location: trimmed,
-          sourceKind: 'url',
-        },
-      )
-    } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : 'Failed to load val3dity report from URL.'
-      setError(message)
-    } finally {
-      finishLoadingIfViewportIsReady()
-    }
+    await openAnnotations({ kind: 'url', url: url.trim() })
   }
-
   async function validateCurrentDatasetWithVal3dity() {
-    if (!dataset) {
-      return
-    }
-
-    setIsLoading(true)
-    setLoadingMessage('Validating…')
-    setError(null)
+    const current = datasetRef.current
+    if (!current) return
     setIsInfoDialogOpen(false)
-
-    try {
-      if (!isValidVal3dityParameters(val3dityParameters)) {
-        throw new Error('Fix the val3dity parameters before running validation.')
-      }
-      await waitForNextPaint()
-      const report = await validateDatasetWithVal3dity(dataset, buildVal3dityValidationOptions(val3dityParameters))
-      applyLoadedAnnotations(
-        dataset,
-        report,
-        {
-          name: 'val3dity wasm',
-          location: 'val3dity wasm',
-          sourceKind: 'generated',
-        },
-      )
-    } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : 'Failed to run val3dity validation.'
-      setError(message)
-    } finally {
-      setLoadingMessage(null)
-      finishLoadingIfViewportIsReady()
-    }
+    await runLoad({
+      message: 'Validating…',
+      fallback: 'Failed to run val3dity validation.',
+      load: async signal => {
+        if (!isValidVal3dityParameters(val3dityParameters)) throw new Error('Fix the val3dity parameters before running validation.')
+        await waitForNextPaint()
+        signal.throwIfAborted()
+        return validateDatasetWithVal3dity(current, buildVal3dityValidationOptions(val3dityParameters))
+      },
+      apply: report => applyLoadedAnnotations(current, report, { name: 'val3dity wasm', location: 'val3dity wasm', sourceKind: 'generated' }),
+    })
   }
 
   function handleFileSelection(event: ChangeEvent<HTMLInputElement>) {
@@ -1208,46 +781,13 @@ function App() {
     }
   }
 
-  async function openCityJsonFilesAndReport(cityFiles: File[], reportFile: File) {
-    setIsLoading(true)
-    setLoadingMessage(cityFiles.length > 1 ? `Loading ${cityFiles.length} CityJSON files…` : null)
-    setError(null)
-    setIsFileDialogOpen(false)
-
-    try {
-      const [loadedDatasets, report] = await Promise.all([
-        Promise.all(cityFiles.map((file) => loadCityJsonFromFile(file))),
-        loadValidationReportFromFile(reportFile),
-      ])
-      const nextDataset = combineViewerDatasets(loadedDatasets)
-      assertValidationAnnotationsMatchDataset(nextDataset, report.annotations)
-      const mergedDataset = mergeValidationAnnotations(nextDataset, report.annotations, {
-        name: reportFile.name,
-        location: getFileSourceLocation(reportFile),
-        sourceKind: 'file',
-        sourceText: report.sourceText,
-      })
-      applyDataset(mergedDataset)
-    } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : 'Failed to load dropped files.'
-      setError(message)
-    } finally {
-      setLoadingMessage(null)
-      finishLoadingIfViewportIsReady()
-    }
+  async function openCityJsonFilesAndReport(files: File[], report: File) {
+    await loadScene({ sources: files.map(file => ({ kind: 'file', file })), report: { kind: 'file', file: report } })
   }
 
   const resetViewerState = useCallback(() => {
+    resetSelection()
     setCameraFocalLength(DEFAULT_CAMERA_FOCAL_LENGTH)
-    setSelectedFeatureId(null)
-    setActiveObjectId(null)
-    setGeometryDisplayMode({ kind: 'best' })
-    setActiveGeometryIndex(null)
-    setSelectedFaceIndex(null)
-    setSelectedFaceRingIndex(0)
-    setSelectedVertexIndex(null)
-    setSelectedFaceVertexEntryIndex(null)
-    setSelectedSemanticSurface(null)
     setEditMode(false)
     setHideOccludedEditEdges(true)
     setShowOnlyInvalidFeatures(false)
@@ -1281,7 +821,7 @@ function App() {
     inspectPickingModeRef.current = 'face'
     setViewportCenter(null)
     setViewportResetRevision((current) => current + 1)
-  }, [])
+  }, [attributeColorDomainsByKeyRef, attributeColorMapIdsByKeyRef, attributeColorMapReversedByKeyRef, attributeColorSeedsByKeyRef, resetSelection, setAttributeCategoricalColorSeed, setAttributeColorDomain, setAttributeColorInheritsParent, setAttributeColorKey, setAttributeColorMapId, setAttributeColorMapReversed, setCustomCategoricalColorMaps])
 
   const restoreViewerState = useCallback((nextDataset: ViewerDataset, state: ViewerShareStateV1) => {
     const availableLodSet = new Set(collectAvailableLods(nextDataset))
@@ -1449,7 +989,7 @@ function App() {
         : state.camera.focalLength ?? DEFAULT_CAMERA_FOCAL_LENGTH,
     )
     pendingCameraPoseRef.current = state.camera
-  }, [])
+  }, [attributeColorDomainsByKeyRef, attributeColorMapIdsByKeyRef, attributeColorMapReversedByKeyRef, attributeColorSeedsByKeyRef, setActiveGeometryIndex, setActiveObjectId, setAttributeCategoricalColorSeed, setAttributeColorDomain, setAttributeColorInheritsParent, setAttributeColorKey, setAttributeColorMapId, setAttributeColorMapReversed, setCustomCategoricalColorMaps, setGeometryDisplayMode, setSelectedFaceIndex, setSelectedFaceRingIndex, setSelectedFaceVertexEntryIndex, setSelectedFeatureId, setSelectedSemanticSurface, setSelectedVertexIndex])
 
   const applyDataset = useCallback((
     nextDataset: ViewerDataset,
@@ -1467,8 +1007,8 @@ function App() {
     pendingCameraPoseRef.current = null
     setCameraRestoreRequest(null)
     setHasCameraPose(false)
-    originalVerticesRef.current = new Map()
-    originalObjectGeometriesRef.current = new Map()
+    geometryEditor.reset()
+    setGeometryChange(null)
     waitForViewportDataset(nextDataset)
     resetViewerState()
     setDataset(nextDataset)
@@ -1479,109 +1019,30 @@ function App() {
     if (viewerStateResolution.warning) {
       setError(viewerStateResolution.warning)
     }
-  }, [resetViewerState, restoreViewerState, waitForViewportDataset])
+  }, [geometryEditor, resetViewerState, restoreViewerState, waitForViewportDataset])
 
+  const loadScene = useCallback(async (request: SceneLoadRequest) => {
+    if (!request.sources.length) return
+    await runLoad({
+      message: request.sources.length > 1 ? `Loading ${request.sources.length} CityJSON sources…` : null,
+      fallback: 'Failed to load CityJSON sources.',
+      load: signal => loadSceneSources(request, signal),
+      apply: loaded => applyDataset(assembleScene(loaded, datasetRef.current, Boolean(request.append)), { restoreEmbeddedState: !request.append }),
+    })
+  }, [runLoad, applyDataset])
   const loadExampleDataset = useCallback(async (example: ExampleDatasetConfig) => {
-    setIsLoading(true)
-    setLoadingMessage(example.cityJsonUrls.length > 1 ? `Loading ${example.cityJsonUrls.length} CityJSON URLs…` : null)
-    setError(null)
-    setIsFileDialogOpen(false)
-
-    try {
-      const [loadedDatasets, report] = await Promise.all([
-        Promise.all(example.cityJsonUrls.map((url) => loadCityJsonFromUrl(
-          url,
-          example.cityJsonUrls.length === 1 ? example.name : deriveSourceNameFromUrl(url),
-        ))),
-        example.validationReportUrl
-          ? loadValidationReportFromUrl(example.validationReportUrl)
-          : Promise.resolve(null),
-      ])
-      const nextDataset = combineViewerDatasets(loadedDatasets)
-
-      if (report && example.validationReportUrl) {
-        assertValidationAnnotationsMatchDataset(nextDataset, report.annotations)
-        applyDataset(mergeValidationAnnotations(nextDataset, report.annotations, {
-          name: deriveSourceNameFromUrl(example.validationReportUrl),
-          location: example.validationReportUrl,
-          sourceKind: 'url',
-          sourceText: report.sourceText,
-        }))
-      } else {
-        applyDataset(nextDataset)
-      }
-    } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : `Failed to load ${example.name}.`
-      setError(message)
-    } finally {
-      setLoadingMessage(null)
-      finishLoadingIfViewportIsReady()
-    }
-  }, [applyDataset, finishLoadingIfViewportIsReady])
-
-  const loadFromUrlParams = useCallback(async (cjUrls: string[], valUrl: string) => {
-    if (cjUrls.length === 0) {
-      return
-    }
-
-    setIsLoading(true)
-    setLoadingMessage(cjUrls.length > 1 ? `Loading ${cjUrls.length} CityJSON URLs…` : null)
-    setError(null)
-
-    try {
-      const cleanCjUrls = cjUrls.map((url) => url.trim()).filter(Boolean)
-      const cleanValUrl = valUrl.trim()
-      const [loadedDatasets, report] = await Promise.all([
-        Promise.all(cleanCjUrls.map((url) => loadCityJsonFromUrl(url, deriveSourceNameFromUrl(url)))),
-        loadValidationReportFromUrl(cleanValUrl),
-      ])
-      const nextDataset = combineViewerDatasets(loadedDatasets)
-      assertValidationAnnotationsMatchDataset(nextDataset, report.annotations)
-      const mergedDataset = mergeValidationAnnotations(nextDataset, report.annotations, {
-        name: deriveSourceNameFromUrl(cleanValUrl),
-        location: cleanValUrl,
-        sourceKind: 'url',
-        sourceText: report.sourceText,
-      })
-      applyDataset(mergedDataset)
-    } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : 'Failed to load files from URL parameters.'
-      setError(message)
-    } finally {
-      setLoadingMessage(null)
-      finishLoadingIfViewportIsReady()
-    }
-  }, [applyDataset, finishLoadingIfViewportIsReady])
-
-  const openCityJsonFromUrls = useCallback(async (urls: string[], appendToCurrentScene = false) => {
-    const trimmedUrls = urls.map((url) => url.trim()).filter(Boolean)
-    if (trimmedUrls.length === 0) {
-      return
-    }
-
-    setIsLoading(true)
-    setLoadingMessage(trimmedUrls.length > 1 ? `Loading ${trimmedUrls.length} CityJSON URLs…` : null)
-    setError(null)
-    setIsFileDialogOpen(false)
+    await loadScene({
+      sources: example.cityJsonUrls.map(url => ({ kind: 'url', url, name: example.cityJsonUrls.length === 1 ? example.name : undefined })),
+      report: example.validationReportUrl ? { kind: 'url', url: example.validationReportUrl } : undefined,
+    })
+  }, [loadScene])
+  const loadFromUrlParams = useCallback(async (urls: string[], reportUrl: string) => {
+    await loadScene({ sources: urls.map(url => url.trim()).filter(Boolean).map(url => ({ kind: 'url', url })), report: { kind: 'url', url: reportUrl.trim() } })
+  }, [loadScene])
+  const openCityJsonFromUrls = useCallback(async (urls: string[], append = false) => {
     setCityJsonUrlInput('')
-
-    try {
-      const loadedDatasets = await Promise.all(
-        trimmedUrls.map((url) => loadCityJsonFromUrl(url, deriveSourceNameFromUrl(url))),
-      )
-      const currentDataset = datasetRef.current
-      const nextDataset = combineViewerDatasets(
-        appendToCurrentScene && currentDataset ? [currentDataset, ...loadedDatasets] : loadedDatasets,
-      )
-      applyDataset(nextDataset, { restoreEmbeddedState: !appendToCurrentScene })
-    } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : 'Failed to load file from URL.'
-      setError(message)
-    } finally {
-      setLoadingMessage(null)
-      finishLoadingIfViewportIsReady()
-    }
-  }, [applyDataset, finishLoadingIfViewportIsReady])
+    await loadScene({ sources: urls.map(url => url.trim()).filter(Boolean).map(url => ({ kind: 'url', url })), append })
+  }, [loadScene])
 
   const openCityJsonFromUrl = useCallback(async (url: string, appendToCurrentScene = false) => {
     await openCityJsonFromUrls([url], appendToCurrentScene)
@@ -1589,21 +1050,15 @@ function App() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    const cjParams = params.getAll('cj')
-    const valParam = params.get('val')
-
-    if (cjParams.length > 0 && valParam) {
-      void loadFromUrlParams(cjParams, valParam)
-    } else if (cjParams.length > 0) {
-      void openCityJsonFromUrls(cjParams)
-    } else {
-      setIsLoading(false)
-      if (pendingUrlViewerStateRef.current?.warning) {
-        setError(pendingUrlViewerStateRef.current.warning)
-      } else {
-        setIsFileDialogOpen(true)
-      }
-    }
+    const sources = params.getAll('cj')
+    const report = params.get('val')
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled || !sources.length) return
+      if (report) void loadFromUrlParams(sources, report)
+      else void openCityJsonFromUrls(sources)
+    })
+    return () => { cancelled = true }
   }, [loadFromUrlParams, openCityJsonFromUrls])
 
   useEffect(() => {
@@ -1744,27 +1199,18 @@ function App() {
     setAttributeColorMapReversed(attributeColorMapReversedByKeyRef.current.get(key) ?? false)
     setAttributeCategoricalColorSeed(categoricalSeed)
     setAppearanceMode('colormap')
-  }, [
-    activeAttributeColorDomain,
-    attributeColorKey,
-    attributeColorMapId,
-    attributeColorMapReversed,
-    attributeCategoricalColorSeed,
-    attributeColorInheritsParent,
-    customCategoricalColorMaps,
-    dataset,
-  ])
+  }, [attributeColorKey, attributeColorSeedsByKeyRef, attributeColorMapIdsByKeyRef, dataset, attributeColorInheritsParent, customCategoricalColorMaps, attributeColorDomainsByKeyRef, setAttributeColorKey, setAttributeColorDomain, setAttributeColorMapId, setAttributeColorMapReversed, attributeColorMapReversedByKeyRef, setAttributeCategoricalColorSeed, attributeColorMapId, attributeColorMapReversed, attributeCategoricalColorSeed, activeAttributeColorDomain])
 
   const handleClearAttributeColor = useCallback(() => {
     setAttributeColorKey(null)
     setAttributeColorDomain(null)
     setAppearanceMode((current) => current === 'colormap' ? 'regular' : current)
-  }, [])
+  }, [setAttributeColorDomain, setAttributeColorKey])
 
   const handleCommitAttributeColorDomain = useCallback((domain: AttributeColorDomain) => {
     attributeColorDomainsByKeyRef.current.set(domain.key, domain)
     setAttributeColorDomain(domain)
-  }, [])
+  }, [attributeColorDomainsByKeyRef, setAttributeColorDomain])
 
   const handleRerandomizeCategoricalColors = useCallback(() => {
     if (attributeColorKey) attributeColorSeedsByKeyRef.current.set(attributeColorKey, attributeCategoricalColorSeed + 1)
@@ -1776,7 +1222,7 @@ function App() {
         return rest
       })
     }
-  }, [attributeColorKey, attributeCategoricalColorSeed])
+  }, [attributeColorKey, attributeColorSeedsByKeyRef, attributeCategoricalColorSeed, setAttributeCategoricalColorSeed, setCustomCategoricalColorMaps])
 
   const handleCustomCategoricalColorChange = useCallback((attributeKey: string, categoryKey: string, color: string) => {
     setCustomCategoricalColorMaps((current) => ({
@@ -1786,14 +1232,14 @@ function App() {
         [categoryKey]: color,
       },
     }))
-  }, [])
+  }, [setCustomCategoricalColorMaps])
 
   const handleAttributeColorMapChange = useCallback((colorMapId: AttributeColorMapId) => {
     setAttributeColorMapId(colorMapId)
     if (attributeColorKey) {
       attributeColorMapIdsByKeyRef.current.set(attributeColorKey, colorMapId)
     }
-  }, [attributeColorKey])
+  }, [attributeColorKey, attributeColorMapIdsByKeyRef, setAttributeColorMapId])
 
   const handleToggleAttributeColorMapReversed = useCallback(() => {
     setAttributeColorMapReversed((current) => {
@@ -1803,7 +1249,7 @@ function App() {
       }
       return next
     })
-  }, [attributeColorKey])
+  }, [attributeColorKey, attributeColorMapReversedByKeyRef, setAttributeColorMapReversed])
 
   const handleToggleInfoPanelSection = useCallback((section: InfoPanelSection) => {
     setInfoPanelOpenSections((current) => ({
@@ -1813,14 +1259,7 @@ function App() {
   }, [])
 
   const handlePreviewAttributeColorDomain = useCallback((domain: AttributeColorDomain) => {
-    window.dispatchEvent(
-      new CustomEvent(ATTRIBUTE_COLOR_DOMAIN_PREVIEW_EVENT, {
-        detail: {
-          min: domain.min,
-          max: domain.max,
-        },
-      }),
-    )
+    viewportRef.current?.previewColorDomain(domain)
   }, [])
 
   const availableAppearanceModes = useMemo(
@@ -1857,7 +1296,7 @@ function App() {
     setSelectedVertexIndex(null)
     setSelectedFaceVertexEntryIndex(null)
     setSelectedSemanticSurface(surface.surface ? surface : null)
-  }, [])
+  }, [setActiveGeometryIndex, setActiveObjectId, setSelectedFaceIndex, setSelectedFaceRingIndex, setSelectedFaceVertexEntryIndex, setSelectedFeatureId, setSelectedSemanticSurface, setSelectedVertexIndex])
 
   const centerFeatureById = useCallback((featureId: string) => {
     const feature = featureMap.get(featureId)
@@ -1987,7 +1426,7 @@ function App() {
     setSelectedVertexIndex(null)
     setSelectedFaceVertexEntryIndex(null)
     setSelectedSemanticSurface(null)
-  }, [])
+  }, [setActiveGeometryIndex, setGeometryDisplayMode, setSelectedFaceIndex, setSelectedFaceRingIndex, setSelectedFaceVertexEntryIndex, setSelectedSemanticSurface, setSelectedVertexIndex])
 
   const cycleGeometryDisplayMode = useCallback(() => {
     const modes: ViewerGeometryDisplayMode[] = [
@@ -2039,34 +1478,20 @@ function App() {
   }, [])
 
   const toggleEditMode = useCallback(() => {
-    if (isMobileLayout) {
-      return
+    if (isMobileLayout) return
+    const next = !editMode
+    setEditMode(next)
+    setIsolateSelectedFeature(next)
+    if (next) {
+      preInspectPickingModeRef.current = pickingMode
+      setPickingMode(inspectPickingModeRef.current)
+    } else {
+      inspectPickingModeRef.current = pickingMode
+      setPickingMode(preInspectPickingModeRef.current)
+      setShowVertexGizmo(false)
     }
-
-    setEditMode((current) => {
-      const next = !current
-      if (next) {
-        preInspectPickingModeRef.current = pickingMode
-        setIsolateSelectedFeature(true)
-        setPickingMode(inspectPickingModeRef.current)
-      } else {
-        inspectPickingModeRef.current = pickingMode
-        setIsolateSelectedFeature(false)
-        setPickingMode(preInspectPickingModeRef.current)
-        setSelectedFaceIndex(null)
-        setSelectedFaceRingIndex(0)
-        setSelectedVertexIndex(null)
-        setSelectedFaceVertexEntryIndex(null)
-        setShowVertexGizmo(false)
-      }
-      if (next) {
-        setSelectedFaceIndex(null)
-        setSelectedFaceRingIndex(0)
-        setSelectedFaceVertexEntryIndex(null)
-      }
-      return next
-    })
-  }, [isMobileLayout, pickingMode])
+    patchSelection({ selectedFaceIndex: null, selectedFaceRingIndex: 0, selectedFaceVertexEntryIndex: null, ...(next ? {} : { selectedVertexIndex: null }) })
+  }, [isMobileLayout, editMode, pickingMode, patchSelection])
 
   const handleSelectFeature = useCallback((
     featureId: string,
@@ -2097,37 +1522,17 @@ function App() {
         ? normalizeObjectGeometryIndex(nextObject, options.geometryIndex)
         : null
 
-      setSelectedFeatureId(featureId)
-      setActiveObjectId(nextObjectId)
-      setActiveGeometryIndex(nextGeometryIndex)
-      setSelectedFaceIndex(null)
-      setSelectedFaceRingIndex(0)
-      setSelectedVertexIndex(null)
-      setSelectedFaceVertexEntryIndex(null)
+      patchSelection({ selectedFeatureId: featureId, activeObjectId: nextObjectId, activeGeometryIndex: nextGeometryIndex, selectedFaceIndex: null, selectedFaceRingIndex: 0, selectedVertexIndex: null, selectedFaceVertexEntryIndex: null, selectedSemanticSurface: null })
     })
-  }, [editMode, featureMap, isolateSelectedFeature, selectedFeatureId])
+  }, [editMode, featureMap, isolateSelectedFeature, patchSelection, selectedFeatureId])
 
   const handleClearSelection = useCallback(() => {
-    startTransition(() => {
-      if (editMode) {
-        setSelectedFaceIndex(null)
-        setSelectedFaceRingIndex(0)
-        setSelectedVertexIndex(null)
-        setSelectedFaceVertexEntryIndex(null)
-        setSelectedSemanticSurface(null)
-        return
-      }
-
-      setSelectedFeatureId(null)
-      setActiveObjectId(null)
-      setActiveGeometryIndex(null)
-      setSelectedFaceIndex(null)
-      setSelectedFaceRingIndex(0)
-      setSelectedVertexIndex(null)
-      setSelectedFaceVertexEntryIndex(null)
-      setSelectedSemanticSurface(null)
-    })
-  }, [editMode])
+    startTransition(() => patchSelection({
+      ...(editMode ? {} : { selectedFeatureId: null, activeObjectId: null, activeGeometryIndex: null }),
+      selectedFaceIndex: null, selectedFaceRingIndex: 0, selectedVertexIndex: null,
+      selectedFaceVertexEntryIndex: null, selectedSemanticSurface: null,
+    }))
+  }, [editMode, patchSelection])
 
   const handleSearchQueryChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(event.target.value)
@@ -2201,7 +1606,7 @@ function App() {
       location: null,
     })
     setFocusRevision((current) => current + 1)
-  }, [editMode, featureMap, isolateSelectedFeature, selectedFeatureId])
+  }, [editMode, featureMap, isolateSelectedFeature, selectedFeatureId, setActiveGeometryIndex, setActiveObjectId, setSelectedFaceIndex, setSelectedFaceRingIndex, setSelectedFaceVertexEntryIndex, setSelectedFeatureId, setSelectedVertexIndex])
 
   const handleViewportSelectFeature = useCallback((
     featureId: string,
@@ -2216,7 +1621,7 @@ function App() {
     setSelectedFaceRingIndex(0)
     setSelectedVertexIndex(null)
     setSelectedFaceVertexEntryIndex(null)
-  }, [])
+  }, [setSelectedFaceIndex, setSelectedFaceRingIndex, setSelectedFaceVertexEntryIndex, setSelectedVertexIndex])
 
   const selectFaceVertex = useCallback((vertexIndex: number | null, options?: {
     ringIndex?: number
@@ -2236,7 +1641,7 @@ function App() {
       }
     }
     setSelectedFaceVertexEntryIndex(nextEntryIndex)
-  }, [selectedFace])
+  }, [selectedFace, setSelectedFaceRingIndex, setSelectedFaceVertexEntryIndex, setSelectedVertexIndex])
 
   const handleSelectVertex = useCallback((vertexIndex: number | null) => {
     selectFaceVertex(vertexIndex)
@@ -2280,132 +1685,36 @@ function App() {
     setSelectedFaceRingIndex((current) => (current + direction + selectedFaceRingCount) % selectedFaceRingCount)
     setSelectedVertexIndex(null)
     setSelectedFaceVertexEntryIndex(null)
-  }, [selectedFaceRingCount])
+  }, [selectedFaceRingCount, setSelectedFaceRingIndex, setSelectedFaceVertexEntryIndex, setSelectedVertexIndex])
 
   const applyFeatureVertices = useCallback((featureId: string, vertices: Vec3[]) => {
-    setDataset((current) => {
-      if (!current) {
-        return current
-      }
-
-      const feature = current.features.find((candidate) => candidate.id === featureId)
-      if (feature) {
-        if (!originalVerticesRef.current.has(featureId)) {
-          originalVerticesRef.current.set(featureId, cloneVertices(feature.vertices))
-        }
-        feature.vertices = cloneVertices(vertices)
-      }
-
-      return current
-    })
-    setGeometryRevision((current) => current + 1)
-  }, [])
+    const current = datasetRef.current
+    if (current) setGeometryChange(geometryEditor.commitVertices(current, featureId, vertices))
+  }, [geometryEditor])
 
   const deleteSelectedFace = useCallback(() => {
-    if (
-      !selectedFeatureId ||
-      !activeObjectId ||
-      resolvedActiveGeometryIndex == null ||
-      selectedFaceIndex == null ||
-      !activeObjectGeometry?.polygons[selectedFaceIndex]
-    ) {
-      return
-    }
-
-    setDataset((current) => {
-      if (!current) {
-        return current
-      }
-
-      const feature = current.features.find((candidate) => candidate.id === selectedFeatureId)
-      if (!feature) {
-        return current
-      }
-
-      const object = feature.objects.find((candidate) => candidate.id === activeObjectId)
-      if (!object) {
-        return current
-      }
-
-      const targetGeometry = object.geometries.find(
-        (geometry) => geometry.index === resolvedActiveGeometryIndex,
-      )
-      if (!targetGeometry?.polygons[selectedFaceIndex]) {
-        return current
-      }
-
-      let featureGeometrySnapshots = originalObjectGeometriesRef.current.get(selectedFeatureId)
-      if (!featureGeometrySnapshots) {
-        featureGeometrySnapshots = new Map()
-        originalObjectGeometriesRef.current.set(selectedFeatureId, featureGeometrySnapshots)
-      }
-      if (!featureGeometrySnapshots.has(object.id)) {
-        featureGeometrySnapshots.set(object.id, cloneObjectGeometries(object.geometries))
-      }
-
-      targetGeometry.polygons = targetGeometry.polygons.filter((_, index) => index !== selectedFaceIndex)
-      targetGeometry.semanticSurfaces = targetGeometry.semanticSurfaces.filter((_, index) => index !== selectedFaceIndex)
-      targetGeometry.sourceFaceIndices = targetGeometry.sourceFaceIndices.filter((_, index) => index !== selectedFaceIndex)
-      targetGeometry.vertexIndices = collectGeometryVertexIndices(targetGeometry.polygons)
-
-      return current
-    })
-
+    const current = datasetRef.current
+    if (!current || !selectedFeatureId || !activeObjectId || resolvedActiveGeometryIndex == null || selectedFaceIndex == null) return
+    const change = geometryEditor.deleteFace(current, selectedFeatureId, activeObjectId, resolvedActiveGeometryIndex, selectedFaceIndex)
+    if (!change) return
+    setGeometryChange(change)
     setSelectedFaceIndex(null)
     setSelectedFaceRingIndex(0)
     setSelectedVertexIndex(null)
     setSelectedFaceVertexEntryIndex(null)
     setSelectedSemanticSurface(null)
-    setGeometryRevision((current) => current + 1)
-  }, [
-    activeObjectGeometry,
-    activeObjectId,
-    resolvedActiveGeometryIndex,
-    selectedFaceIndex,
-    selectedFeatureId,
-  ])
+  }, [selectedFeatureId, activeObjectId, resolvedActiveGeometryIndex, selectedFaceIndex, geometryEditor, setSelectedFaceIndex, setSelectedFaceRingIndex, setSelectedVertexIndex, setSelectedFaceVertexEntryIndex, setSelectedSemanticSurface])
 
   const restoreSelectedFeatureGeometry = useCallback(() => {
-    if (!selectedFeatureId) {
-      return
-    }
-
-    const originalVertices = originalVerticesRef.current.get(selectedFeatureId)
-    const originalObjectGeometries = originalObjectGeometriesRef.current.get(selectedFeatureId)
-    if (!originalVertices && !originalObjectGeometries) {
-      return
-    }
-
-    setDataset((current) => {
-      if (!current) {
-        return current
-      }
-
-      const feature = current.features.find((candidate) => candidate.id === selectedFeatureId)
-      if (!feature) {
-        return current
-      }
-
-      if (originalVertices) {
-        feature.vertices = cloneVertices(originalVertices)
-      }
-
-      for (const object of feature.objects) {
-        const geometries = originalObjectGeometries?.get(object.id)
-        if (geometries) {
-          object.geometries = cloneObjectGeometries(geometries)
-        }
-      }
-
-      return current
-    })
-    originalVerticesRef.current.delete(selectedFeatureId)
-    originalObjectGeometriesRef.current.delete(selectedFeatureId)
+    const current = datasetRef.current
+    if (!current || !selectedFeatureId) return
+    const change = geometryEditor.restoreFeature(current, selectedFeatureId)
+    if (!change) return
+    setGeometryChange(change)
     setSelectedVertexIndex(null)
     setSelectedFaceVertexEntryIndex(null)
     setSelectedSemanticSurface(null)
-    setGeometryRevision((current) => current + 1)
-  }, [selectedFeatureId])
+  }, [geometryEditor, selectedFeatureId, setSelectedFaceVertexEntryIndex, setSelectedSemanticSurface, setSelectedVertexIndex])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -2529,8 +1838,7 @@ function App() {
         if (
           !selectedFeatureId ||
           (
-            !originalVerticesRef.current.has(selectedFeatureId) &&
-            !originalObjectGeometriesRef.current.has(selectedFeatureId)
+            !geometryEditor.hasChanges(selectedFeatureId)
           )
         ) {
           return
@@ -2583,13 +1891,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [centerCurrentSelection, cycleAppearanceMode, cycleGeometryDisplayMode, cycleSelectedFaceRing, cycleSelectedFaceVertex, dataset, deleteSelectedFace, editMode, handlePickingModeShortcut, restoreSelectedFeatureGeometry, selectedFaceIndex, selectedFeatureId, toggleEditMode])
-
-  useEffect(() => () => {
-    if (shareStatusTimerRef.current != null) {
-      window.clearTimeout(shareStatusTimerRef.current)
-    }
-  }, [])
+  }, [centerCurrentSelection, cycleAppearanceMode, cycleGeometryDisplayMode, cycleSelectedFaceRing, cycleSelectedFaceVertex, dataset, deleteSelectedFace, editMode, geometryEditor, handlePickingModeShortcut, restoreSelectedFeatureGeometry, selectedFaceIndex, selectedFeatureId, toggleEditMode])
 
   const handleCameraPoseChange = useCallback((pose: ViewerCameraPose) => {
     latestCameraPoseRef.current = pose
@@ -2673,78 +1975,9 @@ function App() {
         points: measurementPoints,
       },
     }
-  }, [
-    activeAttributeColorDomain,
-    activeFaceRingIndex,
-    activeObject?.id,
-    activeSelectedFaceVertexEntryIndex,
-    appearanceMode,
-    attributeCategoricalColorSeed,
-    attributeColorInheritsParent,
-    attributeColorKey,
-    attributeColorMapId,
-    attributeColorMapReversed,
-    customCategoricalColorMaps,
-    editMode,
-    geometryDisplayMode,
-    hideOccludedEditEdges,
-    infoPanelOpenSections.semantic,
-    isPaneCollapsed,
-    isPinnedAttributesOpen,
-    isolateSelectedFeature,
-    measurementActive,
-    measurementPoints,
-    mobileInspectMode,
-    pickingMode,
-    pinnedAttributeKeys,
-    resolvedActiveGeometryIndex,
-    searchQuery,
-    selectedErrorCodes,
-    selectedFaceIndex,
-    selectedFeatureId,
-    selectedSemanticSurface,
-    selectedVertexIndex,
-    showOnlyInvalidFeatures,
-    showVertexGizmo,
-  ])
+  }, [activeAttributeColorDomain, activeFaceRingIndex, activeObject?.id, activeSelectedFaceVertexEntryIndex, appearanceMode, attributeCategoricalColorSeed, attributeColorDomainsByKeyRef, attributeColorInheritsParent, attributeColorKey, attributeColorMapId, attributeColorMapIdsByKeyRef, attributeColorMapReversed, attributeColorMapReversedByKeyRef, attributeColorSeedsByKeyRef, customCategoricalColorMaps, editMode, geometryDisplayMode, hideOccludedEditEdges, infoPanelOpenSections.semantic, isPaneCollapsed, isPinnedAttributesOpen, isolateSelectedFeature, measurementActive, measurementPoints, mobileInspectMode, pickingMode, pinnedAttributeKeys, resolvedActiveGeometryIndex, searchQuery, selectedErrorCodes, selectedFaceIndex, selectedFeatureId, selectedSemanticSurface, selectedVertexIndex, showOnlyInvalidFeatures, showVertexGizmo])
 
-  const shareMode = dataset ? getViewerShareMode(dataset) : null
-  const shareActionLabel = shareMode === null
-    ? 'Share view'
-    : shareMode === 'url'
-      ? 'Copy share link'
-      : shareMode === 'file'
-        ? 'Download view file'
-        : 'Download view bundle'
-  const didCopyShareLink = shareStatus === 'Share link copied.'
-  const shareButtonLabel = didCopyShareLink ? 'Share link copied' : shareActionLabel
-
-  const handleShare = useCallback(async () => {
-    if (!dataset || isSharing) {
-      return
-    }
-
-    setIsSharing(true)
-    setError(null)
-    try {
-      const output = await createViewerShareOutput(dataset, createCurrentViewerState(), window.location.href)
-      if (output.kind === 'url') {
-        await navigator.clipboard.writeText(output.url)
-        setShareStatus('Share link copied.')
-      } else {
-        downloadBlob(output.data, output.name)
-        setShareStatus(output.kind === 'file' ? 'View file downloaded.' : 'View bundle downloaded.')
-      }
-      if (shareStatusTimerRef.current != null) {
-        window.clearTimeout(shareStatusTimerRef.current)
-      }
-      shareStatusTimerRef.current = window.setTimeout(() => setShareStatus(''), 2000)
-    } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : 'Could not share the current view.')
-    } finally {
-      setIsSharing(false)
-    }
-  }, [createCurrentViewerState, dataset, isSharing])
+  const { isSharing, shareStatus, didCopyShareLink, shareButtonLabel, handleShare } = useViewerSharing(dataset, createCurrentViewerState, setError)
 
   const isErrorDialogVisible = Boolean(error && dismissedErrorMessage !== error)
   const hasModalScrim =
@@ -3209,6 +2442,7 @@ function App() {
       >
         <Suspense fallback={<div className="h-full w-full bg-canvas" />}>
           <CityViewport
+            ref={viewportRef}
             key={viewportResetRevision}
             data={dataset}
             cameraFocalLength={cameraFocalLength}
@@ -3217,7 +2451,7 @@ function App() {
             showObjectExtents={showObjectExtents}
             geometryDisplayMode={geometryDisplayMode}
             activeGeometryIndex={activeGeometryIndex}
-            geometryRevision={geometryRevision}
+            geometryChange={geometryChange}
             viewportResetRevision={viewportResetRevision}
             topDownViewRevision={topDownViewRevision}
             focusRevision={focusRevision}
@@ -3381,8 +2615,7 @@ function App() {
               restoreGeometryDisabled={
                 !selectedFeatureId ||
                 (
-                  !originalVerticesRef.current.has(selectedFeatureId) &&
-                  !originalObjectGeometriesRef.current.has(selectedFeatureId)
+                  !geometryEditor.hasChanges(selectedFeatureId)
                 )
               }
             />
@@ -3727,4853 +2960,5 @@ function App() {
   )
 }
 
-function EditSelectionOverlay({
-  positionClassName,
-  selectedFaceIndex,
-  selectedFaceRingCount,
-  selectedFaceRingLabel,
-  selectedFaceRingIsHole,
-  selectedFaceVertexCount,
-  selectedFaceVertexEntryLabel,
-  selectedFaceHoleCount,
-  selectedFaceSemanticType,
-  onCycleSelectedFaceRing,
-  onCycleSelectedFaceVertex,
-}: {
-  positionClassName: string
-  selectedFaceIndex: number | null
-  selectedFaceRingCount: number
-  selectedFaceRingLabel: string
-  selectedFaceRingIsHole: boolean
-  selectedFaceVertexCount: number
-  selectedFaceVertexEntryLabel: string | null
-  selectedFaceHoleCount: number
-  selectedFaceSemanticType: string | null
-  onCycleSelectedFaceRing: (direction: -1 | 1) => void
-  onCycleSelectedFaceVertex: (direction: -1 | 1) => void
-}) {
-  const semanticColor = selectedFaceSemanticType ? semanticSurfaceColor(selectedFaceSemanticType) : null
-
-  return (
-    <div className={cn('pointer-events-none absolute z-10', positionClassName)}>
-      <div className="floating-panel pointer-events-auto flex flex-col gap-2 rounded-sm border p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
-              {selectedFaceIndex != null ? `Face ${selectedFaceIndex}` : 'No face selected'}
-            </Badge>
-            {selectedFaceSemanticType && semanticColor && (
-              <Badge
-                variant="outline"
-                className="min-w-0 truncate"
-                style={{
-                  borderColor: `${semanticColor}66`,
-                  backgroundColor: `${semanticColor}22`,
-                  color: semanticColor,
-                }}
-              >
-                {selectedFaceSemanticType}
-              </Badge>
-            )}
-            {selectedFaceRingCount > 0 && (
-              <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
-                {selectedFaceRingLabel}
-              </Badge>
-            )}
-            {selectedFaceVertexCount > 0 && (
-              <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
-                {selectedFaceVertexCount} vertices
-              </Badge>
-            )}
-            {selectedFaceVertexEntryLabel && (
-              <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground">
-                {selectedFaceVertexEntryLabel}
-              </Badge>
-            )}
-          </div>
-          <div className="flex flex-col gap-2">
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 px-2.5"
-                onClick={() => onCycleSelectedFaceRing(-1)}
-                disabled={selectedFaceHoleCount === 0}
-                aria-label="Previous ring"
-                title="Previous ring"
-              >
-                Previous ring
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 px-2.5"
-                onClick={() => onCycleSelectedFaceRing(1)}
-                disabled={selectedFaceHoleCount === 0}
-                aria-label="Next ring"
-                title="Next ring"
-              >
-                Next ring (R)
-              </Button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 px-2.5"
-                onClick={() => onCycleSelectedFaceVertex(-1)}
-                disabled={selectedFaceVertexCount === 0}
-              >
-                {selectedFaceRingIsHole ? <RotateCcw className="size-3.5" /> : <RotateCw className="size-3.5" />}
-                Previous vertex (J)
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 px-2.5"
-                onClick={() => onCycleSelectedFaceVertex(1)}
-                disabled={selectedFaceVertexCount === 0}
-              >
-                {selectedFaceRingIsHole ? <RotateCw className="size-3.5" /> : <RotateCcw className="size-3.5" />}
-                Next vertex (K)
-              </Button>
-            </div>
-          </div>
-      </div>
-    </div>
-  )
-}
-
-function MobileViewportToolbar({
-  showObjectExtents,
-  onToggleObjectExtents,
-  hasSelectedFeature,
-  appearanceMode,
-  colormapAvailable,
-  mobileInspectMode,
-  onCycleAppearanceMode,
-  onSelectAppearanceMode,
-  onToggleMobileInspectMode,
-  onCenterCurrentSelection,
-}: {
-  showObjectExtents: boolean
-  onToggleObjectExtents: () => void
-  hasSelectedFeature: boolean
-  appearanceMode: ViewerAppearanceMode
-  colormapAvailable: boolean
-  mobileInspectMode: MobileInspectMode
-  onCycleAppearanceMode: () => void
-  onSelectAppearanceMode: (mode: ViewerAppearanceMode) => void
-  onToggleMobileInspectMode: () => void
-  onCenterCurrentSelection: () => void
-}) {
-  const [isAppearanceMenuOpen, setIsAppearanceMenuOpen] = useState(false)
-  const showSemanticSurfaces = appearanceMode === 'semantic'
-
-  return (
-    <div className="floating-panel pointer-events-auto flex flex-col items-center gap-1 rounded-sm border p-1">
-      <ToolbarAppearanceButton
-        mode={appearanceMode}
-        colormapAvailable={colormapAvailable}
-        onClick={onCycleAppearanceMode}
-        onSelectMode={onSelectAppearanceMode}
-        isMenuOpen={isAppearanceMenuOpen}
-        onMenuOpenChange={setIsAppearanceMenuOpen}
-      />
-      <ToolbarToggleButton
-        active={showObjectExtents}
-        onClick={onToggleObjectExtents}
-        ariaLabel="Toggle geographical extents"
-        icon={<Box />}
-      >
-        Geographical extents
-      </ToolbarToggleButton>
-      {showSemanticSurfaces && (
-        <ToolbarToggleButton
-          active={mobileInspectMode === 'surface'}
-          onClick={onToggleMobileInspectMode}
-          ariaLabel={
-            mobileInspectMode === 'surface'
-              ? 'Switch to object selection'
-              : 'Switch to surface selection'
-          }
-          iconSrc={faceSelectIconUrl}
-        >
-          {mobileInspectMode === 'surface' ? 'Surface selection' : 'Object selection'}
-        </ToolbarToggleButton>
-      )}
-      <Button
-        variant="ghost"
-        size="icon"
-        className="size-7"
-        disabled={!hasSelectedFeature}
-        onClick={onCenterCurrentSelection}
-        aria-label="Center current selection"
-        title="Center current selection"
-      >
-        <MaskIcon src={trackerIconUrl} className="size-3.5" />
-      </Button>
-    </div>
-  )
-}
-
-function VersionButton({
-  className,
-  onClick,
-}: {
-  className?: string
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        'rounded-sm px-0.5 py-0 font-mono text-[10px] font-medium leading-none text-muted-foreground transition hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30',
-        className,
-      )}
-      onClick={onClick}
-      aria-label={`Open changelog for version ${APP_VERSION}`}
-      title={`CJLoupe ${APP_VERSION} changelog`}
-    >
-      v{APP_VERSION}
-    </button>
-  )
-}
-
-function DesktopViewportToolbar({
-  showObjectExtents,
-  onToggleObjectExtents,
-  editMode,
-  xrayActive,
-  xrayDisabled,
-  hasSelectedFeature,
-  appearanceMode,
-  colormapAvailable,
-  pickingMode,
-  measurementActive,
-  showVertexGizmo,
-  hasSelectedVertex,
-  isolateSelectedFeature,
-  showTooltips,
-  onToggleEditMode,
-  onCyclePickingMode,
-  onToggleMeasurement,
-  onToggleVertexGizmo,
-  onToggleXray,
-  onCycleAppearanceMode,
-  onSelectAppearanceMode,
-  onToggleIsolateSelectedFeature,
-  onSelectPickingMode,
-  onCenterCurrentSelection,
-  onRestoreGeometry,
-  restoreGeometryDisabled,
-  onClearSelection,
-}: {
-  showObjectExtents: boolean
-  onToggleObjectExtents: () => void
-  editMode: boolean
-  xrayActive: boolean
-  xrayDisabled: boolean
-  hasSelectedFeature: boolean
-  appearanceMode: ViewerAppearanceMode
-  colormapAvailable: boolean
-  pickingMode: ViewerPickingMode
-  measurementActive: boolean
-  showVertexGizmo: boolean
-  hasSelectedVertex: boolean
-  isolateSelectedFeature: boolean
-  showTooltips: boolean
-  onToggleEditMode: () => void
-  onCyclePickingMode: () => void
-  onToggleMeasurement: () => void
-  onToggleVertexGizmo: () => void
-  onToggleXray: () => void
-  onCycleAppearanceMode: () => void
-  onSelectAppearanceMode: (mode: ViewerAppearanceMode) => void
-  onToggleIsolateSelectedFeature: () => void
-  onSelectPickingMode: (mode: ViewerPickingMode) => void
-  onCenterCurrentSelection: () => void
-  onRestoreGeometry: () => void
-  restoreGeometryDisabled: boolean
-  onClearSelection: () => void
-}) {
-  const [isPickingMenuOpen, setIsPickingMenuOpen] = useState(false)
-  const [isAppearanceMenuOpen, setIsAppearanceMenuOpen] = useState(false)
-  const tooltipsVisible = showTooltips && !isPickingMenuOpen && !isAppearanceMenuOpen
-
-  return (
-    <div className="floating-panel pointer-events-auto flex flex-col items-center gap-1 rounded-sm border p-1">
-      {hasSelectedFeature && (
-        <div className="floating-chip flex flex-col items-center gap-1 rounded-sm border p-1">
-          <ViewportControlTooltip
-          show={tooltipsVisible}
-          label={editMode ? 'Exit inspect' : 'Inspect'}
-          hotkey="Tab"
-        >
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn(
-              'size-7',
-              editMode
-                ? 'border border-primary/35 bg-primary/14 text-primary hover:bg-primary/18 hover:text-primary'
-                : 'text-muted-foreground hover:bg-accent/8 hover:text-foreground',
-            )}
-            onClick={onToggleEditMode}
-            aria-label={editMode ? 'Exit inspect mode' : 'Enter inspect mode'}
-            title={editMode ? 'Exit inspect' : 'Inspect'}
-          >
-            <MaskIcon src={editModeIconUrl} className="size-3.5" />
-          </Button>
-        </ViewportControlTooltip>
-        <ToolbarToggleButton
-          active={showVertexGizmo}
-          disabled={!editMode || !hasSelectedVertex}
-          onClick={onToggleVertexGizmo}
-          ariaLabel="Toggle move vertex"
-          iconSrc={objectOriginIconUrl}
-          showTooltip={tooltipsVisible}
-          tooltipHotkey="G"
-        >
-          Move vertex
-        </ToolbarToggleButton>
-        <ToolbarToggleButton
-          active={xrayActive}
-          disabled={xrayDisabled}
-          onClick={onToggleXray}
-          ariaLabel="Toggle xray view for edit mode"
-          iconSrc={cubeIconUrl}
-          showTooltip={tooltipsVisible}
-          tooltipHotkey="X"
-        >
-          Xray
-        </ToolbarToggleButton>
-      </div>
-      )}
-      <ToolbarAppearanceButton
-        mode={appearanceMode}
-        colormapAvailable={colormapAvailable}
-        onClick={onCycleAppearanceMode}
-        onSelectMode={onSelectAppearanceMode}
-        showTooltip={tooltipsVisible}
-        isMenuOpen={isAppearanceMenuOpen}
-        onMenuOpenChange={setIsAppearanceMenuOpen}
-      />
-      <ToolbarToggleButton
-        active={showObjectExtents}
-        onClick={onToggleObjectExtents}
-        ariaLabel="Toggle geographical extents"
-        icon={<Box />}
-        showTooltip={tooltipsVisible}
-      >
-        Geographical extents
-      </ToolbarToggleButton>
-      <ToolbarPickingButton
-        mode={pickingMode}
-        editMode={editMode}
-        onClick={onCyclePickingMode}
-        onSelectMode={onSelectPickingMode}
-        showTooltip={tooltipsVisible}
-        isMenuOpen={isPickingMenuOpen}
-        onMenuOpenChange={setIsPickingMenuOpen}
-      />
-      <ToolbarToggleButton
-        active={measurementActive}
-        onClick={onToggleMeasurement}
-        ariaLabel="Toggle distance measurement"
-        icon={<Ruler className="size-3.5" />}
-        showTooltip={tooltipsVisible}
-      >
-        Measure distance
-      </ToolbarToggleButton>
-      {hasSelectedFeature && (
-        <>
-          <ToolbarToggleButton
-            active={isolateSelectedFeature}
-            onClick={onToggleIsolateSelectedFeature}
-            ariaLabel="Toggle isolate selected feature"
-            iconSrc={pointcloudPointIconUrl}
-            showTooltip={tooltipsVisible}
-            tooltipHotkey="I"
-          >
-            Isolate
-          </ToolbarToggleButton>
-          <ViewportControlTooltip show={tooltipsVisible} label="Clear selection">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              onClick={onClearSelection}
-              aria-label="Clear selection"
-              title="Clear selection"
-            >
-              <CircleX className="size-3.5" />
-            </Button>
-          </ViewportControlTooltip>
-          <ViewportControlTooltip show={tooltipsVisible} label="Center" hotkey="C">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              onClick={onCenterCurrentSelection}
-              aria-label="Center current selection"
-              title="Center current selection"
-            >
-              <MaskIcon src={trackerIconUrl} className="size-3.5" />
-            </Button>
-          </ViewportControlTooltip>
-          <ViewportControlTooltip show={tooltipsVisible} label="Reset geometry" hotkey="U">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              disabled={restoreGeometryDisabled}
-              onClick={onRestoreGeometry}
-              aria-label="Reset feature geometry"
-              title="Reset feature geometry"
-            >
-              <RotateCcw className="size-3.5" />
-            </Button>
-          </ViewportControlTooltip>
-        </>
-      )}
-    </div>
-  )
-}
-
-function DesktopViewportStatusBar({
-  isPinnedAttributesOpen,
-  pinnedAttributeCount,
-  isPaneCollapsed,
-  activeObjectId,
-  viewportCenter,
-  measurementActive,
-  measurementPointCount,
-  measurementDistance,
-  selectedVertexIndex,
-  cameraFocalLength,
-  onCameraFocalLengthChange,
-  onSetTopDownView,
-  onSetCenter,
-  onTogglePinnedAttributesOpen,
-  cameraFollowerActive,
-  isCameraFollower,
-  onOpenCameraFollower,
-  onBreakCameraFollow,
-}: {
-  isPinnedAttributesOpen: boolean
-  pinnedAttributeCount: number
-  isPaneCollapsed: boolean
-  activeObjectId: string | null
-  viewportCenter: Vec3 | null
-  measurementActive: boolean
-  measurementPointCount: number
-  measurementDistance: number | null
-  selectedVertexIndex: number | null
-  cameraFocalLength: number
-  onCameraFocalLengthChange: (value: number) => void
-  onSetTopDownView: () => void
-  onSetCenter: (center: Vec3) => void
-  onTogglePinnedAttributesOpen: () => void
-  cameraFollowerActive: boolean
-  isCameraFollower: boolean
-  onOpenCameraFollower: () => void
-  onBreakCameraFollow: () => void
-}) {
-  const [didCopyObjectId, setDidCopyObjectId] = useState(false)
-  const isOrthographicCamera = isOrthographicCameraValue(cameraFocalLength)
-
-  useEffect(() => {
-    if (!didCopyObjectId) {
-      return
-    }
-
-    const timeout = window.setTimeout(() => {
-      setDidCopyObjectId(false)
-    }, 1200)
-
-    return () => window.clearTimeout(timeout)
-  }, [didCopyObjectId])
-
-  return (
-    <div className="floating-panel pointer-events-auto flex h-8 items-center justify-between gap-2 overflow-visible border border-x-0 border-b-0 px-1.5">
-      <div className="flex min-w-0 items-center gap-1.5 overflow-visible">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className={cn(
-            'relative size-6 shrink-0 rounded-[3px] p-0',
-            isPinnedAttributesOpen
-              ? 'bg-primary/10 text-primary hover:bg-primary/14 hover:text-primary'
-              : 'text-muted-foreground hover:bg-accent/10 hover:text-foreground',
-          )}
-          onClick={onTogglePinnedAttributesOpen}
-          aria-label={isPinnedAttributesOpen ? 'Hide info panel' : 'Show info panel'}
-          aria-expanded={isPinnedAttributesOpen}
-          title={isPinnedAttributesOpen ? 'Hide info panel' : 'Show info panel'}
-        >
-          <Pin  className="size-3" />
-          {pinnedAttributeCount > 0 && (
-            <span className="absolute right-0 top-0 inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[8px] font-semibold leading-none text-primary-foreground">
-              {pinnedAttributeCount}
-            </span>
-          )}
-        </Button>
-        {isPaneCollapsed && (
-          <Badge
-            variant="outline"
-            className="h-6 min-w-0 max-w-[min(16rem,30vw)] gap-1 overflow-visible border-primary/25 bg-primary/10 px-1.5 py-0 text-[10px] text-primary"
-          >
-            <SquareMousePointer className="size-3 shrink-0" />
-            <span className="min-w-0 truncate">{activeObjectId ?? 'No object'}</span>
-            {activeObjectId && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-4.5 shrink-0 rounded-[3px] p-0 text-primary hover:bg-primary/12 hover:text-primary"
-                aria-label={`Copy full object ID ${activeObjectId}`}
-                title={didCopyObjectId ? 'Copied full object ID' : `Copy full object ID: ${activeObjectId}`}
-                onClick={() => {
-                  void navigator.clipboard.writeText(activeObjectId).then(() => {
-                    setDidCopyObjectId(true)
-                  })
-                }}
-              >
-                {didCopyObjectId ? <Check className="size-2.5" /> : <Copy className="size-2.5" />}
-              </Button>
-            )}
-          </Badge>
-        )}
-        <div className="flex h-6 min-w-0 items-center gap-1 overflow-hidden rounded-sm border border-border/70 bg-background/35 px-1.5 font-mono text-[10px] text-muted-foreground">
-          <ViewportCenterEditor center={viewportCenter} onChange={onSetCenter} />
-          {selectedVertexIndex != null && (
-            <span className="shrink-0 text-foreground/75">[vtx {selectedVertexIndex}]</span>
-          )}
-          {measurementActive && (
-            <span className="shrink-0 border-l border-border/70 pl-1 text-foreground/75">
-              {measurementDistance != null
-                ? `distance ${formatDistanceValue(measurementDistance)}`
-                : measurementPointCount === 1
-                  ? 'measure: click second point'
-                  : 'measure: click first point'}
-            </span>
-          )}
-        </div>
-      </div>
-      <div className="flex h-6 shrink-0 items-center gap-1">
-        <div className="floating-chip flex h-6 shrink-0 items-center gap-1.5 rounded-sm border px-1.5">
-          <Camera className="size-3 text-muted-foreground" />
-          <span className="font-mono text-[10px] text-muted-foreground">
-            {isOrthographicCamera ? 'Ortho' : `${cameraFocalLength}mm`}
-          </span>
-          <input
-            type="range"
-            min={CAMERA_FOCAL_LENGTH_MIN}
-            max={ORTHOGRAPHIC_CAMERA_VALUE}
-            step={1}
-            value={cameraFocalLength}
-            onChange={(event) => onCameraFocalLengthChange(Number(event.target.value))}
-            className="slider-accent h-2 w-20 cursor-pointer appearance-none rounded-none bg-input"
-            aria-label="Camera projection and focal length"
-            aria-valuetext={isOrthographicCamera ? 'Orthographic' : `${cameraFocalLength} millimeters`}
-          />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-5 shrink-0 rounded-[3px] p-0"
-            disabled={!viewportCenter}
-            onClick={onSetTopDownView}
-            aria-label="Set top-down view"
-            title="Top-down view"
-          >
-            <ArrowDown className="size-3" />
-          </Button>
-        </div>
-        <CameraFollowStatusButton
-          isFollower={isCameraFollower}
-          active={cameraFollowerActive}
-          onOpenFollower={onOpenCameraFollower}
-          onBreakFollow={onBreakCameraFollow}
-        />
-      </div>
-    </div>
-  )
-}
-
-function CameraFollowStatusButton({
-  isFollower,
-  active,
-  onOpenFollower,
-  onBreakFollow,
-}: {
-  isFollower: boolean
-  active: boolean
-  onOpenFollower: () => void
-  onBreakFollow: () => void
-}) {
-  const label = isFollower ? 'Break camera follow' : 'Open synced viewport tab'
-
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon"
-      className={cn(
-        'group size-6 shrink-0 rounded-[3px] border p-0',
-        isFollower || active
-          ? 'border-primary/35 bg-primary/10 text-primary hover:bg-primary/14 hover:text-primary'
-          : 'border-border/70 bg-background/35 text-muted-foreground hover:bg-accent/8 hover:text-foreground',
-      )}
-      onClick={isFollower ? onBreakFollow : onOpenFollower}
-      aria-label={label}
-      aria-pressed={isFollower || active}
-      title={label}
-    >
-      {isFollower ? (
-        <>
-          <Link2 className="size-3 group-hover:hidden" />
-          <Link2Off className="hidden size-3 group-hover:block" />
-        </>
-      ) : (
-        <ExternalLink className="size-3" />
-      )}
-    </Button>
-  )
-}
-
-const VIEWPORT_CENTER_AXES = ['x', 'y', 'z'] as const
-
-function ViewportCenterEditor({
-  center,
-  onChange,
-}: {
-  center: Vec3 | null
-  onChange: (center: Vec3) => void
-}) {
-  const [draft, setDraft] = useState<Record<(typeof VIEWPORT_CENTER_AXES)[number], string> | null>(null)
-  const values = useMemo(() => ({
-    x: center?.[0].toFixed(3) ?? '',
-    y: center?.[1].toFixed(3) ?? '',
-    z: center?.[2].toFixed(3) ?? '',
-  }), [center])
-  const displayedValues = draft ?? values
-
-  const commit = useCallback(() => {
-    const nextCenter = VIEWPORT_CENTER_AXES.map((axis) => Number.parseFloat(displayedValues[axis])) as Vec3
-    setDraft(null)
-    if (nextCenter.every(Number.isFinite)) {
-      onChange(nextCenter)
-    }
-  }, [displayedValues, onChange])
-
-  return (
-    <div
-      className="flex min-w-0 items-center gap-1"
-      onFocus={() => setDraft((current) => current ?? values)}
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) {
-          commit()
-        }
-      }}
-    >
-      <span className="shrink-0 text-foreground/75">center</span>
-      {VIEWPORT_CENTER_AXES.map((axis) => (
-        <input
-          key={axis}
-          type="text"
-          inputMode="decimal"
-          value={displayedValues[axis]}
-          onChange={(event) => setDraft((current) => ({ ...(current ?? values), [axis]: event.target.value }))}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              commit()
-            } else if (event.key === 'Escape') {
-              setDraft(null)
-            }
-          }}
-          className="w-16 min-w-0 bg-transparent text-center outline-none placeholder:text-muted-foreground/50"
-          placeholder="-"
-          aria-label={`Center ${axis.toUpperCase()} coordinate`}
-        />
-      ))}
-    </div>
-  )
-}
-
-function ViewportHelpPanel({
-  isCollapsed,
-  subtitle,
-  helpItems,
-  onToggleCollapsed,
-}: {
-  isCollapsed: boolean
-  subtitle: string
-  helpItems: HelpItem[]
-  onToggleCollapsed: () => void
-}) {
-  return (
-    <div className="pointer-events-none absolute right-4 top-4 z-10 max-w-md">
-      <div
-        className={cn(
-          'floating-panel pointer-events-auto flex items-start gap-3 rounded-sm border text-sm',
-          isCollapsed ? 'px-2 py-2' : 'max-w-sm px-3 py-3',
-        )}
-      >
-        {!isCollapsed && (
-          <div id="viewport-help-panel" className="flex min-w-0 flex-1 flex-col gap-3">
-            <div>
-              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                Hotkeys
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>
-            </div>
-
-            <div className="grid gap-1.5">
-              {helpItems.map((hotkey) => (
-                <div key={hotkey.keys} className="flex items-center justify-between gap-3">
-                  <Kbd className="shrink-0">{hotkey.keys}</Kbd>
-                  <span className="text-right text-xs leading-5 text-foreground/76">
-                    {hotkey.description}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div className="ml-auto flex shrink-0 items-start gap-1">
-          <Button
-            type="button"
-            variant="ghost"
-            className="h-8 shrink-0 gap-1 px-2"
-            onClick={onToggleCollapsed}
-            aria-label={isCollapsed ? 'Expand hotkey panel' : 'Collapse hotkey panel'}
-            aria-expanded={!isCollapsed}
-            aria-controls="viewport-help-panel"
-          >
-            <CircleHelp className="size-4" />
-            {isCollapsed ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
-          </Button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function formatObjectDisplayId(objectId: string) {
-  return objectId.startsWith(BAG_BUILDING_ID_PREFIX)
-    ? objectId.slice(BAG_BUILDING_ID_PREFIX.length)
-    : objectId
-}
-
-function countDatasetObjects(dataset: ViewerDataset) {
-  return dataset.features.reduce((count, feature) => count + feature.objects.length, 0)
-}
-
-function objectSelectionKey(featureId: string, objectId?: string | null) {
-  return `${featureId}::${objectId ?? ''}`
-}
-
-function estimateFeatureListRowHeight(item: FeatureListItem, showFeatureSeparator: boolean) {
-  const objectRowCount = Math.max(item.objects.length, 1)
-  const objectRowsHeight =
-    objectRowCount * CITY_OBJECT_TREE_ROW_HEIGHT +
-    Math.max(objectRowCount - 1, 0) * CITY_OBJECT_TREE_ROW_GAP
-  return showFeatureSeparator
-    ? Math.max(FEATURE_LIST_ROW_HEIGHT, objectRowsHeight + FEATURE_SEPARATOR_HEIGHT_ESTIMATE)
-    : objectRowsHeight
-}
-
-function featureListRowHeightKey(item: FeatureListItem) {
-  return `${item.feature.id}::${item.objects.length}::${item.errorCount}`
-}
-
-function countErrorsByObjectId(
-  errors: ViewerValidationError[],
-  selectedErrorCodeSet: Set<number> | null = null,
-) {
-  const counts = new Map<string, number>()
-
-  for (const error of errors) {
-    if (!error.cityObjectId || (selectedErrorCodeSet !== null && !selectedErrorCodeSet.has(error.code))) {
-      continue
-    }
-
-    counts.set(error.cityObjectId, (counts.get(error.cityObjectId) ?? 0) + 1)
-  }
-
-  return counts
-}
-
-function collectTreeRootIds(objects: ViewerCityObject[], objectById: Map<string, ViewerCityObject>) {
-  const roots: string[] = []
-  for (const object of objects) {
-    if (object.parentIds.length === 0 || object.parentIds.every((parentId) => !objectById.has(parentId))) {
-      roots.push(object.id)
-    }
-  }
-
-  return roots.length > 0 ? roots : objects.map((object) => object.id)
-}
-
-function collectExpandedObjectIds(activeObjectId: string | null, objectById: Map<string, ViewerCityObject>) {
-  if (!activeObjectId) {
-    return new Set<string>()
-  }
-
-  const expandedIds = new Set<string>()
-  const visit = (objectId: string | null | undefined) => {
-    if (!objectId || expandedIds.has(objectId)) {
-      return
-    }
-
-    const object = objectById.get(objectId)
-    if (!object) {
-      return
-    }
-
-    expandedIds.add(objectId)
-    object.parentIds.forEach(visit)
-  }
-
-  visit(activeObjectId)
-  return expandedIds
-}
-
-function collectObjectAncestors(
-  object: ViewerCityObject | null,
-  objects: ViewerCityObject[],
-) {
-  if (!object || object.parentIds.length === 0) {
-    return []
-  }
-
-  const objectById = new Map(objects.map((entry) => [entry.id, entry]))
-  const ancestors: ViewerCityObject[] = []
-  const visited = new Set<string>()
-
-  const visit = (objectId: string) => {
-    if (visited.has(objectId)) {
-      return
-    }
-
-    visited.add(objectId)
-    const parent = objectById.get(objectId)
-    if (!parent) {
-      return
-    }
-
-    ancestors.push(parent)
-    parent.parentIds.forEach(visit)
-  }
-
-  object.parentIds.forEach(visit)
-  return ancestors
-}
-
-function getObjectGeometryChips(geometries: ViewerObjectGeometry[]) {
-  const chips = new Map<string, { key: string; label: string }>()
-
-  for (const geometry of geometries) {
-    const label = geometry.lod ?? `g${geometry.index}`
-    if (chips.has(label)) {
-      continue
-    }
-
-    chips.set(label, {
-      key: `${label}:${geometry.index}`,
-      label,
-    })
-  }
-
-  return [...chips.values()]
-}
-
-function getObjectGeometryTypeLabel(geometries: ViewerObjectGeometry[]) {
-  const types = new Set<string>()
-  for (const geometry of geometries) {
-    if (geometry.geometryType) {
-      types.add(geometry.geometryType)
-    }
-  }
-  const typeList = Array.from(types)
-
-  if (typeList.length === 0) {
-    return null
-  }
-
-  if (typeList.length === 1) {
-    return typeList[0]
-  }
-
-  if (typeList.length === 2) {
-    return `${typeList[0]} + ${typeList[1]}`
-  }
-
-  return `${typeList[0]} +${typeList.length - 1}`
-}
-
-function ObjectTreeIndicators({
-  hasAttributes,
-  errorCount,
-}: {
-  hasAttributes: boolean
-  errorCount: number
-}) {
-  if (!hasAttributes && errorCount === 0) {
-    return null
-  }
-
-  return (
-    <div className="flex shrink-0 items-center gap-1 text-muted-foreground">
-      {hasAttributes && (
-        <span title="Has attributes" aria-label="Has attributes" className="inline-flex items-center justify-center">
-          <TableProperties className="size-3" />
-        </span>
-      )}
-      {errorCount > 0 && (
-        <span
-          title={`${errorCount} errors`}
-          aria-label={`${errorCount} errors`}
-          className="inline-flex items-center gap-1 text-[9px] font-medium text-destructive"
-        >
-          <TriangleAlert className="size-3" />
-          <span>{errorCount}</span>
-        </span>
-      )}
-    </div>
-  )
-}
-
-function ObjectTreeGeometrySummary({
-  geometryTypeLabel,
-  chips,
-}: {
-  geometryTypeLabel: string | null
-  chips: Array<{ key: string; label: string }>
-}) {
-  if (!geometryTypeLabel && chips.length === 0) {
-    return null
-  }
-
-  return (
-    <div className="inline-flex translate-y-[-1px] items-center overflow-hidden rounded-sm border border-foreground/10 bg-background/45 align-middle leading-none">
-      {geometryTypeLabel && (
-        <span className="flex h-4 items-center bg-muted/70 px-1.5 text-[9px] font-medium leading-none text-foreground/80">
-          {geometryTypeLabel}
-        </span>
-      )}
-      {chips.map((chip, index) => (
-        <span
-          key={chip.key}
-          className={cn(
-            'flex h-4 items-center bg-background/70 px-1.5 text-[9px] font-medium uppercase tracking-[0.14em] leading-none text-muted-foreground',
-            (geometryTypeLabel || index > 0) && 'border-l border-foreground/10',
-          )}
-        >
-          {chip.label}
-        </span>
-      ))}
-    </div>
-  )
-}
-
-const FeatureObjectTree = memo(function FeatureObjectTree({
-  featureId,
-  objects,
-  activeObjectId,
-  errorCountsByObjectId,
-  onSelectObject,
-  onCenterObject,
-}: {
-  featureId: string
-  objects: ViewerCityObject[]
-  activeObjectId: string | null
-  errorCountsByObjectId: Map<string, number>
-  onSelectObject: (objectId: string) => void
-  onCenterObject: (featureId: string, objectId: string) => void
-}) {
-  const objectById = useMemo(() => new Map(objects.map((object) => [object.id, object])), [objects])
-  const rootIds = useMemo(() => collectTreeRootIds(objects, objectById), [objectById, objects])
-  const expandedIds = useMemo(
-    () => collectExpandedObjectIds(activeObjectId, objectById),
-    [activeObjectId, objectById],
-  )
-
-  return (
-    <div className="flex flex-col gap-1">
-      {rootIds.map((objectId) => (
-        <FeatureObjectTreeNode
-          key={objectId}
-          featureId={featureId}
-          objectId={objectId}
-          objectById={objectById}
-          activeObjectId={activeObjectId}
-          errorCountsByObjectId={errorCountsByObjectId}
-          expandedIds={expandedIds}
-          onSelectObject={onSelectObject}
-          onCenterObject={onCenterObject}
-          depth={0}
-        />
-      ))}
-    </div>
-  )
-})
-
-const FeatureObjectTreeNode = memo(function FeatureObjectTreeNode({
-  featureId,
-  objectId,
-  objectById,
-  activeObjectId,
-  errorCountsByObjectId,
-  expandedIds,
-  onSelectObject,
-  onCenterObject,
-  depth,
-  visited = new Set<string>(),
-}: {
-  featureId: string
-  objectId: string
-  objectById: Map<string, ViewerCityObject>
-  activeObjectId: string | null
-  errorCountsByObjectId: Map<string, number>
-  expandedIds: Set<string>
-  onSelectObject: (objectId: string) => void
-  onCenterObject: (featureId: string, objectId: string) => void
-  depth: number
-  visited?: Set<string>
-}) {
-  const object = objectById.get(objectId)
-  const isVisited = visited.has(objectId)
-  const [open, setOpen] = useState(depth === 0 || expandedIds.has(objectId))
-  const wasExpandedBySelectionRef = useRef(expandedIds.has(objectId))
-
-  useEffect(() => {
-    const isExpandedBySelection = expandedIds.has(objectId)
-
-    if (isExpandedBySelection && !wasExpandedBySelectionRef.current) {
-      setOpen(true)
-    }
-    wasExpandedBySelectionRef.current = isExpandedBySelection
-  }, [expandedIds, objectId])
-
-  if (isVisited || !object) {
-    return null
-  }
-
-  const childIds = object.childIds.filter((childId) => objectById.has(childId))
-  const hasChildren = childIds.length > 0
-  const isActive = objectId === activeObjectId
-  const hasAttributes = Object.keys(object.attributes).length > 0
-  const hasGeometry = object.geometries.length > 0
-  const errorCount = errorCountsByObjectId.get(objectId) ?? 0
-  const chips = getObjectGeometryChips(object.geometries)
-  const geometryTypeLabel = getObjectGeometryTypeLabel(object.geometries)
-  const nextVisited = new Set(visited)
-  nextVisited.add(objectId)
-  const objectLabel = formatObjectDisplayId(object.id)
-  const objectContents = (
-    <>
-      <div className="flex min-w-0 flex-1 items-center gap-1.5">
-        <span className="min-w-0 truncate text-[11px] font-medium">{objectLabel}</span>
-      </div>
-      <ObjectTreeIndicators hasAttributes={hasAttributes} errorCount={errorCount} />
-      <span className="shrink-0 text-[10px] text-muted-foreground">{object.type}</span>
-      {!hasGeometry && <span className="shrink-0 text-[10px] text-muted-foreground/70">no geom</span>}
-      {(geometryTypeLabel || chips.length > 0) && (
-        <div className="shrink-0">
-          <ObjectTreeGeometrySummary
-            geometryTypeLabel={geometryTypeLabel}
-            chips={chips}
-          />
-        </div>
-      )}
-    </>
-  )
-
-  if (!hasChildren) {
-    return (
-      <div style={{ paddingLeft: `${depth * 14}px` }}>
-        <button
-          type="button"
-          data-active-object-list-item={isActive ? 'true' : undefined}
-          onClick={() => onSelectObject(object.id)}
-          onDoubleClick={(event) => {
-            event.stopPropagation()
-            onCenterObject(featureId, object.id)
-          }}
-          className={cn(
-            'flex min-h-7 w-full min-w-0 flex-wrap items-center gap-1.5 rounded-sm px-2 py-1 text-left transition',
-            isActive
-              ? 'bg-primary/10 text-foreground'
-              : 'text-foreground/72 hover:bg-foreground/6',
-          )}
-        >
-          {objectContents}
-        </button>
-      </div>
-    )
-  }
-
-  return (
-    <Collapsible open={open} onOpenChange={setOpen}>
-      <div style={{ paddingLeft: `${depth * 14}px` }}>
-        <div
-          className={cn(
-            'flex min-h-7 w-full min-w-0 items-center gap-1.5 rounded-sm px-2 py-1 transition',
-            isActive
-              ? 'bg-primary/10 text-foreground'
-              : 'text-foreground/72 hover:bg-foreground/6',
-          )}
-        >
-          <CollapsibleTrigger
-            render={(
-              <button
-                type="button"
-                aria-label={open ? `Collapse ${objectLabel}` : `Expand ${objectLabel}`}
-                className="shrink-0 rounded-sm p-0.5 text-muted-foreground transition hover:bg-foreground/6 hover:text-foreground"
-                onClick={(event) => event.stopPropagation()}
-              />
-            )}
-          >
-            <ChevronRight
-              className={cn('size-3 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')}
-            />
-          </CollapsibleTrigger>
-          <button
-            type="button"
-            data-active-object-list-item={isActive ? 'true' : undefined}
-            onClick={() => onSelectObject(object.id)}
-            onDoubleClick={(event) => {
-              event.stopPropagation()
-              onCenterObject(featureId, object.id)
-            }}
-            className="flex min-h-6 min-w-0 flex-1 flex-wrap items-center gap-1.5 text-left"
-          >
-            {objectContents}
-          </button>
-        </div>
-        <CollapsibleContent className="overflow-hidden">
-          <div className="mt-1 flex flex-col gap-1 border-l border-border/55 pl-3">
-            {childIds.map((childId) => (
-              <FeatureObjectTreeNode
-                key={childId}
-                featureId={featureId}
-                objectId={childId}
-                objectById={objectById}
-                activeObjectId={activeObjectId}
-                errorCountsByObjectId={errorCountsByObjectId}
-                expandedIds={expandedIds}
-                onSelectObject={onSelectObject}
-                onCenterObject={onCenterObject}
-                depth={depth + 1}
-                visited={nextVisited}
-              />
-            ))}
-          </div>
-        </CollapsibleContent>
-      </div>
-    </Collapsible>
-  )
-})
-
-function ViewportGeometryModeBar({
-  geometryDisplayMode,
-  availableLods,
-  showTooltips = false,
-  onSelectGeometryDisplayMode,
-}: {
-  geometryDisplayMode: ViewerGeometryDisplayMode
-  availableLods: string[]
-  showTooltips?: boolean
-  onSelectGeometryDisplayMode: (mode: ViewerGeometryDisplayMode) => void
-}) {
-  const [isMenuOpen, setIsMenuOpen] = useState(false)
-  const modeKey = getGeometryDisplayModeKey(geometryDisplayMode)
-  const modes: Array<{ key: string; label: string; mode: ViewerGeometryDisplayMode }> = [
-    { key: 'best', label: 'Best', mode: { kind: 'best' } },
-    ...availableLods.map((lod) => ({
-      key: `lod:${lod}`,
-      label: lod,
-      mode: { kind: 'lod', lod } satisfies ViewerGeometryDisplayMode,
-    })),
-  ]
-  const activeMode = modes.find((entry) => entry.key === modeKey) ?? modes[0]
-
-  return (
-    <DropdownMenu open={isMenuOpen} onOpenChange={setIsMenuOpen}>
-      <ViewportControlTooltip show={showTooltips && !isMenuOpen} label="LoD" hotkey="L">
-        <DropdownMenuTrigger
-          render={(
-            <Button
-              type="button"
-              variant="ghost"
-              className="floating-panel pointer-events-auto gap-2 rounded-sm border px-2 font-mono"
-              aria-label={`Choose level of detail, currently ${activeMode.label}`}
-              title={`LoD: ${activeMode.label}`}
-            />
-          )}
-        >
-          <span className="flex min-w-0 flex-col items-start gap-0.5">
-            <span className="text-[9px] leading-none uppercase tracking-[0.16em] text-muted-foreground">LoD</span>
-            <span className="text-[11px] leading-none">{activeMode.label}</span>
-          </span>
-          <ChevronDown
-            data-icon="inline-end"
-            className={cn('transition-transform', isMenuOpen && 'rotate-180')}
-          />
-        </DropdownMenuTrigger>
-      </ViewportControlTooltip>
-      <DropdownMenuContent side="top" align="end" className="min-w-28 rounded-sm">
-        <DropdownMenuGroup>
-          <DropdownMenuRadioGroup
-            value={modeKey}
-            onValueChange={(value) => {
-              const selectedMode = modes.find((entry) => entry.key === value)
-              if (selectedMode) {
-                onSelectGeometryDisplayMode(selectedMode.mode)
-              }
-            }}
-          >
-            {modes.map((entry) => (
-              <DropdownMenuRadioItem
-                key={entry.key}
-                value={entry.key}
-                className="h-8 rounded-sm text-xs"
-              >
-                {entry.label}
-              </DropdownMenuRadioItem>
-            ))}
-          </DropdownMenuRadioGroup>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
-function CopyIdButton({
-  value,
-  label,
-}: {
-  value: string
-  label: string
-}) {
-  const [didCopy, setDidCopy] = useState(false)
-
-  useEffect(() => {
-    if (!didCopy) {
-      return
-    }
-
-    const timeout = window.setTimeout(() => {
-      setDidCopy(false)
-    }, 1200)
-
-    return () => window.clearTimeout(timeout)
-  }, [didCopy])
-
-  return (
-    <span
-      className="inline-flex"
-      onClick={(event) => {
-        event.stopPropagation()
-      }}
-    >
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="size-5 rounded-[3px] text-muted-foreground hover:text-foreground"
-        aria-label={`Copy full ${label} ${value}`}
-        title={didCopy ? `Copied full ${label}` : `Copy full ${label}: ${value}`}
-        onClick={(event) => {
-          event.stopPropagation()
-
-          void navigator.clipboard.writeText(value).then(() => {
-            setDidCopy(true)
-          })
-        }}
-      >
-        {didCopy ? <Check className="size-3" /> : <Copy className="size-3" />}
-      </Button>
-    </span>
-  )
-}
-
-const FeatureListRow = memo(function FeatureListRow({
-  item,
-  selected,
-  showFeatureSeparator,
-  activeObjectId,
-  onSelectFeature,
-  onCenterObject,
-  onHeightChange,
-}: {
-  item: FeatureListItem
-  selected: boolean
-  showFeatureSeparator: boolean
-  activeObjectId: string | null
-  onSelectFeature: (featureId: string, objectId?: string | null) => void
-  onCenterObject: (featureId: string, objectId: string) => void
-  onHeightChange: (rowHeightKey: string, height: number) => void
-}) {
-  const { feature, isInvalid } = item
-  const rowRef = useRef<HTMLDivElement | null>(null)
-  const rowHeightKey = featureListRowHeightKey(item)
-
-  useEffect(() => {
-    const element = rowRef.current
-    if (!element) {
-      return
-    }
-
-    const reportHeight = () => {
-      // ResizeObserver callbacks can already be queued when virtualization
-      // detaches a row. A detached element measures as zero and must not be
-      // allowed to collapse the virtual layout.
-      if (!element.isConnected) {
-        return
-      }
-
-      const measuredHeight = Math.ceil(element.getBoundingClientRect().height)
-      if (measuredHeight <= 0) {
-        return
-      }
-
-      onHeightChange(
-        rowHeightKey,
-        showFeatureSeparator
-          ? Math.max(measuredHeight, FEATURE_LIST_ROW_HEIGHT)
-          : measuredHeight,
-      )
-    }
-
-    reportHeight()
-    const resizeObserver = new ResizeObserver(reportHeight)
-    resizeObserver.observe(element)
-
-    return () => resizeObserver.disconnect()
-  }, [onHeightChange, rowHeightKey, showFeatureSeparator])
-
-  return (
-    <div
-      ref={rowRef}
-      style={showFeatureSeparator ? { minHeight: `max(${FEATURE_LIST_ROW_HEIGHT}px, 3.75rem)` } : undefined}
-      className="w-full min-w-0 overflow-hidden"
-    >
-      {showFeatureSeparator && (
-        <div className="flex min-w-0 items-center gap-1.5 pt-0.5 text-[9px] text-muted-foreground">
-          <span
-            className={cn(
-              'min-w-0 truncate font-medium',
-              selected ? 'text-accent' : isInvalid ? 'text-destructive' : 'text-muted-foreground',
-            )}
-            title={feature.id}
-          >
-            {feature.id}
-          </span>
-          <div className="min-w-6 flex-1 border-t border-border/70" />
-        </div>
-      )}
-
-      <div
-        className={cn(
-          'transition',
-          showFeatureSeparator ? 'mt-0.5' : 'mt-0',
-        )}
-      >
-        <FeatureObjectTree
-          featureId={feature.id}
-          objects={item.objects}
-          activeObjectId={activeObjectId}
-          errorCountsByObjectId={item.errorCountsByObjectId}
-          onSelectObject={(objectId) => onSelectFeature(feature.id, objectId)}
-          onCenterObject={onCenterObject}
-        />
-      </div>
-    </div>
-  )
-})
-
-const FeatureListPanel = memo(function FeatureListPanel({
-  filteredFeatureItems,
-  isLoading,
-  annotationSourceName,
-  datasetFeatureCount,
-  showFeatureSeparators,
-  showDesktopHeading,
-  searchQuery,
-  selectedFeatureId,
-  showOnlyInvalidFeatures,
-  errorCodeFilters,
-  selectedErrorCodes,
-  onSearchQueryChange,
-  onShowOnlyInvalidFeaturesChange,
-  onToggleErrorCodeFilter,
-  onToggleAllErrorCodeFilters,
-  onSelectFeature,
-  onCenterObject,
-  onShowInfo,
-  activeObjectId,
-}: {
-  filteredFeatureItems: FeatureListItem[]
-  isLoading: boolean
-  annotationSourceName: string | null
-  datasetFeatureCount: number
-  showFeatureSeparators: boolean
-  showDesktopHeading: boolean
-  searchQuery: string
-  selectedFeatureId: string | null
-  showOnlyInvalidFeatures: boolean
-  errorCodeFilters: ErrorCodeFilterOption[]
-  selectedErrorCodes: number[] | null
-  onSearchQueryChange: (event: ChangeEvent<HTMLInputElement>) => void
-  onShowOnlyInvalidFeaturesChange: (checked: boolean) => void
-  onToggleErrorCodeFilter: (code: number) => void
-  onToggleAllErrorCodeFilters: () => void
-  onSelectFeature: (featureId: string, objectId?: string | null) => void
-  onCenterObject: (featureId: string, objectId: string) => void
-  onShowInfo: (() => void) | null
-  activeObjectId: string | null
-}) {
-  const viewportRef = useRef<HTMLDivElement | null>(null)
-  const handledAutoScrollKeyRef = useRef<string | null>(null)
-  const [scrollTop, setScrollTop] = useState(0)
-  const [viewportHeight, setViewportHeight] = useState(0)
-  const [rowHeights, setRowHeights] = useState<Map<string, number>>(() => new Map())
-  const selectedErrorCodeSet = useMemo(
-    () => selectedErrorCodes === null ? null : new Set(selectedErrorCodes),
-    [selectedErrorCodes],
-  )
-  const selectedErrorCodeCount = selectedErrorCodeSet?.size ?? errorCodeFilters.length
-
-  const selectedIndex = useMemo(
-    () => filteredFeatureItems.findIndex((item) => item.feature.id === selectedFeatureId),
-    [filteredFeatureItems, selectedFeatureId],
-  )
-
-  useEffect(() => {
-    const viewport = viewportRef.current
-    if (!viewport) {
-      return
-    }
-
-    const updateMetrics = () => {
-      setScrollTop(viewport.scrollTop)
-      setViewportHeight(viewport.clientHeight)
-    }
-
-    updateMetrics()
-    viewport.addEventListener('scroll', updateMetrics, { passive: true })
-
-    const resizeObserver = new ResizeObserver(updateMetrics)
-    resizeObserver.observe(viewport)
-
-    return () => {
-      viewport.removeEventListener('scroll', updateMetrics)
-      resizeObserver.disconnect()
-    }
-  }, [])
-
-  const rowLayout = useMemo(() => {
-    const rows: Array<{ top: number; height: number }> = []
-    let nextTop = FEATURE_LIST_TOP_PADDING
-    const rowGap = showFeatureSeparators ? FEATURE_LIST_ROW_GAP : 0
-
-    for (const item of filteredFeatureItems) {
-      const height = rowHeights.get(featureListRowHeightKey(item)) ?? estimateFeatureListRowHeight(item, showFeatureSeparators)
-      rows.push({ top: nextTop, height })
-      nextTop += height + rowGap
-    }
-
-    const totalHeight =
-      rows.length > 0
-        ? rows[rows.length - 1].top + rows[rows.length - 1].height + FEATURE_LIST_BOTTOM_PADDING
-        : FEATURE_LIST_TOP_PADDING + FEATURE_LIST_BOTTOM_PADDING
-
-    return { rows, totalHeight }
-  }, [filteredFeatureItems, rowHeights, showFeatureSeparators])
-  const rowLayoutRef = useRef(rowLayout)
-  useEffect(() => {
-    rowLayoutRef.current = rowLayout
-  }, [rowLayout])
-
-  const filteredObjectCount = useMemo(
-    () => filteredFeatureItems.reduce((count, item) => count + item.objects.length, 0),
-    [filteredFeatureItems],
-  )
-
-  const handleRowHeightChange = useCallback((rowHeightKey: string, height: number) => {
-    setRowHeights((current) => {
-      if (current.get(rowHeightKey) === height) {
-        return current
-      }
-
-      const next = new Map(current)
-      next.set(rowHeightKey, height)
-      return next
-    })
-  }, [])
-
-  const handleListSelectFeature = useCallback((
-    featureId: string,
-    objectId?: string | null,
-  ) => {
-    handledAutoScrollKeyRef.current = objectSelectionKey(featureId, objectId)
-    onSelectFeature(featureId, objectId)
-  }, [onSelectFeature])
-
-  const handleListCenterObject = useCallback((
-    featureId: string,
-    objectId: string,
-  ) => {
-    handledAutoScrollKeyRef.current = objectSelectionKey(featureId, objectId)
-    onCenterObject(featureId, objectId)
-  }, [onCenterObject])
-
-  const scrollSelectedFeatureIntoView = useCallback((featureIndex: number) => {
-    const viewport = viewportRef.current
-    if (!viewport || featureIndex < 0) {
-      return
-    }
-
-    const selectedRow = rowLayoutRef.current.rows[featureIndex]
-    if (!selectedRow) {
-      return
-    }
-
-    const rowStart = selectedRow.top
-    const rowEnd = selectedRow.top + selectedRow.height
-    const viewportStart = viewport.scrollTop
-    const viewportEnd = viewportStart + viewport.clientHeight
-
-    if (rowStart >= viewportStart && rowEnd <= viewportEnd) {
-      return
-    }
-
-    const nextTop =
-      rowStart < viewportStart
-        ? Math.max(rowStart - (showFeatureSeparators ? FEATURE_LIST_ROW_GAP : 0), 0)
-        : rowEnd - viewport.clientHeight + (showFeatureSeparators ? FEATURE_LIST_ROW_GAP : 0)
-
-    viewport.scrollTo({
-      top: Math.max(nextTop, 0),
-      behavior: 'auto',
-    })
-  }, [showFeatureSeparators])
-
-  const scrollActiveObjectIntoView = useCallback(() => {
-    const viewport = viewportRef.current
-    if (!viewport) {
-      return false
-    }
-
-    const activeElement = viewport.querySelector<HTMLElement>('[data-active-object-list-item="true"]')
-    if (!activeElement) {
-      return false
-    }
-
-    const viewportRect = viewport.getBoundingClientRect()
-    const activeRect = activeElement.getBoundingClientRect()
-    if (activeRect.height <= 0) {
-      return false
-    }
-
-    const visibilityInset = Math.min(
-      OBJECT_LIST_VISIBILITY_INSET,
-      Math.max((viewport.clientHeight - activeRect.height) / 2, 0),
-    )
-    if (
-      activeRect.top >= viewportRect.top + visibilityInset &&
-      activeRect.bottom <= viewportRect.bottom - visibilityInset
-    ) {
-      return true
-    }
-
-    const viewportCenter = viewportRect.top + viewport.clientHeight / 2
-    const activeCenter = activeRect.top + activeRect.height / 2
-    const nextTop = viewport.scrollTop + activeCenter - viewportCenter
-
-    viewport.scrollTo({
-      top: Math.max(nextTop, 0),
-      behavior: 'auto',
-    })
-    return true
-  }, [])
-
-  useEffect(() => {
-    if (!selectedFeatureId) {
-      handledAutoScrollKeyRef.current = null
-      return
-    }
-
-    const selectionKey = objectSelectionKey(selectedFeatureId, activeObjectId)
-    if (selectedIndex < 0 || handledAutoScrollKeyRef.current === selectionKey) {
-      return
-    }
-
-    handledAutoScrollKeyRef.current = selectionKey
-    scrollSelectedFeatureIntoView(selectedIndex)
-    if (!activeObjectId) {
-      return
-    }
-
-    const frameIds: number[] = []
-    const scheduleObjectScroll = (attempt: number) => {
-      const frameId = window.requestAnimationFrame(() => {
-        if (scrollActiveObjectIntoView()) {
-          return
-        }
-
-        if (attempt <= 0) {
-          return
-        }
-
-        scrollSelectedFeatureIntoView(selectedIndex)
-        scheduleObjectScroll(attempt - 1)
-      })
-      frameIds.push(frameId)
-    }
-
-    scheduleObjectScroll(12)
-
-    return () => {
-      for (const frameId of frameIds) {
-        window.cancelAnimationFrame(frameId)
-      }
-    }
-  }, [
-    activeObjectId,
-    scrollActiveObjectIntoView,
-    scrollSelectedFeatureIntoView,
-    selectedFeatureId,
-    selectedIndex,
-  ])
-
-  const overscanDistance = FEATURE_LIST_OVERSCAN * (
-    (showFeatureSeparators ? FEATURE_LIST_ROW_HEIGHT : CITY_OBJECT_TREE_ROW_HEIGHT) +
-    (showFeatureSeparators ? FEATURE_LIST_ROW_GAP : 0)
-  )
-  const visibleStart = Math.max(scrollTop - overscanDistance, 0)
-  const visibleEnd = scrollTop + viewportHeight + overscanDistance
-  let startIndex = 0
-  while (
-    startIndex < rowLayout.rows.length &&
-    rowLayout.rows[startIndex].top + rowLayout.rows[startIndex].height < visibleStart
-  ) {
-    startIndex += 1
-  }
-
-  let endIndex = startIndex
-  while (endIndex < rowLayout.rows.length && rowLayout.rows[endIndex].top <= visibleEnd) {
-    endIndex += 1
-  }
-  const renderedItemIndices = Array.from(
-    { length: Math.max(endIndex - startIndex, 0) },
-    (_, index) => startIndex + index,
-  )
-  if (selectedIndex >= 0 && (selectedIndex < startIndex || selectedIndex >= endIndex)) {
-    renderedItemIndices.push(selectedIndex)
-    renderedItemIndices.sort((left, right) => left - right)
-  }
-  return (
-    <>
-      <div className="panel-header-surface flex flex-col gap-2.5 border-b p-4 pb-3">
-        {showDesktopHeading && (
-          <div className="flex items-center justify-between gap-2">
-            <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-              <Layers className="size-4 text-muted-foreground" />
-              CityObjects ({datasetFeatureCount})
-            </h1>
-            <div className="flex items-center gap-1">
-              {onShowInfo && (
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="size-8 shrink-0"
-                  onClick={onShowInfo}
-                  aria-label="Show file information"
-                  title="Show file information"
-                >
-                  <FileText className="size-4" />
-                </Button>
-              )}
-            </div>
-          </div>
-        )}
-
-        <InputGroup className="h-9">
-          <InputGroupAddon>
-            <Search aria-hidden="true" />
-          </InputGroupAddon>
-          <InputGroupInput
-            value={searchQuery}
-            onChange={onSearchQueryChange}
-            placeholder="Search objects"
-            aria-label="Search objects"
-          />
-        </InputGroup>
-
-        {annotationSourceName && (
-          <Field orientation="horizontal" className="rounded-sm bg-foreground/4 px-3 py-2">
-            <FieldContent>
-              <FieldLabel
-                htmlFor="show-invalid-features"
-                className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground"
-              >
-                Show errors only
-              </FieldLabel>
-              <FieldDescription className="text-xs text-foreground/60">
-                Showing {filteredObjectCount} of {datasetFeatureCount}
-              </FieldDescription>
-            </FieldContent>
-            <div className="flex shrink-0 self-center items-center gap-1.5">
-              {showOnlyInvalidFeatures && errorCodeFilters.length > 0 && (
-                <Popover>
-                  <PopoverTrigger
-                    render={(
-                      <Button
-                        size="icon"
-                        variant={selectedErrorCodeCount === errorCodeFilters.length ? 'ghost' : 'outline'}
-                        className="size-8"
-                        aria-label="Filter validation error codes"
-                        title="Filter validation error codes"
-                      >
-                        <Filter data-icon />
-                      </Button>
-                    )}
-                  />
-                  <PopoverContent align="end" className="w-80 p-0">
-                    <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
-                      <div className="min-w-0">
-                        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                          Error codes
-                        </p>
-                        <p className="text-xs text-foreground/60">
-                          {selectedErrorCodeCount} of {errorCodeFilters.length} selected
-                        </p>
-                      </div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 shrink-0 px-2 text-xs"
-                        onClick={onToggleAllErrorCodeFilters}
-                      >
-                        {selectedErrorCodeCount === errorCodeFilters.length ? 'None' : 'All'}
-                      </Button>
-                    </div>
-                    <div className="max-h-80 overflow-y-auto p-1.5">
-                      {errorCodeFilters.map((option) => {
-                        const isSelected = selectedErrorCodeSet === null || selectedErrorCodeSet.has(option.code)
-                        const checkboxId = `error-code-${option.code}`
-
-                        return (
-                          <Field
-                            key={option.code}
-                            orientation="horizontal"
-                            className="items-start rounded-sm px-2 py-1.5 transition hover:bg-foreground/5"
-                          >
-                            <Checkbox
-                              id={checkboxId}
-                              checked={isSelected}
-                              onCheckedChange={() => onToggleErrorCodeFilter(option.code)}
-                              className="mt-0.5"
-                            />
-                            <FieldLabel
-                              htmlFor={checkboxId}
-                              className="min-w-0 flex-1 cursor-pointer items-start font-normal"
-                            >
-                              <div className="min-w-0 flex-1">
-                                <div className="flex min-w-0 items-center gap-1.5">
-                                  <span
-                                    aria-hidden="true"
-                                    className="size-2 shrink-0 rounded-full"
-                                    style={{ backgroundColor: errorColor(option.code) }}
-                                  />
-                                  <span className="shrink-0 text-xs font-medium tabular-nums text-foreground">
-                                    code {option.code}
-                                  </span>
-                                  <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-                                    {option.count}
-                                  </span>
-                                </div>
-                                <p className="mt-0.5 truncate text-xs text-foreground/62" title={option.description}>
-                                  {option.description}
-                                </p>
-                              </div>
-                            </FieldLabel>
-                          </Field>
-                        )
-                      })}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              )}
-              <Switch
-                id="show-invalid-features"
-                checked={showOnlyInvalidFeatures}
-                onCheckedChange={onShowOnlyInvalidFeaturesChange}
-                className="shrink-0"
-              />
-            </div>
-          </Field>
-        )}
-      </div>
-
-      <ScrollArea className="min-h-0 flex-1" viewportRef={viewportRef}>
-        {filteredFeatureItems.length > 0 ? (
-          <div
-            className="relative"
-            style={{ height: `${rowLayout.totalHeight}px`, overflowAnchor: 'none' }}
-          >
-            {renderedItemIndices.map((itemIndex) => {
-              const item = filteredFeatureItems[itemIndex]
-              if (!item) {
-                return null
-              }
-              const top = rowLayout.rows[itemIndex]?.top ?? FEATURE_LIST_TOP_PADDING
-              const isSelected = item.feature.id === selectedFeatureId
-
-              return (
-                <div
-                  key={item.feature.id}
-                  className="absolute left-3 right-3"
-                  style={{ top: `${top}px` }}
-                >
-                  <FeatureListRow
-                    item={item}
-                    selected={isSelected}
-                    showFeatureSeparator={showFeatureSeparators}
-                    activeObjectId={isSelected ? activeObjectId : null}
-                    onSelectFeature={handleListSelectFeature}
-                    onCenterObject={handleListCenterObject}
-                    onHeightChange={handleRowHeightChange}
-                  />
-                </div>
-              )
-            })}
-          </div>
-        ) : (
-          !isLoading && (
-            <div className="p-3 pt-2">
-              <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-4 py-6 text-sm text-muted-foreground">
-                No objects matched the current filter.
-              </div>
-            </div>
-          )
-        )}
-      </ScrollArea>
-    </>
-  )
-})
-
-function ViewportControlTooltip({
-  show,
-  label,
-  hotkey,
-  children,
-}: {
-  show: boolean
-  label: string
-  hotkey?: string
-  children: ReactElement
-}) {
-  return (
-    <TooltipProvider>
-      <Tooltip open={show}>
-        <TooltipTrigger render={children} />
-        <TooltipContent side="left">
-          <span className="inline-flex items-center gap-2">
-            <span>{label}</span>
-            {hotkey && (
-              <Kbd className="h-4 border-primary-foreground/25 bg-primary-foreground/15 px-1 text-[9px] text-primary-foreground">
-                {hotkey}
-              </Kbd>
-            )}
-          </span>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  )
-}
-
-function ToolbarToggleButton({
-  active,
-  disabled = false,
-  onClick,
-  children,
-  ariaLabel,
-  iconSrc,
-  icon,
-  showTooltip = false,
-  tooltipHotkey,
-}: {
-  active: boolean
-  disabled?: boolean
-  onClick: () => void
-  children: ReactNode
-  ariaLabel: string
-  iconSrc?: string
-  icon?: ReactNode
-  showTooltip?: boolean
-  tooltipHotkey?: string
-}) {
-  const label = typeof children === 'string' ? children : ariaLabel
-
-  return (
-    <ViewportControlTooltip show={showTooltip} label={label} hotkey={tooltipHotkey}>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        disabled={disabled}
-        onClick={onClick}
-        aria-label={ariaLabel}
-        aria-pressed={active}
-        title={label}
-        className={cn(
-          'size-7 justify-center rounded-sm border p-0',
-          active
-            ? 'border-primary/35 bg-primary/14 text-primary hover:bg-primary/18 hover:text-primary'
-            : 'border-border/70 bg-background/35 text-muted-foreground hover:bg-accent/8 hover:text-foreground',
-          disabled && 'border-border/45 bg-transparent text-muted-foreground/45 hover:bg-transparent hover:text-muted-foreground/45',
-        )}
-      >
-        {icon ?? (iconSrc ? (
-          <MaskIcon src={iconSrc} className="size-3.5" />
-        ) : (
-          <span className={cn('size-1.5 rounded-full', active ? 'bg-primary' : 'bg-muted-foreground/45')} />
-        ))}
-      </Button>
-    </ViewportControlTooltip>
-  )
-}
-
-function ToolbarPickingButton({
-  mode,
-  editMode,
-  onClick,
-  onSelectMode,
-  showTooltip = false,
-  isMenuOpen,
-  onMenuOpenChange,
-}: {
-  mode: ViewerPickingMode
-  editMode: boolean
-  onClick: () => void
-  onSelectMode: (mode: ViewerPickingMode) => void
-  showTooltip?: boolean
-  isMenuOpen: boolean
-  onMenuOpenChange: (open: boolean) => void
-}) {
-  const active = mode !== 'none'
-  const iconSrc = getPickingModeIconUrl(mode)
-  const availableModes = getAvailablePickingModes(editMode)
-  const activeClassName = active
-    ? 'border-primary/35 bg-primary/14 text-primary hover:bg-primary/18 hover:text-primary'
-    : 'border-border/70 bg-background/35 text-muted-foreground hover:bg-accent/8 hover:text-foreground'
-
-  return (
-    <ViewportControlTooltip show={showTooltip} label="Picking mode" hotkey="0-3">
-      <div className="inline-flex">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          onClick={onClick}
-          aria-label={`Cycle picking mode, currently ${getPickingModeLabel(mode).toLowerCase()}`}
-          title={`Pick: ${getPickingModeLabel(mode)}`}
-          className={cn('size-7 justify-center rounded-r-none border p-0', activeClassName)}
-        >
-          <MaskIcon src={iconSrc} className="size-3.5" />
-        </Button>
-        <DropdownMenu open={isMenuOpen} onOpenChange={onMenuOpenChange}>
-          <DropdownMenuTrigger
-            render={(
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label="Choose picking mode"
-                title="Choose picking mode"
-                className={cn('h-7 w-5 justify-center rounded-l-none border border-l-0 p-0', activeClassName)}
-              >
-                <ChevronDown className={cn('size-3 transition-transform', isMenuOpen && 'rotate-180')} />
-              </Button>
-            )}
-          />
-          <DropdownMenuContent side="top" align="end" className="min-w-40 rounded-sm">
-            <DropdownMenuGroup>
-              <DropdownMenuRadioGroup
-                value={mode}
-                onValueChange={(value) => onSelectMode(value as ViewerPickingMode)}
-              >
-                {availableModes.map((entry) => (
-                  <DropdownMenuRadioItem
-                    key={entry}
-                    value={entry}
-                    className="h-8 rounded-sm text-xs"
-                  >
-                    <MaskIcon src={getPickingModeIconUrl(entry)} className="size-3.5" />
-                    <span>{getPickingModeLabel(entry)}</span>
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-    </ViewportControlTooltip>
-  )
-}
-
-function ToolbarAppearanceButton({
-  mode,
-  colormapAvailable,
-  onClick,
-  onSelectMode,
-  showTooltip = false,
-  isMenuOpen,
-  onMenuOpenChange,
-}: {
-  mode: ViewerAppearanceMode
-  colormapAvailable: boolean
-  onClick: () => void
-  onSelectMode: (mode: ViewerAppearanceMode) => void
-  showTooltip?: boolean
-  isMenuOpen: boolean
-  onMenuOpenChange: (open: boolean) => void
-}) {
-  const activeClassName = mode === 'regular'
-    ? 'border-border/70 bg-background/35 text-muted-foreground hover:bg-accent/8 hover:text-foreground'
-    : 'border-primary/35 bg-primary/14 text-primary hover:bg-primary/18 hover:text-primary'
-
-  return (
-    <ViewportControlTooltip show={showTooltip} label="Appearance" hotkey="S">
-      <div className="inline-flex">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          onClick={onClick}
-          aria-label={`Cycle appearance, currently ${getAppearanceModeLabel(mode).toLowerCase()}`}
-          title={`Appearance: ${getAppearanceModeLabel(mode)}`}
-          className={cn('size-7 justify-center rounded-r-none border p-0', activeClassName)}
-        >
-          {getAppearanceModeIcon(mode)}
-        </Button>
-        <DropdownMenu open={isMenuOpen} onOpenChange={onMenuOpenChange}>
-          <DropdownMenuTrigger
-            render={(
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label="Choose appearance"
-                title="Choose appearance"
-                className={cn('h-7 w-5 justify-center rounded-l-none border border-l-0 p-0', activeClassName)}
-              >
-                <ChevronDown className={cn('size-3 transition-transform', isMenuOpen && 'rotate-180')} />
-              </Button>
-            )}
-          />
-          <DropdownMenuContent side="top" align="end" className="min-w-40 rounded-sm">
-            <DropdownMenuGroup>
-              <DropdownMenuRadioGroup
-                value={mode}
-                onValueChange={(value) => onSelectMode(value as ViewerAppearanceMode)}
-              >
-                {VIEWER_APPEARANCE_MODES.map((entry) => {
-                  const isAvailable = entry !== 'colormap' || colormapAvailable
-
-                  return (
-                    <DropdownMenuRadioItem
-                      key={entry}
-                      value={entry}
-                      disabled={!isAvailable}
-                      title={!isAvailable ? 'Select an attribute to enable colormap coloring' : undefined}
-                      className="h-8 rounded-sm text-xs"
-                    >
-                      {getAppearanceModeIcon(entry)}
-                      <span>{getAppearanceModeLabel(entry)}</span>
-                    </DropdownMenuRadioItem>
-                  )
-                })}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-    </ViewportControlTooltip>
-  )
-}
-
-const DetailAttributePanel = memo(function DetailAttributePanel({
-  objectAttributes,
-  parentObjects,
-  canPinAttributes,
-  canPinParentAttributes,
-  pinnedAttributeKeys,
-  onPinAttribute,
-  onUnpinAttribute,
-}: {
-  objectAttributes: Record<string, unknown>
-  parentObjects: ViewerCityObject[]
-  canPinAttributes: boolean
-  canPinParentAttributes: boolean
-  pinnedAttributeKeys: string[]
-  onPinAttribute: (key: string) => void
-  onUnpinAttribute: (key: string) => void
-}) {
-  return (
-    <div className="flex min-w-0 flex-col gap-4">
-      <section className="flex min-w-0 flex-col gap-2">
-        {parentObjects.length > 0 && (
-          <h3 className="text-xs font-medium text-muted-foreground">Object attributes</h3>
-        )}
-        <AttributeSection
-          attributes={objectAttributes}
-          emptyText="No attributes on the active object."
-          canPinAttributes={canPinAttributes}
-          pinnedAttributeKeys={pinnedAttributeKeys}
-          onPinAttribute={onPinAttribute}
-          onUnpinAttribute={onUnpinAttribute}
-        />
-      </section>
-      {parentObjects.map((parent) => (
-        <section key={parent.id} className="flex min-w-0 flex-col gap-2">
-          <h3 className="text-xs font-medium text-muted-foreground">Parent attributes · {parent.type}</h3>
-          <AttributeSection
-            attributes={parent.attributes}
-            emptyText="No attributes on this parent."
-            canPinAttributes={canPinParentAttributes}
-            pinnedAttributeKeys={pinnedAttributeKeys}
-            onPinAttribute={onPinAttribute}
-            onUnpinAttribute={onUnpinAttribute}
-          />
-        </section>
-      ))}
-    </div>
-  )
-})
-
-const DetailGeometryPanel = memo(function DetailGeometryPanel({
-  geometries,
-  errors,
-  activeGeometryIndex,
-  onCenterError,
-}: {
-  geometries: ViewerObjectGeometry[]
-  errors: ViewerValidationError[]
-  activeGeometryIndex: number | null
-  onCenterError: (error: ViewerValidationError) => void
-}) {
-  const geometryIndexSet = new Set(geometries.map((geometry) => geometry.index))
-  const errorsByGeometryIndex = new Map<number, ViewerValidationError[]>()
-  const unassignedErrors: ViewerValidationError[] = []
-
-  for (const error of errors) {
-    if (error.geometryIndex != null && geometryIndexSet.has(error.geometryIndex)) {
-      const geometryErrors = errorsByGeometryIndex.get(error.geometryIndex) ?? []
-      geometryErrors.push(error)
-      errorsByGeometryIndex.set(error.geometryIndex, geometryErrors)
-      continue
-    }
-
-    unassignedErrors.push(error)
-  }
-
-  if (geometries.length === 0 && errors.length === 0) {
-    return (
-      <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-4 py-6 text-sm text-muted-foreground">
-        No geometries available for the selected object.
-      </div>
-    )
-  }
-
-  return (
-    <div className="grid min-w-0 gap-2">
-      {geometries.length === 0 && (
-        <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-4 py-4 text-sm text-muted-foreground">
-          No geometries available for the selected object.
-        </div>
-      )}
-      {geometries.map((geometry) => {
-        const hasSemantics = geometry.semanticSurfaces.some((surface) => surface != null)
-        const isActive = geometry.index === activeGeometryIndex
-        const geometryErrors = errorsByGeometryIndex.get(geometry.index) ?? []
-        const lodChip = {
-          key: `lod:${geometry.index}:${geometry.lod ?? 'none'}`,
-          label: geometry.lod ? `LoD ${geometry.lod}` : 'No LoD',
-        }
-
-        return (
-          <div
-            key={geometry.index}
-            className="min-w-0 overflow-hidden rounded-sm"
-          >
-            <div
-              className={cn(
-                'flex min-w-0 items-start justify-between gap-3 border px-3 py-2',
-                geometryErrors.length > 0 ? 'rounded-t-sm border-b-0' : 'rounded-sm',
-                isActive
-                  ? 'border-primary/35 bg-primary/8'
-                  : 'border-foreground/8 bg-foreground/3',
-              )}
-            >
-              <div className="min-w-0">
-                <p className="flex items-center gap-1.5 text-sm font-medium text-foreground/90">
-                  <Pyramid className="size-3.5 text-muted-foreground" />
-                  geom {geometry.index}
-                  {geometryErrors.length > 0 && (
-                    <span
-                      title={`${geometryErrors.length} errors`}
-                      aria-label={`${geometryErrors.length} errors`}
-                      className="inline-flex items-center gap-1 rounded-sm bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
-                    >
-                      <TriangleAlert className="size-3" />
-                      <span>{geometryErrors.length}</span>
-                    </span>
-                  )}
-                </p>
-                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
-                  <span>{geometry.vertexIndices.length} vtx</span>
-                  <span>{hasSemantics ? 'Semantics' : 'No semantics'}</span>
-                </div>
-              </div>
-              <div className="shrink-0">
-                <ObjectTreeGeometrySummary geometryTypeLabel={geometry.geometryType} chips={[lodChip]} />
-              </div>
-            </div>
-            {geometryErrors.length > 0 && (
-              <DetailValidationErrorList
-                className={cn(
-                  'overflow-hidden rounded-b-sm border-y border-r',
-                  isActive ? 'border-primary/35' : 'border-foreground/15',
-                )}
-                errors={geometryErrors}
-                onCenterError={onCenterError}
-              />
-            )}
-          </div>
-        )
-      })}
-      {unassignedErrors.length > 0 && (
-        <div className="min-w-0 overflow-hidden rounded-sm">
-          <div className="flex items-center gap-1.5 rounded-t-sm border border-b-0 border-destructive/25 bg-destructive/5 px-3 py-2 text-sm font-medium text-destructive">
-            <TriangleAlert className="size-3.5" />
-            <span>Other validation errors</span>
-            <span className="rounded-sm bg-destructive/10 px-1.5 py-0.5 text-[10px]">
-              {unassignedErrors.length}
-            </span>
-          </div>
-          <DetailValidationErrorList
-            className="overflow-hidden rounded-b-sm border-y border-r border-destructive/25"
-            errors={unassignedErrors}
-            onCenterError={onCenterError}
-          />
-        </div>
-      )}
-    </div>
-  )
-})
-
-function DetailValidationErrorList({
-  errors,
-  className,
-  onCenterError,
-}: {
-  errors: ViewerValidationError[]
-  className?: string
-  onCenterError: (error: ViewerValidationError) => void
-}) {
-  return (
-    <div className={cn('min-w-0 divide-y divide-foreground/20', className)}>
-      {errors.map((error, errorIndex) => (
-        <DetailValidationErrorCard
-          key={`${error.id}-${error.code}-${errorIndex}`}
-          error={error}
-          onCenterError={onCenterError}
-        />
-      ))}
-    </div>
-  )
-}
-
-function DetailValidationErrorCard({
-  error,
-  onCenterError,
-}: {
-  error: ViewerValidationError
-  onCenterError: (error: ViewerValidationError) => void
-}) {
-  const color = errorColor(error.code)
-
-  return (
-    <div
-      className="flex w-full min-w-0 items-center gap-2 overflow-hidden px-3 py-2 text-left transition"
-      style={{
-        backgroundColor: `${color}12`,
-        boxShadow: `inset 3px 0 ${color}a0`,
-      }}
-    >
-      <div className="min-w-0 flex-1 overflow-hidden">
-        <div className="flex min-w-0 items-start justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-2.5">
-            <span
-              className="mt-1 size-3 shrink-0 rounded-sm"
-              style={{ backgroundColor: color }}
-            />
-            <div className="min-w-0 overflow-hidden">
-              <p className="truncate text-sm font-semibold text-foreground/90">{error.description}</p>
-              <a
-                href={getVal3dityErrorUrl(error)}
-                target="_blank"
-                rel="noreferrer"
-                className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground underline decoration-muted-foreground/35 underline-offset-3 transition hover:text-foreground"
-              >
-                code {error.code}
-              </a>
-            </div>
-          </div>
-          {error.faceIndex != null && (
-            <Badge
-              variant="outline"
-              className="shrink-0 text-foreground/70"
-              style={{ borderColor: `${color}50`, backgroundColor: `${color}20` }}
-            >
-              face {error.faceIndex}
-            </Badge>
-          )}
-        </div>
-        <p className="mt-1.5 break-words font-mono text-[10px] text-muted-foreground">
-          {error.id}
-        </p>
-        {error.info && (
-          <p className="mt-1.5 text-sm text-foreground/65">{error.info}</p>
-        )}
-      </div>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="size-7 shrink-0 self-center"
-        aria-label={`Center ${error.description}`}
-        title={`Center ${error.description}`}
-        onClick={() => onCenterError(error)}
-      >
-        <Crosshair className="size-4" />
-      </Button>
-    </div>
-  )
-}
-
-function AttributeSection({
-  attributes,
-  emptyText,
-  canPinAttributes,
-  pinnedAttributeKeys,
-  onPinAttribute,
-  onUnpinAttribute,
-}: {
-  attributes: Record<string, unknown>
-  emptyText: string
-  canPinAttributes: boolean
-  pinnedAttributeKeys: string[]
-  onPinAttribute: (key: string) => void
-  onUnpinAttribute: (key: string) => void
-}) {
-  const entries = Object.entries(attributes)
-
-  return (
-    <section>
-      {entries.length > 0 ? (
-        <AttributeList
-          attributes={attributes}
-          canPinAttributes={canPinAttributes}
-          pinnedAttributeKeys={pinnedAttributeKeys}
-          onPinAttribute={onPinAttribute}
-          onUnpinAttribute={onUnpinAttribute}
-        />
-      ) : (
-        <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-3 py-4 text-sm text-muted-foreground">
-          {emptyText}
-        </div>
-      )}
-    </section>
-  )
-}
-
-const AttributeList = memo(function AttributeList({
-  attributes,
-  canPinAttributes,
-  pinnedAttributeKeys,
-  onPinAttribute,
-  onUnpinAttribute,
-}: {
-  attributes: Record<string, unknown>
-  canPinAttributes: boolean
-  pinnedAttributeKeys: string[]
-  onPinAttribute: (key: string) => void
-  onUnpinAttribute: (key: string) => void
-}) {
-  const pinnedAttributeSet = useMemo(
-    () => (canPinAttributes ? new Set(pinnedAttributeKeys) : null),
-    [canPinAttributes, pinnedAttributeKeys],
-  )
-
-  return (
-    <dl className="m-0 flex min-w-0 flex-col gap-2">
-      {Object.entries(attributes).map(([key, value]) => (
-        <div
-          key={key}
-          className={cn(
-            'min-w-0 w-full overflow-hidden rounded-sm border px-2.5 py-1.5 transition',
-            pinnedAttributeSet?.has(key)
-              ? 'border-primary/25 bg-primary/7'
-              : 'border-foreground/8 bg-foreground/3',
-          )}
-        >
-          <div className="flex items-start gap-2">
-            <div className="min-w-0 flex-1">
-              <dt className="m-0 min-w-0 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
-                {key}
-              </dt>
-              <dd className="m-0 mt-1 min-w-0 max-w-full">
-                <div className="min-w-0 max-w-full overflow-x-auto overflow-y-hidden">
-                  <div className="w-fit min-w-full pr-2 whitespace-nowrap text-[13px] leading-5 text-foreground/80">
-                    {formatValue(value)}
-                  </div>
-                </div>
-              </dd>
-            </div>
-            {canPinAttributes && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  'mt-0.5 h-7 w-7 shrink-0 rounded-[3px]',
-                  pinnedAttributeSet?.has(key)
-                    ? 'text-primary hover:bg-primary/12 hover:text-primary'
-                    : 'text-muted-foreground hover:bg-accent/10 hover:text-foreground',
-                )}
-                onClick={() => (pinnedAttributeSet?.has(key) ? onUnpinAttribute(key) : onPinAttribute(key))}
-                aria-label={pinnedAttributeSet?.has(key) ? `Unpin ${key}` : `Pin ${key}`}
-                title={pinnedAttributeSet?.has(key) ? `Unpin ${key}` : `Pin ${key}`}
-              >
-                {pinnedAttributeSet?.has(key) ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
-              </Button>
-            )}
-          </div>
-        </div>
-      ))}
-    </dl>
-  )
-})
-
-function InfoPanel({
-  openSections,
-  showPinnedSection,
-  showAttributeSection,
-  pinnedAttributes,
-  pinnableAttributeOptions,
-  activeAttributeColorKey,
-  attributeColorModel,
-  attributeColorDomain,
-  attributeColorMapId,
-  attributeColorMapReversed,
-  attributeColorInheritsParent,
-  onToggleSection,
-  onPinAttribute,
-  onUnpinAttribute,
-  onColorAttribute,
-  onColorMapChange,
-  onToggleColorMapReversed,
-  onInheritsParentChange,
-  onDomainPreview,
-  onDomainChange,
-  onRerandomizeCategoricalColors,
-  onCustomCategoricalColorChange,
-  onClearAttributeColor,
-  onClose,
-}: {
-  openSections: Record<InfoPanelSection, boolean>
-  showPinnedSection: boolean
-  showAttributeSection: boolean
-  pinnedAttributes: Array<{
-    key: string
-    hasValue: boolean
-    value: unknown
-    isInherited: boolean
-  }>
-  pinnableAttributeOptions: Array<{
-    key: string
-    isInherited: boolean
-  }>
-  activeAttributeColorKey: string | null
-  attributeColorModel: AttributeColorModel | null
-  attributeColorDomain: AttributeColorDomain | null
-  attributeColorMapId: AttributeColorMapId
-  attributeColorMapReversed: boolean
-  attributeColorInheritsParent: boolean
-  onToggleSection: (section: InfoPanelSection) => void
-  onPinAttribute: (key: string) => void
-  onUnpinAttribute: (key: string) => void
-  onColorAttribute: (key: string) => void
-  onColorMapChange: (colorMapId: AttributeColorMapId) => void
-  onToggleColorMapReversed: () => void
-  onInheritsParentChange: (value: boolean) => void
-  onDomainPreview: (domain: AttributeColorDomain) => void
-  onDomainChange: (domain: AttributeColorDomain) => void
-  onRerandomizeCategoricalColors: () => void
-  onCustomCategoricalColorChange: (attributeKey: string, categoryKey: string, color: string) => void
-  onClearAttributeColor: () => void
-  onClose: () => void
-}) {
-  return (
-    <div className="floating-panel pointer-events-auto flex min-h-0 w-full flex-col overflow-hidden rounded-sm border">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/55 px-3 py-2">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-            Pinned attributes
-          </p>
-          <Popover>
-            <PopoverTrigger
-              render={(
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-5 shrink-0 rounded-[3px] p-0 text-muted-foreground hover:text-foreground"
-                  aria-label="Configure pinned attributes"
-                  title="Configure pinned attributes"
-                >
-                  <Columns3Cog className="size-3" />
-                </Button>
-              )}
-            />
-            <PopoverContent align="start" side="bottom" className="w-72 p-0">
-              <PinnedAttributesSettingsPopover
-                inheritsParent={attributeColorInheritsParent}
-                onInheritsParentChange={onInheritsParentChange}
-                pinnableAttributeOptions={pinnableAttributeOptions}
-                onPinAttribute={onPinAttribute}
-              />
-            </PopoverContent>
-          </Popover>
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-5 shrink-0 rounded-[3px] p-0 text-muted-foreground hover:text-foreground"
-          onClick={onClose}
-          aria-label="Close info panel"
-          title="Close info panel"
-        >
-          <X className="size-3" />
-        </Button>
-      </div>
-
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="flex flex-col gap-1.5 p-1.5">
-          {showPinnedSection && (
-            <div className={cn(showAttributeSection && 'border-b border-border/45 pb-1')}>
-              <PinnedAttributesInfoSection
-                pinnedAttributes={pinnedAttributes}
-                activeAttributeColorKey={activeAttributeColorKey}
-                onUnpinAttribute={onUnpinAttribute}
-                onColorAttribute={onColorAttribute}
-              />
-            </div>
-          )}
-
-          {showAttributeSection && (
-            <InfoPanelSectionBlock
-              section="attribute"
-              title="Attribute colors"
-              detail={attributeColorModel?.kind ?? 'No values'}
-              isOpen={openSections.attribute}
-              onToggle={onToggleSection}
-              action={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-6 shrink-0"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    onClearAttributeColor()
-                  }}
-                  aria-label="Disable attribute colors"
-                  title="Disable attribute colors"
-                >
-                  <X className="size-3.5" />
-                </Button>
-              }
-            >
-              <AttributeColorSection
-                model={attributeColorModel}
-                domain={attributeColorDomain}
-                colorMapId={attributeColorMapId}
-                colorMapReversed={attributeColorMapReversed}
-                onColorMapChange={onColorMapChange}
-                onToggleColorMapReversed={onToggleColorMapReversed}
-                onDomainPreview={onDomainPreview}
-                onDomainChange={onDomainChange}
-                onRerandomizeCategoricalColors={onRerandomizeCategoricalColors}
-                onCustomCategoricalColorChange={onCustomCategoricalColorChange}
-              />
-            </InfoPanelSectionBlock>
-          )}
-        </div>
-      </ScrollArea>
-    </div>
-  )
-}
-
-function PinnedAttributesSettingsPopover({
-  inheritsParent,
-  onInheritsParentChange,
-  pinnableAttributeOptions,
-  onPinAttribute,
-}: {
-  inheritsParent: boolean
-  onInheritsParentChange: (value: boolean) => void
-  pinnableAttributeOptions: Array<{ key: string; isInherited: boolean }>
-  onPinAttribute: (key: string) => void
-}) {
-  const [search, setSearch] = useState('')
-  const filteredOptions = useMemo(() => {
-    const query = search.trim().toLowerCase()
-    if (!query) return pinnableAttributeOptions
-    return pinnableAttributeOptions.filter((entry) => entry.key.toLowerCase().includes(query))
-  }, [pinnableAttributeOptions, search])
-
-  return (
-    <div className="flex flex-col">
-      <Field orientation="horizontal" className="border-b border-border/55 px-3 py-2.5">
-        <FieldContent>
-          <FieldLabel htmlFor="inherit-parent-attributes" className="text-xs text-foreground/86">
-            Inherited values
-          </FieldLabel>
-          <FieldDescription className="text-[11px]">Use parent value when missing</FieldDescription>
-        </FieldContent>
-        <Switch
-          id="inherit-parent-attributes"
-          checked={inheritsParent}
-          onCheckedChange={onInheritsParentChange}
-        />
-      </Field>
-      <div className="border-b border-border/55 p-2">
-        <InputGroup className="h-8">
-          <InputGroupAddon>
-            <Search aria-hidden="true" />
-          </InputGroupAddon>
-          <InputGroupInput
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search attributes…"
-            aria-label="Search attributes"
-            className="text-xs"
-            autoFocus
-          />
-        </InputGroup>
-      </div>
-      <div className="max-h-64 overflow-y-auto p-1">
-        {filteredOptions.length === 0 ? (
-          <p className="px-2 py-3 text-center text-xs text-muted-foreground">
-            {pinnableAttributeOptions.length === 0 ? 'No attributes to pin.' : 'No matches.'}
-          </p>
-        ) : (
-          filteredOptions.map((entry) => (
-            <button
-              key={entry.key}
-              type="button"
-              className="flex w-full min-w-0 items-center gap-2 rounded-[3px] px-2 py-1.5 text-left text-sm hover:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-              onClick={() => onPinAttribute(entry.key)}
-            >
-              {entry.isInherited ? (
-                <ListTree className="size-3 shrink-0 text-accent" />
-              ) : (
-                <Pin className="size-3 shrink-0 text-muted-foreground" />
-              )}
-              <span className="min-w-0 flex-1 truncate font-mono text-[11px] uppercase tracking-[0.12em] text-foreground/82">
-                {entry.key}
-              </span>
-            </button>
-          ))
-        )}
-      </div>
-    </div>
-  )
-}
-
-function InfoPanelSectionBlock({
-  section,
-  title,
-  detail,
-  isOpen,
-  action,
-  onToggle,
-  children,
-}: {
-  section: InfoPanelSection
-  title: string
-  detail: string
-  isOpen: boolean
-  action?: ReactNode
-  onToggle: (section: InfoPanelSection) => void
-  children: ReactNode
-}) {
-  return (
-    <section className="rounded-sm border border-border/60 bg-foreground/3">
-      <div className="flex items-center gap-1">
-        <button
-          type="button"
-          className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left"
-          onClick={() => onToggle(section)}
-          aria-expanded={isOpen}
-        >
-          <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-              {title}
-            </p>
-            <p className="mt-0.5 truncate text-xs text-foreground/78">{detail}</p>
-          </div>
-          {isOpen ? <ChevronDown className="size-4 shrink-0" /> : <ChevronUp className="size-4 shrink-0" />}
-        </button>
-        {action && <div className="flex shrink-0 items-center pr-2">{action}</div>}
-      </div>
-      {isOpen && <div className="border-t border-border/45 p-2">{children}</div>}
-    </section>
-  )
-}
-
-function SemanticSurfacePanel({
-  semanticSurface,
-  isOpen,
-  isMobileLayout,
-  onToggle,
-}: {
-  semanticSurface: {
-    objectId: string
-    geometryIndex: number
-    faceIndex: number
-    surface: ViewerSemanticSurface
-  }
-  isOpen: boolean
-  isMobileLayout: boolean
-  onToggle: () => void
-}) {
-  const surfaceColor = semanticSurfaceColor(semanticSurface.surface.type)
-  const ExpandIcon = isMobileLayout ? ChevronDown : ChevronUp
-  const CollapseIcon = isMobileLayout ? ChevronUp : ChevronDown
-
-  return (
-    <div className="floating-panel pointer-events-auto flex min-h-0 w-full flex-col overflow-hidden rounded-sm border">
-      <button
-        type="button"
-        className="flex w-full min-w-0 shrink-0 items-center gap-2 px-3 py-2 text-left"
-        onClick={onToggle}
-        aria-expanded={isOpen}
-      >
-        <p className="shrink-0 text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-          Semantic surface
-        </p>
-        <Badge
-          variant="outline"
-          className="min-w-0 truncate text-foreground"
-          style={{
-            borderColor: `${surfaceColor}66`,
-            backgroundColor: `${surfaceColor}22`,
-            color: surfaceColor,
-          }}
-        >
-          {semanticSurface.surface.type}
-        </Badge>
-        <Badge variant="outline" className="shrink-0 border-border bg-background/60 text-muted-foreground">
-          face {semanticSurface.faceIndex}
-        </Badge>
-        <div className="flex-1" />
-        {isOpen ? <CollapseIcon className="size-4 shrink-0" /> : <ExpandIcon className="size-4 shrink-0" />}
-      </button>
-      {isOpen && (
-        <ScrollArea className="min-h-0 flex-1 border-t border-border/45">
-          <div className="p-2">
-            <SemanticSurfaceInfoSection semanticSurface={semanticSurface} />
-          </div>
-        </ScrollArea>
-      )}
-    </div>
-  )
-}
-
-function PinnedAttributesInfoSection({
-  pinnedAttributes,
-  activeAttributeColorKey,
-  onUnpinAttribute,
-  onColorAttribute,
-}: {
-  pinnedAttributes: Array<{
-    key: string
-    hasValue: boolean
-    value: unknown
-    isInherited: boolean
-  }>
-  activeAttributeColorKey: string | null
-  onUnpinAttribute: (key: string) => void
-  onColorAttribute: (key: string) => void
-}) {
-  return (
-    <div className="grid min-w-0">
-      <div className="grid grid-cols-[minmax(0,1.25fr)_minmax(0,1.45fr)_auto] items-center gap-1 border-b border-border/55 px-1.5 py-1">
-        <div className="font-mono text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          Attribute
-        </div>
-        <div className="font-mono text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          Value
-        </div>
-        <div aria-hidden className="h-5 w-[2.625rem]" />
-      </div>
-      {pinnedAttributes.length > 0 ? (
-        pinnedAttributes.map((entry) => {
-          const isActiveColorAttribute = activeAttributeColorKey === entry.key
-
-          return (
-            <div
-              key={entry.key}
-              className={cn(
-                'grid min-w-0 grid-cols-[minmax(0,1.25fr)_minmax(0,1.45fr)_auto] items-center gap-1 border-b border-border/35 px-1.5 py-1 last:border-b-0',
-                isActiveColorAttribute && 'bg-primary/8',
-              )}
-            >
-              <div className="flex min-w-0 items-center gap-1">
-                {entry.isInherited && (
-                  <ListTree
-                    className="size-3 shrink-0 text-accent"
-                    aria-label="Resolved from parent attribute"
-                  />
-                )}
-                <span
-                  className={cn(
-                    'min-w-0 truncate font-mono text-[10px] uppercase leading-5 tracking-[0.12em]',
-                    isActiveColorAttribute ? 'text-primary' : 'text-muted-foreground/78',
-                  )}
-                >
-                  {entry.key}
-                </span>
-              </div>
-              <div className="min-w-0 truncate text-[12px] leading-5 text-foreground/82">
-                {entry.hasValue ? formatValue(entry.value) : '—'}
-              </div>
-              <div className="flex shrink-0 items-center gap-0.5">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-5 shrink-0 rounded-[3px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                  onClick={() => onUnpinAttribute(entry.key)}
-                  aria-label={`Unpin ${entry.key}`}
-                  title={`Unpin ${entry.key}`}
-                >
-                  <PinOff className="size-3" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className={cn(
-                    'h-5 w-5 shrink-0 rounded-[3px]',
-                    isActiveColorAttribute && 'border border-primary text-primary hover:bg-primary/10 hover:text-primary',
-                  )}
-                  onClick={() => onColorAttribute(entry.key)}
-                  aria-label={`Color objects by ${entry.key}`}
-                  title={`Color objects by ${entry.key}`}
-                >
-                  <Palette className="size-3" />
-                </Button>
-              </div>
-            </div>
-          )
-        })
-      ) : (
-        <div className="px-2 py-3 text-sm text-muted-foreground">
-          No pinned attributes.
-        </div>
-      )}
-    </div>
-  )
-}
-
-function SemanticSurfaceInfoSection({
-  semanticSurface,
-}: {
-  semanticSurface: {
-    objectId: string
-    geometryIndex: number
-    faceIndex: number
-    surface: ViewerSemanticSurface
-  }
-}) {
-  const attributeEntries = Object.entries(semanticSurface.surface.attributes)
-
-  if (attributeEntries.length === 0) {
-    return <p className="text-sm text-muted-foreground">No semantic surface attributes.</p>
-  }
-
-  return (
-    <div className="grid min-w-0">
-      <div className="grid grid-cols-[minmax(0,1.25fr)_minmax(0,1.45fr)] items-center gap-1 border-b border-border/55 px-1.5 py-1">
-        <div className="font-mono text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          Attribute
-        </div>
-        <div className="font-mono text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          Value
-        </div>
-      </div>
-      {attributeEntries.map(([key, value]) => (
-        <div
-          key={key}
-          className="grid min-w-0 grid-cols-[minmax(0,1.25fr)_minmax(0,1.45fr)] items-center gap-1 border-b border-border/35 px-1.5 py-1 last:border-b-0"
-        >
-          <span className="min-w-0 truncate font-mono text-[10px] uppercase leading-5 tracking-[0.12em] text-muted-foreground/78">
-            {key}
-          </span>
-          <span className="min-w-0 truncate text-[12px] leading-5 text-foreground/82">
-            {formatValue(value)}
-          </span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function ColorMapSwatch({ colorMapId, className }: { colorMapId: AttributeColorMapId; className?: string }) {
-  if (colorMapId === 'random') {
-    return (
-      <div
-        className={cn(
-          'flex items-center justify-center rounded-[2px] border border-border/60 bg-foreground/5 text-muted-foreground',
-          className,
-        )}
-      >
-        <Shuffle className="size-3" />
-      </div>
-    )
-  }
-
-  const background = getColorMapPreviewBackground(colorMapId)
-  return (
-    <div
-      className={cn('rounded-[2px] border border-border/60 bg-foreground/5', className)}
-      style={background ? { backgroundImage: background } : undefined}
-    />
-  )
-}
-
-function ColorMapSelect({
-  value,
-  groups,
-  onChange,
-}: {
-  value: AttributeColorMapId
-  groups: readonly ColorMapGroup[]
-  onChange: (colorMapId: AttributeColorMapId) => void
-}) {
-  return (
-    <Select
-      items={groups.flatMap((group) =>
-        group.options.map((entry) => ({
-          label: formatColorMapName(entry),
-          value: entry,
-        })),
-      )}
-      value={value}
-      onValueChange={(nextValue) => {
-        if (nextValue) {
-          onChange(nextValue as AttributeColorMapId)
-        }
-      }}
-    >
-      <SelectTrigger
-        size="lg"
-        variant="surface"
-        aria-label="Attribute color map"
-        className="min-w-0 flex-1 px-2.5"
-      >
-        <SelectValue className="min-w-0">
-          <ColorMapSwatch colorMapId={value} className="h-3 w-12 shrink-0" />
-          <span className="min-w-0 flex-1 truncate text-sm">{formatColorMapName(value)}</span>
-        </SelectValue>
-      </SelectTrigger>
-      <SelectContent align="start" className="rounded-sm">
-        {groups.map((group) => (
-          <SelectGroup key={group.label}>
-            <SelectLabel className="text-[10px] font-medium uppercase tracking-[0.14em]">
-              {group.label}
-            </SelectLabel>
-            {group.options.map((entry) => (
-              <SelectItem key={entry} value={entry} className="rounded-[3px]">
-                <ColorMapSwatch colorMapId={entry} className="h-3 w-12 shrink-0" />
-                <span className="min-w-0 flex-1 truncate">{formatColorMapName(entry)}</span>
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        ))}
-      </SelectContent>
-    </Select>
-  )
-}
-
-function AttributeColorSection({
-  model,
-  domain,
-  colorMapId,
-  colorMapReversed,
-  onColorMapChange,
-  onToggleColorMapReversed,
-  onDomainPreview,
-  onDomainChange,
-  onRerandomizeCategoricalColors,
-  onCustomCategoricalColorChange,
-}: {
-  model: AttributeColorModel | null
-  domain: AttributeColorDomain | null
-  colorMapId: AttributeColorMapId
-  colorMapReversed: boolean
-  onColorMapChange: (colorMapId: AttributeColorMapId) => void
-  onToggleColorMapReversed: () => void
-  onDomainPreview: (domain: AttributeColorDomain) => void
-  onDomainChange: (domain: AttributeColorDomain) => void
-  onRerandomizeCategoricalColors: () => void
-  onCustomCategoricalColorChange: (attributeKey: string, categoryKey: string, color: string) => void
-}) {
-  const [draftDomain, setDraftDomain] = useState<AttributeColorDomain | null>(domain)
-  const canAdjust = Boolean(model?.kind === 'continuous' && domain && model.continuousCount > 0)
-  const rangeMin = model?.kind === 'continuous' ? model.dataMin : 0
-  const rangeMax = model?.kind === 'continuous' ? model.dataMax : 1
-  const rangeSpan = Math.max(rangeMax - rangeMin, 0.000001)
-  const maxBinCount = Math.max(...(model?.kind === 'continuous' ? model.bins.map((bin) => bin.count) : [1]), 1)
-  const visibleDomain = draftDomain?.key === domain?.key ? draftDomain : domain
-  const baseColorMapColors = getContinuousAttributeColorMapColors(colorMapId)
-  const colorMapColors = colorMapReversed ? [...baseColorMapColors].reverse() : baseColorMapColors
-  const colorMapGroups = model?.kind === 'categorical'
-    ? CATEGORICAL_COLORMAP_GROUPS
-    : CONTINUOUS_COLORMAP_GROUPS
-  const colorMapValue = model?.kind === 'continuous' && colorMapId === 'random'
-    ? DEFAULT_ATTRIBUTE_COLOR_MAP_ID
-    : colorMapId
-  const canReverseColorMap = colorMapId !== 'random' && !(colorMapId in QUALITATIVE_COLOR_MAPS)
-
-  useEffect(() => {
-    setDraftDomain(domain)
-  }, [domain])
-
-  const previewDomain = (nextDomain: AttributeColorDomain) => {
-    setDraftDomain(nextDomain)
-    onDomainPreview(nextDomain)
-  }
-
-  const commitDomain = (nextDomain: AttributeColorDomain) => {
-    setDraftDomain(nextDomain)
-    onDomainPreview(nextDomain)
-    onDomainChange(nextDomain)
-  }
-
-  const updateDomainMin = (value: number) => {
-    if (model?.kind !== 'continuous' || !visibleDomain) return
-    commitDomain({
-      key: model.key,
-      min: Math.min(value, visibleDomain.max),
-      max: visibleDomain.max,
-    })
-  }
-
-  const updateDomainMax = (value: number) => {
-    if (model?.kind !== 'continuous' || !visibleDomain) return
-    commitDomain({
-      key: model.key,
-      min: visibleDomain.min,
-      max: Math.max(value, visibleDomain.min),
-    })
-  }
-
-  return (
-    <div className="flex flex-col gap-3">
-        <div className="grid gap-1.5">
-          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-            Colormap
-          </span>
-          <div className="flex gap-2">
-            <ColorMapSelect
-              value={colorMapValue}
-              groups={colorMapGroups}
-              onChange={onColorMapChange}
-            />
-            {model?.kind === 'categorical' && colorMapId === 'random' && (
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="size-9 shrink-0"
-                onClick={onRerandomizeCategoricalColors}
-                aria-label="Rerandomize categorical colors"
-                title="Rerandomize colors"
-              >
-                <Shuffle className="size-4" />
-              </Button>
-            )}
-            {canReverseColorMap && (
-              <Button
-                type="button"
-                variant={colorMapReversed ? 'default' : 'outline'}
-                size="icon"
-                className="size-9 shrink-0"
-                onClick={onToggleColorMapReversed}
-                aria-pressed={colorMapReversed}
-                aria-label="Reverse colormap"
-                title="Reverse colormap"
-              >
-                <ArrowLeftRight className="size-4" />
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {model?.kind === 'categorical' ? (
-          <CategoricalAttributeColorSection
-            model={model}
-            isEditableRandomMap={colorMapId === 'random'}
-            onCustomColorChange={onCustomCategoricalColorChange}
-          />
-        ) : model?.kind === 'continuous' && canAdjust && domain && visibleDomain ? (
-          <>
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
-                <span>{model.continuousCount} colored</span>
-                <span>{model.missingCount} missing</span>
-              </div>
-              <div className="flex h-24 items-end gap-1 rounded-sm border border-border/60 bg-foreground/3 p-2">
-                {model.bins.map((bin, index) => {
-                  const isInsideDomain = bin.end >= visibleDomain.min && bin.start <= visibleDomain.max
-                  const binCenter = (bin.start + bin.end) / 2
-                  const colorT = (binCenter - visibleDomain.min) / Math.max(visibleDomain.max - visibleDomain.min, 0.000001)
-                  return (
-                    <div
-                      key={`${bin.start}-${bin.end}-${index}`}
-                      className="min-w-0 flex-1 rounded-[2px] transition-opacity"
-                      style={{
-                        height: `${Math.max((bin.count / maxBinCount) * 100, bin.count > 0 ? 4 : 0)}%`,
-                        backgroundColor: sampleColorMap(colorMapColors, colorT),
-                        opacity: isInsideDomain ? 0.95 : 0.22,
-                      }}
-                      title={`${formatDimensionValue(bin.start)} - ${formatDimensionValue(bin.end)}: ${bin.count}`}
-                    />
-                  )
-                })}
-              </div>
-              <div className="flex items-center justify-between gap-3 font-mono text-[10px] text-muted-foreground">
-                <span>{formatDimensionValue(rangeMin)}</span>
-                <span>{formatDimensionValue(rangeMax)}</span>
-              </div>
-            </div>
-
-            <div className="grid gap-2">
-              <div className="grid gap-2 py-1">
-                <div className="flex items-center justify-between gap-3 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                  <span>Min</span>
-                  <span>Max</span>
-                </div>
-                <Slider
-                  min={rangeMin}
-                  max={rangeMax}
-                  step={rangeSpan / 200}
-                  value={[visibleDomain.min, visibleDomain.max]}
-                  minStepsBetweenValues={0}
-                  onValueChange={(value) => {
-                    const [nextMin, nextMax] = value as readonly number[]
-                    if (nextMin == null || nextMax == null) return
-                    previewDomain({
-                      key: model.key,
-                      min: Math.min(nextMin, nextMax),
-                      max: Math.max(nextMin, nextMax),
-                    })
-                  }}
-                  onValueCommitted={(value) => {
-                    const [nextMin, nextMax] = value as readonly number[]
-                    if (nextMin == null || nextMax == null) return
-                    commitDomain({
-                      key: model.key,
-                      min: Math.min(nextMin, nextMax),
-                      max: Math.max(nextMin, nextMax),
-                    })
-                  }}
-                  aria-label="Attribute color range"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <Input
-                  type="number"
-                  value={formatContinuousInputValue(visibleDomain.min)}
-                  onChange={(event) => updateDomainMin(Number(event.target.value))}
-                  aria-label="Attribute color minimum"
-                />
-                <Input
-                  type="number"
-                  value={formatContinuousInputValue(visibleDomain.max)}
-                  onChange={(event) => updateDomainMax(Number(event.target.value))}
-                  aria-label="Attribute color maximum"
-                />
-              </div>
-            </div>
-          </>
-        ) : (
-          <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-3 py-4 text-sm text-muted-foreground">
-            The selected pinned attribute has no numeric values to color.
-          </div>
-        )}
-    </div>
-  )
-}
-
-function CategoricalAttributeColorSection({
-  model,
-  isEditableRandomMap,
-  onCustomColorChange,
-}: {
-  model: CategoricalAttributeColorModel
-  isEditableRandomMap: boolean
-  onCustomColorChange: (attributeKey: string, categoryKey: string, color: string) => void
-}) {
-  const sortedCategories = model.categories.toSorted((left, right) =>
-    right.count - left.count || left.label.localeCompare(right.label, undefined, {
-      numeric: true,
-      sensitivity: 'base',
-    }),
-  )
-  const singletonCount = model.categories.filter((category) => category.count === 1).length
-  const singletonRatio = model.categories.length > 0 ? singletonCount / model.categories.length : 0
-  const isHighCardinality =
-    model.categories.length > CATEGORICAL_ATTRIBUTE_HIGH_CARDINALITY_LIMIT ||
-    (
-      model.categories.length > CATEGORICAL_ATTRIBUTE_DISPLAY_LIMIT &&
-      singletonRatio >= CATEGORICAL_ATTRIBUTE_SINGLETON_RATIO
-    )
-  const repeatedCategories = sortedCategories.filter((category) => category.count > 1)
-
-  if (isHighCardinality) {
-    return (
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
-          <span>{model.valueCount} colored</span>
-          <span>{model.missingCount} missing</span>
-        </div>
-        <div className="rounded-sm border border-border/60 bg-foreground/3 px-3 py-2">
-          <div className="grid grid-cols-3 gap-2 text-center">
-            <div>
-              <p className="font-mono text-sm text-foreground">{model.categories.length}</p>
-              <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">unique</p>
-            </div>
-            <div>
-              <p className="font-mono text-sm text-foreground">{singletonCount}</p>
-              <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">single</p>
-            </div>
-            <div>
-              <p className="font-mono text-sm text-foreground">{repeatedCategories.length}</p>
-              <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">repeated</p>
-            </div>
-          </div>
-        </div>
-        {repeatedCategories.length > 0 ? (
-          <div className="flex flex-col gap-1">
-            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-              Top repeated values
-            </p>
-            <CategoryLegend
-              attributeKey={model.key}
-              categories={repeatedCategories.slice(0, 8)}
-              isEditable={isEditableRandomMap}
-              onCustomColorChange={onCustomColorChange}
-            />
-          </div>
-        ) : (
-          <div className="rounded-sm border border-dashed border-border bg-foreground/3 px-3 py-2 text-xs text-muted-foreground">
-            High-cardinality categorical attribute: colors are assigned per value, but the chart is hidden because most values are unique.
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  const visibleCategories = sortedCategories.slice(0, CATEGORICAL_ATTRIBUTE_DISPLAY_LIMIT)
-  const hiddenCategories = sortedCategories.slice(CATEGORICAL_ATTRIBUTE_DISPLAY_LIMIT)
-  const hiddenCount = hiddenCategories.reduce((sum, category) => sum + category.count, 0)
-  const displayCategories: AttributeColorCategory[] = hiddenCategories.length > 0
-    ? [
-        ...visibleCategories.slice(0, Math.max(CATEGORICAL_ATTRIBUTE_DISPLAY_LIMIT - 1, 0)),
-        {
-          key: '__other__',
-          label: `Other (${hiddenCategories.length} values)`,
-          count: hiddenCount,
-          color: ATTRIBUTE_COLOR_MISSING,
-          index: -1,
-        },
-      ]
-    : visibleCategories
-  const maxCategoryCount = Math.max(...displayCategories.map((category) => category.count), 1)
-
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
-        <span>{model.valueCount} colored</span>
-        <span>{model.categories.length} unique / {model.missingCount} missing</span>
-      </div>
-      <div className="flex h-24 items-end gap-1 rounded-sm border border-border/60 bg-foreground/3 p-2">
-        {displayCategories.map((category) => (
-          <div
-            key={category.key}
-            className="min-w-0 flex-1 rounded-[2px]"
-            style={{
-              height: `${Math.max((category.count / maxCategoryCount) * 100, category.count > 0 ? 4 : 0)}%`,
-              backgroundColor: category.color,
-            }}
-            title={`${category.label}: ${category.count}`}
-          />
-        ))}
-      </div>
-      <CategoryLegend
-        attributeKey={model.key}
-        categories={displayCategories}
-        isEditable={isEditableRandomMap}
-        onCustomColorChange={onCustomColorChange}
-      />
-    </div>
-  )
-}
-
-function CategoryLegend({
-  attributeKey,
-  categories,
-  isEditable,
-  onCustomColorChange,
-}: {
-  attributeKey: string
-  categories: AttributeColorCategory[]
-  isEditable: boolean
-  onCustomColorChange: (attributeKey: string, categoryKey: string, color: string) => void
-}) {
-  return (
-    <div className="flex max-h-32 flex-col gap-1 overflow-y-auto pr-1">
-      {categories.map((category) => (
-        <div key={category.key} className="grid grid-cols-[0.75rem_minmax(0,1fr)_auto] items-center gap-2 text-xs">
-          {isEditable && category.index >= 0 ? (
-            <CategoryColorPicker
-              color={category.color}
-              label={category.label}
-              onChange={(color) => onCustomColorChange(attributeKey, category.key, color)}
-            />
-          ) : (
-            <span
-              className="size-3 rounded-[2px]"
-              style={{ backgroundColor: category.color }}
-              aria-hidden="true"
-            />
-          )}
-          <span className="min-w-0 truncate text-foreground/82" title={category.label}>
-            {category.label}
-          </span>
-          <span className="font-mono text-[10px] text-muted-foreground">{category.count}</span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function CategoryColorPicker({
-  color,
-  label,
-  onChange,
-}: {
-  color: string
-  label: string
-  onChange: (color: string) => void
-}) {
-  const normalizedColor = normalizeHexColor(color)
-
-  return (
-    <Popover>
-      <PopoverTrigger
-        render={(
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="size-4 shrink-0 rounded-[2px] border-border p-0"
-            style={{ backgroundColor: normalizedColor }}
-            aria-label={`Set color for ${label}`}
-            title={`Set color for ${label}`}
-          >
-            <span className="sr-only">Set color</span>
-          </Button>
-        )}
-      />
-      <PopoverContent align="start" side="right" className="w-fit p-2">
-        <ColorPicker>
-          <ColorPickerHex color={normalizedColor} onChange={onChange} />
-          <ColorPickerInput
-            value={normalizedColor}
-            onChange={(event) => onChange(event.target.value)}
-            aria-label={`Hex color for ${label}`}
-          />
-        </ColorPicker>
-      </PopoverContent>
-    </Popover>
-  )
-}
-
-function getAvailablePickingModes(editMode: boolean) {
-  if (editMode) return EDIT_PICKING_MODES
-  return VIEW_PICKING_MODES
-}
-
-function nextPickingMode(mode: ViewerPickingMode, editMode: boolean): ViewerPickingMode {
-  const modes = getAvailablePickingModes(editMode)
-  const currentIndex = modes.indexOf(mode)
-  return modes[(currentIndex + 1) % modes.length] ?? modes[0]
-}
-
-function isCityJsonFileName(name: string) {
-  return (
-    name.endsWith('.jsonl') ||
-    name.endsWith('.city.jsonl') ||
-    name.endsWith('.city.json') ||
-    name.endsWith('.cityjson')
-  )
-}
-
-function tryParseHttpUrl(text: string): string | null {
-  const trimmed = text.trim()
-  if (!trimmed) {
-    return null
-  }
-
-  try {
-    const parsed = new URL(trimmed)
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return null
-    }
-    return parsed.toString()
-  } catch {
-    return null
-  }
-}
-
-function waitForNextPaint() {
-  return new Promise<void>((resolve) => {
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => resolve())
-    })
-  })
-}
-
-function buildVal3dityValidationOptions(parameters: Val3dityParameterForm): Val3dityValidationOptions {
-  const options: Val3dityValidationOptions = {}
-  const tolSnap = parseVal3dityParameterValue(parameters.tolSnap, 0)
-  const planarityD2pTol = parseVal3dityParameterValue(parameters.planarityD2pTol, 0)
-  const planarityNTol = parseVal3dityParameterValue(parameters.planarityNTol, 0)
-  const overlapTol = parseVal3dityParameterValue(parameters.overlapTol, -Infinity)
-
-  if (tolSnap != null) {
-    options.tolSnap = tolSnap
-  }
-  if (planarityD2pTol != null) {
-    options.planarityD2pTol = planarityD2pTol
-  }
-  if (planarityNTol != null) {
-    options.planarityNTol = planarityNTol
-  }
-  if (overlapTol != null) {
-    options.overlapTol = overlapTol
-  }
-  if (parameters.primitive !== 'auto') {
-    options.primitive = parameters.primitive
-  }
-
-  return options
-}
-
-function parseVal3dityParameterValue(value: string, min: number) {
-  const trimmed = value.trim()
-  if (!trimmed) {
-    return null
-  }
-
-  const parsed = Number(trimmed)
-  return Number.isFinite(parsed) && parsed >= min ? parsed : null
-}
-
-function isValidVal3dityParameterValue(value: string, min: number) {
-  const trimmed = value.trim()
-  if (!trimmed) {
-    return true
-  }
-
-  const parsed = Number(trimmed)
-  return Number.isFinite(parsed) && parsed >= min
-}
-
-function isValidVal3dityParameters(parameters: Val3dityParameterForm) {
-  return (
-    isValidVal3dityParameterValue(parameters.tolSnap, 0) &&
-    isValidVal3dityParameterValue(parameters.planarityD2pTol, 0) &&
-    isValidVal3dityParameterValue(parameters.planarityNTol, 0) &&
-    isValidVal3dityParameterValue(parameters.overlapTol, -Infinity)
-  )
-}
-
-function deriveSourceNameFromUrl(url: string) {
-  try {
-    const parsed = new URL(url)
-    const segments = parsed.pathname.split('/').filter(Boolean)
-    const last = segments[segments.length - 1]
-    if (last) {
-      return decodeURIComponent(last)
-    }
-    return parsed.host || url
-  } catch {
-    return url
-  }
-}
-
-function isAttributeColorMapId(value: string): value is AttributeColorMapId {
-  return value === 'random' ||
-    Object.prototype.hasOwnProperty.call(ATTRIBUTE_COLOR_MAPS, value) ||
-    Object.prototype.hasOwnProperty.call(QUALITATIVE_COLOR_MAPS, value)
-}
-
-function downloadBlob(blob: Blob, fileName: string) {
-  const objectUrl = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = objectUrl
-  anchor.download = fileName
-  anchor.hidden = true
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
-}
-
-function getCameraFollowChannelFromUrl() {
-  if (typeof window === 'undefined') {
-    return null
-  }
-
-  const channel = new URLSearchParams(window.location.search).get(CAMERA_FOLLOW_QUERY_PARAM)
-  return channel && /^[a-zA-Z0-9._-]+$/.test(channel) ? channel : null
-}
-
-function createCameraSyncChannelId() {
-  return globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
-}
-
-function buildCameraFollowerUrl(channel: string) {
-  const url = new URL(window.location.href)
-  url.searchParams.delete('cj')
-  url.searchParams.delete('val')
-  url.searchParams.delete(VIEWER_STATE_QUERY_PARAM)
-  url.searchParams.set(CAMERA_FOLLOW_QUERY_PARAM, channel)
-  return url.toString()
-}
-
-function getPickingModeIconUrl(mode: ViewerPickingMode) {
-  switch (mode) {
-    case 'none':
-      return restrictSelectOnIconUrl
-    case 'object':
-      return restrictSelectOffIconUrl
-    case 'face':
-      return faceSelectIconUrl
-    case 'vertex':
-      return vertexSelectIconUrl
-  }
-}
-
-function getPickingModeLabel(mode: ViewerPickingMode) {
-  switch (mode) {
-    case 'none':
-      return 'Off'
-    case 'object':
-      return 'Object'
-    case 'face':
-      return 'Face'
-    case 'vertex':
-      return 'Vertex'
-  }
-}
-
-function getPickingModeDescription(mode: ViewerPickingMode) {
-  switch (mode) {
-    case 'none':
-      return 'Picking disabled'
-    case 'object':
-      return 'Pick object'
-    case 'face':
-      return 'Pick face'
-    case 'vertex':
-      return 'Pick vertex'
-  }
-}
-
-function getAppearanceModeIcon(mode: ViewerAppearanceMode) {
-  switch (mode) {
-    case 'regular':
-      return <Box className="size-3.5" />
-    case 'normal':
-      return <Pyramid className="size-3.5" />
-    case 'semantic':
-      return <MaskIcon src={materialIconUrl} className="size-3.5" />
-    case 'colormap':
-      return <Palette className="size-3.5" />
-  }
-}
-
-function getAppearanceModeLabel(mode: ViewerAppearanceMode) {
-  switch (mode) {
-    case 'regular':
-      return 'Basic meshes'
-    case 'normal':
-      return 'Face normals'
-    case 'semantic':
-      return 'Semantic coloring'
-    case 'colormap':
-      return 'Attribute colormap'
-  }
-}
-
-function getThemeModeLabel(themeMode: ThemeMode) {
-  switch (themeMode) {
-    case 'light':
-      return 'Light'
-    case 'dark':
-      return 'Dark'
-    case 'system':
-      return 'Auto'
-  }
-}
-
-function formatValue(value: unknown) {
-  if (value == null) {
-    return '—'
-  }
-
-  if (typeof value === 'number') {
-    return Number.isInteger(value) ? value.toString() : value.toFixed(3)
-  }
-
-  if (Array.isArray(value)) {
-    return value.join(', ')
-  }
-
-  if (typeof value === 'object') {
-    return JSON.stringify(value)
-  }
-
-  return String(value)
-}
-
-function getVal3dityErrorUrl(error: ViewerValidationError) {
-  const anchor = error.description
-    .trim()
-    .toLowerCase()
-    .replace(/_/g, '-')
-    .replace(/[^a-z0-9-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-
-  return anchor ? `${VAL3DITY_ERRORS_URL}#${anchor}` : VAL3DITY_ERRORS_URL
-}
-
-function InfoDialogContent({
-  dataset,
-  annotationSourceName,
-  annotationSourceLocation,
-}: {
-  dataset: ViewerDataset
-  annotationSourceName: string | null
-  annotationSourceLocation: string | null
-}) {
-  const validationSummary = annotationSourceName ? summarizeValidation(dataset) : null
-  const cityJsonTabs = dataset.sources.map((source, index) => ({
-    source,
-    index,
-    value: `cityjson-${index}`,
-    metadataEntries: source.metadata
-      ? Object.entries(source.metadata).filter(([, value]) => !isEmptyMetadataValue(value))
-      : [],
-  }))
-  const cityJsonSourceCount = cityJsonTabs.length
-  const defaultInfoTab = cityJsonTabs[0]?.value ?? 'cityjson'
-
-  return (
-    <DialogContent
-      closeLabel="Close information dialog"
-      className="flex min-h-0 max-h-[calc(100dvh-2rem)] max-w-2xl flex-col overflow-hidden p-0"
-    >
-      <DialogDescription className="sr-only">
-        CityJSON source metadata and validation report details.
-      </DialogDescription>
-      <Tabs
-        defaultValue={defaultInfoTab}
-        className="flex min-h-0 w-full flex-1 flex-col overflow-hidden"
-      >
-        <div className="border-b border-border bg-gradient-to-r from-primary/8 via-transparent to-transparent">
-          <div className="flex items-start gap-4 p-5 pr-14">
-            <div className="flex min-w-0 items-start gap-3">
-              <div className="flex size-11 shrink-0 items-center justify-center rounded-sm border border-primary/20 bg-primary/10 text-primary">
-                <FileText className="size-5" />
-              </div>
-              <div className="flex min-w-0 flex-col gap-1">
-                <DialogTitle className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary">
-                  File information
-                </DialogTitle>
-                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                  <Badge variant="secondary" className="border-primary/10 bg-primary/10 text-primary">
-                    {formatOpenFileCount(cityJsonSourceCount + (annotationSourceName ? 1 : 0))}
-                  </Badge>
-                  {annotationSourceName && <Badge variant="outline">Validation loaded</Badge>}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <TabsList className="-mb-px max-w-full gap-0 overflow-x-auto px-5">
-            {cityJsonTabs.map(({ source, index, value }) => (
-              <TabsTrigger
-                key={value}
-                value={value}
-                className="detail-tab max-w-48 shrink-0 gap-1.5"
-                title={source.name}
-              >
-                <span className="truncate">{formatCityJsonFileTabLabel(source.name, index, cityJsonSourceCount)}</span>
-              </TabsTrigger>
-            ))}
-            {annotationSourceName && (
-              <TabsTrigger
-                value="val3dity"
-                className="detail-tab max-w-48 shrink-0 gap-1.5"
-                title={annotationSourceName}
-              >
-                <span className="truncate">{annotationSourceName}</span>
-              </TabsTrigger>
-            )}
-          </TabsList>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="p-5">
-            {cityJsonTabs.map(({ source, value, metadataEntries }) => (
-              <TabsContent key={value} value={value} className="mt-0 flex flex-col gap-4 data-hidden:hidden">
-                <section>
-                  <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                    CityJSON
-                  </p>
-                  <dl className="mt-2.5 flex flex-col gap-2 text-sm">
-                    <InfoRow label="Source" value={source.location} mono />
-                    <InfoRow label="Type" value={source.cityJsonKind} />
-                    <InfoRow label="Version" value={source.cityJsonVersion ?? '—'} />
-                    <InfoRow label="Features" value={source.featureCount.toString()} mono />
-                    {source.transform && (
-                      <>
-                        <InfoRow
-                          label="Scale"
-                          value={formatCoordinateTriple(source.transform.scale)}
-                          mono
-                        />
-                        <InfoRow
-                          label="Translate"
-                          value={formatCoordinateTriple(source.transform.translate)}
-                          mono
-                        />
-                      </>
-                    )}
-                  </dl>
-                </section>
-
-                {metadataEntries.length > 0 && (
-                  <section>
-                    <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                      Metadata
-                    </p>
-                    <dl className="mt-2.5 flex flex-col gap-2 text-sm">
-                      {metadataEntries.map(([key, metadataValue]) => (
-                        <InfoRow
-                          key={key}
-                          label={formatMetadataKey(key)}
-                          value={<MetadataValue metadataKey={key} value={metadataValue} />}
-                        />
-                      ))}
-                    </dl>
-                  </section>
-                )}
-              </TabsContent>
-            ))}
-
-            {annotationSourceName && (
-              <TabsContent value="val3dity" className="mt-0 flex flex-col gap-4 data-hidden:hidden">
-                <section>
-                  <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                    Val3dity report
-                  </p>
-                  <dl className="mt-2.5 flex flex-col gap-2 text-sm">
-                    <InfoRow label="Source" value={annotationSourceLocation ?? annotationSourceName} mono />
-                  </dl>
-                </section>
-                {validationSummary && (
-                  <>
-                    <section>
-                      <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                        Summary
-                      </p>
-                      <dl className="mt-2.5 grid gap-2 text-sm sm:grid-cols-3">
-                        <InfoRow label="Valid" value={validationSummary.validCount.toString()} mono />
-                        <InfoRow label="Invalid" value={validationSummary.invalidCount.toString()} mono />
-                        <InfoRow label="Errors" value={validationSummary.totalErrorCount.toString()} mono />
-                      </dl>
-                    </section>
-                    <section>
-                      <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                        Errors
-                      </p>
-                      {validationSummary.errorCounts.length > 0 ? (
-                        <div className="mt-2.5 flex flex-col gap-2">
-                          {validationSummary.errorCounts.map((error) => (
-                            <div
-                              key={`${error.code}:${error.description}`}
-                              className="flex min-w-0 items-start justify-between gap-3 rounded-sm border border-border/45 bg-foreground/[0.03] px-2.5 py-2"
-                            >
-                              <div className="min-w-0">
-                                <p className="truncate text-sm font-medium text-foreground">{error.description}</p>
-                                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-                                  code {error.code}
-                                </p>
-                              </div>
-                              <div className="flex shrink-0 flex-col items-end gap-1">
-                                <span className="rounded-sm bg-foreground/8 px-1.5 py-0.5 font-mono text-[11px] text-foreground">
-                                  {formatCountLabel(error.count, 'error')}
-                                </span>
-                                <span className="rounded-sm bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] text-primary">
-                                  {formatCountLabel(error.objectCount, 'object')}
-                                </span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="mt-2.5 rounded-sm border border-border/45 bg-foreground/[0.03] px-2.5 py-2 text-sm text-muted-foreground">
-                          No validation errors.
-                        </p>
-                      )}
-                    </section>
-                  </>
-                )}
-              </TabsContent>
-            )}
-          </div>
-        </div>
-      </Tabs>
-    </DialogContent>
-  )
-}
-
-function Val3dityParametersDialog({
-  parameters,
-  onChange,
-  onRun,
-}: {
-  parameters: Val3dityParameterForm
-  onChange: (parameters: Val3dityParameterForm) => void
-  onRun: () => void
-}) {
-  const hasInvalidNumber =
-    !isValidVal3dityParameterValue(parameters.tolSnap, 0) ||
-    !isValidVal3dityParameterValue(parameters.planarityD2pTol, 0) ||
-    !isValidVal3dityParameterValue(parameters.planarityNTol, 0) ||
-    !isValidVal3dityParameterValue(parameters.overlapTol, -Infinity)
-
-  const updateDraft = (key: keyof Val3dityParameterForm, value: string) => {
-    onChange({ ...parameters, [key]: value })
-  }
-
-  return (
-    <DialogContent closeLabel="Close val3dity parameters" className="p-0">
-      <DialogHeader className="border-b border-border/40 p-5 pr-14">
-        <DialogTitle className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary">
-          Run val3dity (experimental)
-        </DialogTitle>
-        <DialogDescription>
-          Configure the validation, then run it against the current dataset. Be aware this is an experimental feature and it can give wrong results.
-        </DialogDescription>
-      </DialogHeader>
-
-      <FieldGroup className="gap-4 p-5">
-        <FieldGroup className="grid gap-3 sm:grid-cols-2">
-          <Val3dityNumberInput
-            id="val3dity-tol-snap"
-            label="Snap tolerance"
-            min="0"
-            step="0.001"
-            value={parameters.tolSnap}
-            invalid={!isValidVal3dityParameterValue(parameters.tolSnap, 0)}
-            onChange={(value) => updateDraft('tolSnap', value)}
-          />
-          <Val3dityNumberInput
-            id="val3dity-overlap-tol"
-            label="Overlap tolerance"
-            step="0.1"
-            value={parameters.overlapTol}
-            invalid={!isValidVal3dityParameterValue(parameters.overlapTol, -Infinity)}
-            onChange={(value) => updateDraft('overlapTol', value)}
-          />
-          <Val3dityNumberInput
-            id="val3dity-planarity-d2p-tol"
-            label="Planarity distance"
-            min="0"
-            step="0.01"
-            value={parameters.planarityD2pTol}
-            invalid={!isValidVal3dityParameterValue(parameters.planarityD2pTol, 0)}
-            onChange={(value) => updateDraft('planarityD2pTol', value)}
-          />
-          <Val3dityNumberInput
-            id="val3dity-planarity-n-tol"
-            label="Planarity normal"
-            min="0"
-            step="0.1"
-            value={parameters.planarityNTol}
-            invalid={!isValidVal3dityParameterValue(parameters.planarityNTol, 0)}
-            onChange={(value) => updateDraft('planarityNTol', value)}
-          />
-        </FieldGroup>
-
-        <Field>
-          <FieldLabel htmlFor="val3dity-primitive" className="text-xs text-muted-foreground">
-            Primitive
-          </FieldLabel>
-          <NativeSelect
-            id="val3dity-primitive"
-            className="w-full"
-            value={parameters.primitive}
-            onChange={(event) =>
-              onChange({
-                ...parameters,
-                primitive: event.target.value as Val3dityPrimitiveOption,
-              })}
-          >
-            <NativeSelectOption value="auto">Auto</NativeSelectOption>
-            <NativeSelectOption value="Solid">Solid</NativeSelectOption>
-            <NativeSelectOption value="MultiSurface">MultiSurface</NativeSelectOption>
-            <NativeSelectOption value="CompositeSurface">CompositeSurface</NativeSelectOption>
-          </NativeSelect>
-        </Field>
-
-        {hasInvalidNumber && (
-          <FieldError className="rounded-sm border border-destructive/25 bg-destructive/8 px-3 py-2">
-            Snap and planarity tolerances must be non-negative numbers; overlap tolerance must be numeric.
-          </FieldError>
-        )}
-      </FieldGroup>
-
-      <div className="flex items-center justify-between border-t border-border/40 p-4">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => onChange(DEFAULT_VAL3DITY_PARAMETERS)}
-        >
-          Reset
-        </Button>
-        <Button
-          type="button"
-          onClick={onRun}
-          disabled={hasInvalidNumber}
-        >
-          Run
-        </Button>
-      </div>
-    </DialogContent>
-  )
-}
-
-function Val3dityNumberInput({
-  id,
-  label,
-  min,
-  step,
-  value,
-  invalid,
-  onChange,
-}: {
-  id: string
-  label: string
-  min?: string
-  step: string
-  value: string
-  invalid: boolean
-  onChange: (value: string) => void
-}) {
-  return (
-    <Field data-invalid={invalid} className="gap-1.5">
-      <FieldLabel htmlFor={id} className="text-xs text-muted-foreground">{label}</FieldLabel>
-      <Input
-        id={id}
-        type="number"
-        inputMode="decimal"
-        min={min}
-        step={step}
-        value={value}
-        aria-invalid={invalid}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </Field>
-  )
-}
-
-function ChangelogDialogContent({
-  changelog,
-}: {
-  changelog: string
-}) {
-  const sections = parseChangelog(changelog)
-
-  return (
-    <DialogContent
-      closeLabel="Close changelog"
-      className="flex min-h-0 max-h-[calc(100dvh-2rem)] max-w-2xl flex-col overflow-hidden p-0"
-    >
-      <DialogDescription className="sr-only">
-        Release notes for CJLoupe version {APP_VERSION}.
-      </DialogDescription>
-      <div className="flex items-start gap-4 border-b border-border/40 p-5 pr-14">
-        <div className="min-w-0">
-          <DialogTitle className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary">
-            Changelog
-          </DialogTitle>
-          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2">
-            <p className="truncate text-sm text-muted-foreground">CJLoupe</p>
-            <span className="text-sm font-bold text-foreground">
-              v{APP_VERSION}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto p-5">
-        <div className="flex flex-col gap-5">
-          {sections.map((section) => (
-            <section key={section.heading}>
-              <h2 className="text-sm font-semibold text-foreground">{section.heading}</h2>
-              <ul className="mt-2 flex flex-col gap-1.5 text-sm leading-6 text-foreground/82">
-                {section.items.map((item, index) => (
-                  <li key={`${section.heading}:${index}`} className="flex gap-2">
-                    <span aria-hidden="true" className="mt-2 size-1 shrink-0 rounded-full bg-primary/70" />
-                    <span>{item}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
-        </div>
-      </div>
-    </DialogContent>
-  )
-}
-
-function InfoRow({
-  label,
-  value,
-  mono = false,
-}: {
-  label: string
-  value: ReactNode
-  mono?: boolean
-}) {
-  return (
-    <div className="rounded-sm border border-border/45 bg-foreground/[0.03] px-2.5 py-2">
-      <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</dt>
-      <dd
-        className={cn(
-          'mt-0.5 break-words text-sm leading-5 text-foreground',
-          mono && 'font-mono text-[12px]',
-        )}
-      >
-        {value}
-      </dd>
-    </div>
-  )
-}
-
-function formatCountLabel(count: number, singular: string) {
-  return `${count} ${count === 1 ? singular : `${singular}s`}`
-}
-
-function summarizeValidation(dataset: ViewerDataset) {
-  const errorCountsByKey = new Map<string, {
-    code: number
-    description: string
-    count: number
-    objectIds: Set<string>
-  }>()
-  let validCount = 0
-  let invalidCount = 0
-  let totalErrorCount = 0
-
-  for (const feature of dataset.features) {
-    if (feature.validity === true) {
-      validCount += 1
-    } else if (feature.validity === false) {
-      invalidCount += 1
-    }
-
-    for (const error of feature.errors) {
-      totalErrorCount += 1
-      const key = `${error.code}:${error.description}`
-      const entry = errorCountsByKey.get(key)
-      const objectId = error.cityObjectId ?? feature.rootObjectId
-      if (entry) {
-        entry.count += 1
-        entry.objectIds.add(objectId)
-      } else {
-        errorCountsByKey.set(key, {
-          code: error.code,
-          description: error.description,
-          count: 1,
-          objectIds: new Set([objectId]),
-        })
-      }
-    }
-  }
-
-  return {
-    validCount,
-    invalidCount,
-    totalErrorCount,
-    errorCounts: Array.from(errorCountsByKey.values())
-      .map(({ objectIds, ...entry }) => ({
-        ...entry,
-        objectCount: objectIds.size,
-      }))
-      .toSorted((left, right) =>
-        right.count - left.count ||
-        right.objectCount - left.objectCount ||
-        left.code - right.code ||
-        left.description.localeCompare(right.description),
-      ),
-  }
-}
-
-function MetadataValue({
-  metadataKey,
-  value,
-}: {
-  metadataKey?: string
-  value: unknown
-}): ReactNode {
-  if (value == null) {
-    return <span className="text-muted-foreground">—</span>
-  }
-
-  if (typeof value === 'number') {
-    return <span className="font-mono text-[12px]">{String(value)}</span>
-  }
-
-  if (typeof value === 'boolean') {
-    return <span>{value ? 'true' : 'false'}</span>
-  }
-
-  if (Array.isArray(value)) {
-    if (value.length === 0) {
-      return <span className="text-muted-foreground">—</span>
-    }
-
-    if (isGeographicalExtentKey(metadataKey) && isNumberArray(value) && value.length >= 6) {
-      return (
-        <ExtentCoordinates min={value.slice(0, 3)} max={value.slice(3, 6)} />
-      )
-    }
-
-    const allPrimitive = value.every(
-      (entry) =>
-        entry == null || typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean',
-    )
-
-    if (allPrimitive) {
-      const isContinuousArray = isNumberArray(value)
-      const rendered = value.map((entry) => formatMetadataPrimitive(entry)).join(', ')
-      return <span className={isContinuousArray ? 'font-mono text-[12px]' : undefined}>{rendered}</span>
-    }
-
-    return (
-      <div className="flex flex-col gap-2">
-        {value.map((entry, index) => (
-          <div key={index} className="rounded-sm border border-border/45 bg-background/60 px-2.5 py-2">
-            <MetadataValue value={entry} />
-          </div>
-        ))}
-      </div>
-    )
-  }
-
-  if (typeof value === 'object') {
-    return (
-      <dl className="mt-1 flex flex-col gap-2 border-l border-border/45 pl-3">
-        {Object.entries(value as Record<string, unknown>)
-          .filter(([, nested]) => !isEmptyMetadataValue(nested))
-          .map(([nestedKey, nestedValue]) => (
-            <div key={nestedKey}>
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">
-                {formatMetadataKey(nestedKey)}
-              </dt>
-              <dd className="mt-0.5 break-words text-foreground">
-                <MetadataValue metadataKey={nestedKey} value={nestedValue} />
-              </dd>
-            </div>
-          ))}
-      </dl>
-    )
-  }
-
-  return String(value)
-}
-
-function parseChangelog(markdown: string): Array<{ heading: string; items: string[] }> {
-  const sections: Array<{ heading: string; items: string[] }> = []
-  let current: { heading: string; items: string[] } | null = null
-
-  for (const rawLine of markdown.split('\n')) {
-    const line = rawLine.trim()
-
-    if (line.startsWith('## ')) {
-      current = { heading: line.replace(/^##\s+/, ''), items: [] }
-      sections.push(current)
-      continue
-    }
-
-    if (!current || !line.startsWith('- ')) {
-      continue
-    }
-
-    current.items.push(line.replace(/^-\s+/, ''))
-  }
-
-  return sections.filter((section) => section.items.length > 0)
-}
-
-function ExtentCoordinates({
-  min,
-  max,
-}: {
-  min: number[]
-  max: number[]
-}) {
-  const dimensions = min.map((entry, index) => (max[index] ?? entry) - entry)
-  const rows = [
-    { label: 'min', values: min, formatValue: String },
-    { label: 'max', values: max, formatValue: String },
-    { label: 'dim', values: dimensions, formatValue: formatDimensionValue },
-  ]
-
-  return (
-    <div className="max-w-full overflow-x-auto">
-      <div className="grid w-max grid-cols-[2.5rem_repeat(3,max-content)] gap-x-2 gap-y-0.5 font-mono text-[12px]">
-        {rows.map((row) => (
-          <span key={row.label} className="contents">
-            <span aria-hidden="true" className="select-none text-muted-foreground">
-              {row.label}:
-            </span>
-            {row.values.map((entry, index) => (
-              <span key={index}>
-                {row.formatValue(entry)}
-                {index < row.values.length - 1 ? ',' : ''}
-              </span>
-            ))}
-          </span>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function isEmptyMetadataValue(value: unknown): boolean {
-  if (value == null) return true
-  if (typeof value === 'string') return value.trim().length === 0
-  if (Array.isArray(value)) return value.every(isEmptyMetadataValue)
-  if (typeof value === 'object') {
-    return Object.values(value as Record<string, unknown>).every(isEmptyMetadataValue)
-  }
-  return false
-}
-
-function formatMetadataKey(key: string) {
-  const withSpaces = key.replace(/[_-]+/g, ' ').replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-  return withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1).toLowerCase()
-}
-
-function formatOpenFileCount(count: number) {
-  return `${count} ${count === 1 ? 'file' : 'files'} open`
-}
-
-function formatCityJsonFileTabLabel(sourceName: string, index: number, sourceCount: number) {
-  if (sourceCount === 1) {
-    return 'CityJSON'
-  }
-
-  return sourceName.trim() || `File ${index + 1}`
-}
-
-function isGeographicalExtentKey(key: string | undefined) {
-  return key?.toLowerCase() === 'geographicalextent'
-}
-
-function isNumberArray(value: unknown[]): value is number[] {
-  return value.every((entry) => typeof entry === 'number')
-}
-
-function formatDimensionValue(value: number) {
-  return value.toFixed(3).replace(/\.?0+$/, '')
-}
-
-function formatContinuousInputValue(value: number) {
-  return Number.isInteger(value) ? String(value) : Number(value.toPrecision(8)).toString()
-}
-
-function formatColorMapName(colorMapId: AttributeColorMapId) {
-  return colorMapId
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/^./, (match) => match.toUpperCase())
-}
-
-function getContinuousAttributeColorMapColors(colorMapId: AttributeColorMapId) {
-  return ATTRIBUTE_COLOR_MAPS[colorMapId as ContinuousAttributeColorMapId] ?? ATTRIBUTE_COLOR_MAPS.viridis
-}
-
-function getColorMapPreviewBackground(colorMapId: AttributeColorMapId): string | null {
-  const continuous = ATTRIBUTE_COLOR_MAPS[colorMapId as ContinuousAttributeColorMapId]
-  if (continuous) {
-    return `linear-gradient(to right, ${continuous.join(', ')})`
-  }
-
-  const qualitative = QUALITATIVE_COLOR_MAPS[colorMapId as QualitativeAttributeColorMapId]
-  if (qualitative) {
-    const stops: string[] = []
-    qualitative.forEach((color, index) => {
-      const start = (index / qualitative.length) * 100
-      const end = ((index + 1) / qualitative.length) * 100
-      stops.push(`${color} ${start}%`, `${color} ${end}%`)
-    })
-    return `linear-gradient(to right, ${stops.join(', ')})`
-  }
-
-  return null
-}
-
-function normalizeHexColor(color: string) {
-  return /^#[0-9a-f]{6}$/i.test(color) ? color : ATTRIBUTE_COLOR_MISSING
-}
-
-function formatMetadataPrimitive(value: string | number | boolean | null): string {
-  if (value == null) {
-    return '—'
-  }
-
-  if (typeof value === 'boolean') {
-    return value ? 'true' : 'false'
-  }
-
-  return String(value)
-}
 
 export default App
-
-function cloneVertices(vertices: Vec3[]) {
-  return vertices.map((vertex) => [...vertex] as Vec3)
-}
-
-function cloneObjectGeometries(geometries: ViewerObjectGeometry[]) {
-  return geometries.map((geometry) => ({
-    ...geometry,
-    polygons: clonePolygonRingsList(geometry.polygons),
-    semanticSurfaces: geometry.semanticSurfaces.map((surface) =>
-      surface
-        ? {
-            ...surface,
-            attributes: { ...surface.attributes },
-          }
-        : null,
-    ),
-    sourceFaceIndices: [...geometry.sourceFaceIndices],
-    vertexIndices: [...geometry.vertexIndices],
-  }))
-}
-
-function clonePolygonRingsList(polygons: PolygonRings[]) {
-  return polygons.map((polygon) => polygon.map((ring) => [...ring]))
-}
-
-function formatCoordinateTriple(coordinates: Vec3) {
-  return `${coordinates[0].toFixed(3)}, ${coordinates[1].toFixed(3)}, ${coordinates[2].toFixed(3)}`
-}
-
-function formatDistanceValue(distance: number) {
-  if (distance === 0 || distance >= 0.001) {
-    return distance.toFixed(3)
-  }
-
-  const decimalPlaces = Math.min(12, Math.max(4, 2 - Math.floor(Math.log10(distance))))
-  const formatted = distance.toFixed(decimalPlaces)
-  return Number(formatted) === 0 ? distance.toExponential(2) : formatted
-}
-
-function distanceBetweenPoints(left: Vec3, right: Vec3) {
-  return Math.hypot(
-    right[0] - left[0],
-    right[1] - left[1],
-    right[2] - left[2],
-  )
-}
-
-function getFileSourceLocation(file: File) {
-  return file.webkitRelativePath || file.name
-}
-
-function getFaceVertexCycle(rings: number[][] | null, ringIndex: number) {
-  const targetRing = rings?.[ringIndex] ?? []
-  return [...targetRing]
-}
-
-function collectGeometryVertexIndices(polygons: PolygonRings[]) {
-  const indices = new Set<number>()
-
-  for (const polygon of polygons) {
-    for (const ring of polygon) {
-      for (const index of ring) {
-        if (typeof index === 'number') {
-          indices.add(index)
-        }
-      }
-    }
-  }
-
-  return Array.from(indices).toSorted((left, right) => left - right)
-}
-
-function buildAttributeColorModel(
-  dataset: ViewerDataset | null,
-  key: string | null,
-  inheritFromParents: boolean,
-  colorMapId: AttributeColorMapId,
-  colorMapColors: readonly string[],
-  categoricalColorSeed: number,
-  customCategoricalColors: Record<string, string>,
-): AttributeColorModel | null {
-  if (!dataset || !key) {
-    return null
-  }
-
-  const valuesByObjectKey: Record<string, number> = {}
-  const values: number[] = []
-  const categoricalValuesByObjectKey: Record<string, string> = {}
-  const categoricalLabelsByKey = new Map<string, string>()
-  const categoricalCountsByKey = new Map<string, number>()
-  let objectCount = 0
-  let missingCount = 0
-  let hasCategoricalValue = false
-  let hasNonMissingValue = false
-
-  for (const feature of dataset.features) {
-    const objectById = inheritFromParents
-      ? new Map(feature.objects.map((object) => [object.id, object]))
-      : null
-
-    for (const object of feature.objects) {
-      objectCount += 1
-      const rawValue = resolveObjectAttribute(object, key, objectById)
-      const value = parseContinuousAttributeValue(rawValue)
-      const objectKey = viewerObjectKey(feature.id, object.id)
-      if (value == null) {
-        const categoricalValue = parseCategoricalAttributeValue(rawValue)
-        if (!categoricalValue) {
-          missingCount += 1
-          continue
-        }
-
-        hasCategoricalValue = true
-        hasNonMissingValue = true
-        categoricalValuesByObjectKey[objectKey] = categoricalValue.key
-        categoricalLabelsByKey.set(categoricalValue.key, categoricalValue.label)
-        categoricalCountsByKey.set(categoricalValue.key, (categoricalCountsByKey.get(categoricalValue.key) ?? 0) + 1)
-        continue
-      }
-
-      hasNonMissingValue = true
-      valuesByObjectKey[objectKey] = value
-      values.push(value)
-      const categoricalValue = parseCategoricalAttributeValue(rawValue)
-      if (categoricalValue) {
-        categoricalValuesByObjectKey[objectKey] = categoricalValue.key
-        categoricalLabelsByKey.set(categoricalValue.key, categoricalValue.label)
-        categoricalCountsByKey.set(categoricalValue.key, (categoricalCountsByKey.get(categoricalValue.key) ?? 0) + 1)
-      }
-    }
-  }
-
-  if (hasCategoricalValue) {
-    return buildCategoricalAttributeColorModel({
-      key,
-      categoricalValuesByObjectKey,
-      categoricalLabelsByKey,
-      categoricalCountsByKey,
-      missingCount,
-      objectCount,
-      colorMapId,
-      colorMapColors,
-      categoricalColorSeed,
-      customCategoricalColors,
-    })
-  }
-
-  if (values.length === 0) {
-    return {
-      kind: 'continuous',
-      key,
-      valuesByObjectKey,
-      values,
-      dataMin: 0,
-      dataMax: 1,
-      continuousCount: 0,
-      missingCount: hasNonMissingValue ? missingCount : objectCount,
-      objectCount,
-      bins: [],
-    }
-  }
-
-  const dataMin = Math.min(...values)
-  const dataMax = Math.max(...values)
-  const bins = buildAttributeColorBins(values, dataMin, dataMax, colorMapColors)
-
-  return {
-    kind: 'continuous',
-    key,
-    valuesByObjectKey,
-    values,
-    dataMin,
-    dataMax,
-    continuousCount: values.length,
-    missingCount,
-    objectCount,
-    bins,
-  }
-}
-
-function buildCategoricalAttributeColorModel({
-  key,
-  categoricalValuesByObjectKey,
-  categoricalLabelsByKey,
-  categoricalCountsByKey,
-  missingCount,
-  objectCount,
-  colorMapId,
-  colorMapColors,
-  categoricalColorSeed,
-  customCategoricalColors,
-}: {
-  key: string
-  categoricalValuesByObjectKey: Record<string, string>
-  categoricalLabelsByKey: Map<string, string>
-  categoricalCountsByKey: Map<string, number>
-  missingCount: number
-  objectCount: number
-  colorMapId: AttributeColorMapId
-  colorMapColors: readonly string[]
-  categoricalColorSeed: number
-  customCategoricalColors: Record<string, string>
-}): CategoricalAttributeColorModel {
-  const sortedCategoryKeys = Array.from(categoricalCountsByKey.keys()).toSorted((left, right) =>
-    (categoricalLabelsByKey.get(left) ?? left).localeCompare(categoricalLabelsByKey.get(right) ?? right, undefined, {
-      numeric: true,
-      sensitivity: 'base',
-    }),
-  )
-  const categories = sortedCategoryKeys.map((categoryKey, index) => {
-    const label = categoricalLabelsByKey.get(categoryKey) ?? categoryKey
-    return {
-      key: categoryKey,
-      label,
-      count: categoricalCountsByKey.get(categoryKey) ?? 0,
-      color: getCategoricalAttributeColor(
-        key,
-        categoryKey,
-        index,
-        sortedCategoryKeys.length,
-        colorMapId,
-        colorMapColors,
-        categoricalColorSeed,
-        customCategoricalColors[categoryKey],
-      ),
-      index,
-    }
-  })
-  const categoryByKey = new Map(categories.map((category) => [category.key, category]))
-  const valuesByObjectKey: Record<string, number> = {}
-  const directColorsByObjectKey: Record<string, string> = {}
-
-  for (const [objectKey, categoryKey] of Object.entries(categoricalValuesByObjectKey)) {
-    const category = categoryByKey.get(categoryKey)
-    if (!category) {
-      continue
-    }
-
-    valuesByObjectKey[objectKey] = category.index
-    directColorsByObjectKey[objectKey] = category.color
-  }
-
-  return {
-    kind: 'categorical',
-    key,
-    valuesByObjectKey,
-    directColorsByObjectKey,
-    categories,
-    valueCount: Object.keys(valuesByObjectKey).length,
-    missingCount,
-    objectCount,
-  }
-}
-
-function getDefaultAttributeColorDomain(model: ContinuousAttributeColorModel): AttributeColorDomain {
-  return {
-    key: model.key,
-    min: model.dataMin,
-    max: model.dataMax,
-  }
-}
-
-function resolveObjectAttribute(
-  object: ViewerCityObject,
-  key: string,
-  objectById: Map<string, ViewerCityObject> | null,
-) {
-  const direct = object.attributes[key]
-  if (!isMissingAttributeValue(direct) || !objectById) {
-    return direct
-  }
-
-  const visited = new Set<string>()
-  const visit = (objectId: string): unknown => {
-    if (visited.has(objectId)) {
-      return null
-    }
-
-    visited.add(objectId)
-    const parent = objectById.get(objectId)
-    if (!parent) {
-      return null
-    }
-
-    const value = parent.attributes[key]
-    if (!isMissingAttributeValue(value)) {
-      return value
-    }
-
-    for (const parentId of parent.parentIds) {
-      const inheritedValue = visit(parentId)
-      if (inheritedValue != null) {
-        return inheritedValue
-      }
-    }
-
-    return null
-  }
-
-  for (const parentId of object.parentIds) {
-    const inheritedValue = visit(parentId)
-    if (inheritedValue != null) {
-      return inheritedValue
-    }
-  }
-
-  return null
-}
-
-function isMissingAttributeValue(value: unknown) {
-  return value == null || (typeof value === 'string' && value.trim().length === 0)
-}
-
-function parseContinuousAttributeValue(value: unknown) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
-function parseCategoricalAttributeValue(value: unknown): { key: string; label: string } | null {
-  if (isMissingAttributeValue(value)) {
-    return null
-  }
-
-  if (typeof value === 'string') {
-    const label = value.trim()
-    return { key: `string:${label}`, label }
-  }
-
-  if (typeof value === 'boolean') {
-    const label = value ? 'true' : 'false'
-    return { key: `boolean:${label}`, label }
-  }
-
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    const label = formatDimensionValue(value)
-    return { key: `number:${value}`, label }
-  }
-
-  const label = formatValue(value)
-  return { key: `value:${label}`, label }
-}
-
-function getCategoricalAttributeColor(
-  attributeKey: string,
-  categoryKey: string,
-  categoryIndex: number,
-  categoryCount: number,
-  colorMapId: AttributeColorMapId,
-  colorMapColors: readonly string[],
-  categoricalColorSeed: number,
-  customColor: string | undefined,
-) {
-  if (colorMapId === 'random') {
-    return customColor ?? randomColorFromString(`${categoricalColorSeed}:${attributeKey}:${categoryKey}`)
-  }
-
-  const qualitativeColors = QUALITATIVE_COLOR_MAPS[colorMapId as QualitativeAttributeColorMapId]
-  if (qualitativeColors) {
-    return qualitativeColors[categoryIndex % qualitativeColors.length] ?? ATTRIBUTE_COLOR_MISSING
-  }
-
-  const t = categoryCount <= 1 ? 0.5 : categoryIndex / (categoryCount - 1)
-  return sampleColorMap(colorMapColors, t)
-}
-
-function randomColorFromString(value: string) {
-  let hash = 2166136261
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index)
-    hash = Math.imul(hash, 16777619)
-  }
-
-  const hue = Math.abs(hash % 360)
-  const saturation = 58 + Math.abs((hash >>> 8) % 24)
-  const lightness = 42 + Math.abs((hash >>> 16) % 18)
-  return hslToHex(hue, saturation / 100, lightness / 100)
-}
-
-function hslToHex(hue: number, saturation: number, lightness: number) {
-  const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation
-  const huePrime = hue / 60
-  const x = chroma * (1 - Math.abs((huePrime % 2) - 1))
-  const [red1, green1, blue1] =
-    huePrime < 1
-      ? [chroma, x, 0]
-      : huePrime < 2
-        ? [x, chroma, 0]
-        : huePrime < 3
-          ? [0, chroma, x]
-          : huePrime < 4
-            ? [0, x, chroma]
-            : huePrime < 5
-              ? [x, 0, chroma]
-              : [chroma, 0, x]
-  const match = lightness - chroma / 2
-  const channels = [red1, green1, blue1].map((channel) =>
-    Math.round((channel + match) * 255),
-  )
-  return `#${channels.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`
-}
-
-function buildAttributeColorBins(
-  values: number[],
-  dataMin: number,
-  dataMax: number,
-  colorMapColors: readonly string[],
-) {
-  const binCount = Math.min(ATTRIBUTE_COLOR_BIN_COUNT, Math.max(values.length, 1))
-  const span = Math.max(dataMax - dataMin, 0.000001)
-  const bins: AttributeColorBin[] = Array.from({ length: binCount }, (_, index) => {
-    const start = dataMin + (span * index) / binCount
-    const end = index === binCount - 1 ? dataMax : dataMin + (span * (index + 1)) / binCount
-    const t = binCount === 1 ? 0.5 : index / (binCount - 1)
-    return {
-      start,
-      end,
-      count: 0,
-      color: sampleColorMap(colorMapColors, t),
-    }
-  })
-
-  for (const value of values) {
-    const index = Math.min(Math.floor(((value - dataMin) / span) * binCount), binCount - 1)
-    bins[Math.max(index, 0)].count += 1
-  }
-
-  return bins
-}
-
-function sampleColorMap(colors: readonly string[], t: number) {
-  if (colors.length === 0) {
-    return ATTRIBUTE_COLOR_MISSING
-  }
-
-  if (colors.length === 1) {
-    return colors[0] ?? ATTRIBUTE_COLOR_MISSING
-  }
-
-  const clampedT = Math.min(Math.max(t, 0), 1)
-  const scaledIndex = clampedT * (colors.length - 1)
-  const leftIndex = Math.floor(scaledIndex)
-  const rightIndex = Math.min(leftIndex + 1, colors.length - 1)
-  return mixHexColors(colors[leftIndex] ?? colors[0], colors[rightIndex] ?? colors[colors.length - 1], scaledIndex - leftIndex)
-}
-
-function mixHexColors(left: string, right: string, t: number) {
-  const leftRgb = parseHexColor(left)
-  const rightRgb = parseHexColor(right)
-  const clampedT = Math.min(Math.max(t, 0), 1)
-  const mixed = leftRgb.map((channel, index) =>
-    Math.round(channel + (rightRgb[index] - channel) * clampedT),
-  )
-  return `#${mixed.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`
-}
-
-function parseHexColor(value: string) {
-  const normalized = value.replace('#', '')
-  return [0, 1, 2].map((index) => Number.parseInt(normalized.slice(index * 2, index * 2 + 2), 16))
-}
-
-function getCurrentFaceIndexForSourceFace(geometry: ViewerObjectGeometry, sourceFaceIndex: number) {
-  const currentFaceIndex = geometry.sourceFaceIndices.indexOf(sourceFaceIndex)
-  return currentFaceIndex >= 0 ? currentFaceIndex : null
-}
-
-function isEditableTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) {
-    return false
-  }
-
-  return (
-    target.isContentEditable ||
-    target.tagName === 'INPUT' ||
-    target.tagName === 'TEXTAREA' ||
-    target.tagName === 'SELECT'
-  )
-}
