@@ -1,3 +1,4 @@
+import { getDatasetSourceText } from './source-text'
 import { parseValidationReport } from '@/lib/cityjson'
 import type { LoadedValidationReport } from '@/lib/cityjson'
 import type { ViewerDataset } from '@/types/cityjson'
@@ -26,15 +27,16 @@ export async function validateDatasetWithVal3dity(
   if (dataset.cityJsonKind === 'Multiple') {
     throw new Error('Combined CityJSON scenes cannot be validated as a single source file.')
   }
-  if (!dataset.sourceText.trim()) {
+  const inputText = getDatasetSourceText(dataset)
+  if (!inputText?.trim()) {
     throw new Error('The original CityJSON source text is not available for validation.')
   }
 
   const val3dity = await loadVal3dity()
   const report =
     dataset.cityJsonKind === 'CityJSONFeatures'
-      ? val3dity.validateCityJSONSeq(dataset.sourceText, validationOptions)
-      : val3dity.validateCityJSON(dataset.sourceText, validationOptions)
+      ? val3dity.validateCityJSONSeq(inputText, validationOptions)
+      : val3dity.validateCityJSON(inputText, validationOptions)
 
   const sourceText = JSON.stringify(report)
   return {

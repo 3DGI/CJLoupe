@@ -1,3 +1,4 @@
+export * from './buffers'
 export * from './attributes'
 export * from './geometry'
 export * from './identity'

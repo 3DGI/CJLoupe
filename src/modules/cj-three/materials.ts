@@ -1,3 +1,4 @@
+import type { IndexArray } from '../cityjson-core/types'
 import * as THREE from 'three'
 import { viewerObjectKey } from '../cityjson-core/identity'
 import type { ViewerDataset, ViewerSemanticSurface, ViewerValidationError } from '../cityjson-core/types'
@@ -765,7 +766,7 @@ export function computeFaceErrorGroups(
   errors: ViewerValidationError[],
   objectId: string,
   geometryIndex: number,
-  sourceFaceIndices: number[],
+  sourceFaceIndices: IndexArray,
 ): { faceGroups: Map<number, number>; groupColors: Map<number, string> } {
   const codeToGroup = new Map<number, number>()
   let nextGroup = 1
@@ -798,7 +799,7 @@ export function computeFaceErrorGroups(
   return { faceGroups, groupColors }
 }
 
-export function getCurrentFaceIndexForSourceFace(sourceFaceIndices: number[], sourceFaceIndex: number) {
+export function getCurrentFaceIndexForSourceFace(sourceFaceIndices: IndexArray, sourceFaceIndex: number) {
   const currentFaceIndex = sourceFaceIndices.indexOf(sourceFaceIndex)
   return currentFaceIndex >= 0 ? currentFaceIndex : null
 }

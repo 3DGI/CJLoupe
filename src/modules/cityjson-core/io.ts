@@ -3,7 +3,13 @@ import { parseCityJson } from './parse'
 import { measureAsyncPerformance } from './performance'
 import type { ViewerDataset, ViewerDatasetSource } from './types'
 
-const fileTextCache = new WeakMap<File, Promise<string>>()
+export type CityJsonLoadOptions = CityJsonParseOptions & {
+  cityJsonKind?: 'auto' | 'document' | 'sequence'
+  signal?: AbortSignal
+  readText?: (file: File) => Promise<string>
+  /** The caller may retain provenance; this module never keeps the input text. */
+  onLoad?: (dataset: ViewerDataset, text: string) => void
+}
 
 export async function loadCityJsonSequenceFromUrl(url: string, sourceName: string) {
   return loadCityJsonFromUrl(url, sourceName, { cityJsonKind: 'sequence' })
@@ -12,7 +18,7 @@ export async function loadCityJsonSequenceFromUrl(url: string, sourceName: strin
 export async function loadCityJsonFromUrl(
   url: string,
   sourceName: string,
-  options?: CityJsonParseOptions & { cityJsonKind?: 'auto' | 'document' | 'sequence'; signal?: AbortSignal },
+  options?: CityJsonLoadOptions,
 ) {
   return measureAsyncPerformance('cjvis:cityjson:load-url-total', async () => {
     const response = await measureAsyncPerformance('cjvis:cityjson:fetch-url', () => fetch(url, { signal: options?.signal }))
@@ -21,11 +27,13 @@ export async function loadCityJsonFromUrl(
     }
 
     const text = await measureAsyncPerformance('cjvis:cityjson:read-url-text', () => response.text())
-    return withDatasetSourceLocation(
+    const dataset = withDatasetSourceLocation(
       parseCityJson(text, sourceName, { ...options, kind: options?.cityJsonKind ?? options?.kind ?? inferCityJsonKindFromSource(url) }),
       url,
       'url',
     )
+    options?.onLoad?.(dataset, text)
+    return dataset
   })
 }
 
@@ -35,12 +43,12 @@ export async function loadCityJsonSequenceFromFile(file: File) {
 
 export async function loadCityJsonFromFile(
   file: File,
-  options?: CityJsonParseOptions & { cityJsonKind?: 'auto' | 'document' | 'sequence'; signal?: AbortSignal },
+  options?: CityJsonLoadOptions,
 ) {
   return measureAsyncPerformance('cjvis:cityjson:load-file-total', async () => {
     let text: string
     try {
-      text = await measureAsyncPerformance('cjvis:cityjson:read-file-text', () => readFileText(file))
+      text = await measureAsyncPerformance('cjvis:cityjson:read-file-text', () => (options?.readText ?? readFileText)(file))
     } catch (caughtError) {
       throw new Error(
         `Could not read ${file.name} (${formatByteSize(file.size)}). Very large CityJSON files can exceed browser memory limits.`,
@@ -54,18 +62,20 @@ export async function loadCityJsonFromFile(
       )
     }
 
-    return withDatasetSourceLocation(
+    const dataset = withDatasetSourceLocation(
       parseCityJson(text, file.name, { ...options, kind: options?.cityJsonKind ?? options?.kind ?? inferCityJsonKindFromSource(file.name) }),
       getFileSourceLocation(file),
       'file',
     )
+    options?.onLoad?.(dataset, text)
+    return dataset
   })
 }
 
-export async function classifyJsonFile(file: File): Promise<'cityjson' | 'validation-report' | 'unknown'> {
+export async function classifyJsonFile(file: File, readText = readFileText): Promise<'cityjson' | 'validation-report' | 'unknown'> {
   let parsed: unknown
   try {
-    parsed = JSON.parse(await readFileText(file)) as unknown
+    parsed = JSON.parse(await readText(file)) as unknown
   } catch {
     return 'unknown'
   }
@@ -81,16 +91,7 @@ export async function classifyJsonFile(file: File): Promise<'cityjson' | 'valida
   return Array.isArray(parsed.features) ? 'validation-report' : 'unknown'
 }
 
-export function readFileText(file: File) {
-  const cached = fileTextCache.get(file)
-  if (cached) {
-    return cached
-  }
-
-  const pending = file.text()
-  fileTextCache.set(file, pending)
-  return pending
-}
+export function readFileText(file: File) { return file.text() }
 
 function formatByteSize(bytes: number) {
   const units = ['B', 'KB', 'MB', 'GB', 'TB']

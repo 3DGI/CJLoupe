@@ -1,3 +1,4 @@
+import type { VertexInput, IndexArray } from '../cityjson-core/types'
 import * as THREE from 'three'
 import { resolveObjectGeometries } from '../cityjson-core/geometry'
 import { viewerObjectKey } from '../cityjson-core/identity'
@@ -12,7 +13,7 @@ export type SceneBuildOptions = {
   geometryDisplayMode: ViewerGeometryDisplayMode
   /** Optional app policy, e.g. CJLoupe's edit-mode geometry override. */
   geometriesForObject?: (feature: ViewerFeature, object: ViewerCityObject) => ViewerObjectGeometry[]
-  verticesForFeature?: (feature: ViewerFeature) => Vec3[]
+  verticesForFeature?: (feature: ViewerFeature) => VertexInput
 }
 
 export function clearLayerGeometry(state: LayerState) {
@@ -273,7 +274,7 @@ export function addStandaloneObjectMesh(
   feature: ViewerFeature,
   object: ViewerFeature['objects'][number],
   objectGeometry: ViewerObjectGeometry,
-  draftVertices: Vec3[],
+  draftVertices: VertexInput,
   featureCenter: Vec3,
   renderKey: string,
 ) {
@@ -659,7 +660,7 @@ export function buildObjectMeshPresentation(
   feature: ViewerFeature,
   object: ViewerFeature['objects'][number],
   objectGeometry: ViewerObjectGeometry,
-  vertices: Vec3[],
+  vertices: VertexInput,
   featureCenter: Vec3,
   existingBlueprint?: ObjectGeometryBlueprint,
 ) {
@@ -725,7 +726,7 @@ export function collectObjectErrorFaceIndices(
   errors: ViewerValidationError[],
   objectId: string,
   geometryIndex: number,
-  sourceFaceIndices: number[],
+  sourceFaceIndices: IndexArray,
 ) {
   const faceIndices = new Set<number>()
 

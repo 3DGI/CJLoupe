@@ -1,3 +1,4 @@
+import type { PolygonRings } from '../../modules/cityjson-core/types'
 
 import faceSelectIconUrl from '@/assets/blender-icons/facesel.svg'
 import restrictSelectOffIconUrl from '@/assets/blender-icons/restrict_select_off.svg'
@@ -608,7 +609,7 @@ export function distanceBetweenPoints(left: Vec3, right: Vec3) {
   )
 }
 
-export function getFaceVertexCycle(rings: number[][] | null, ringIndex: number) {
+export function getFaceVertexCycle(rings: PolygonRings | null, ringIndex: number) {
   const targetRing = rings?.[ringIndex] ?? []
   return [...targetRing]
 }

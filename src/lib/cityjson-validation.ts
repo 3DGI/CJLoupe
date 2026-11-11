@@ -1,3 +1,4 @@
+import { retainValidationText } from './source-text'
 import type { CityJsonHeader, CityJsonObject } from '../modules/cityjson-core/source-types'
 import type { Vec3, ViewerDataset, ViewerFeature, ViewerValidationError } from '../modules/cityjson-core/types'
 
@@ -114,7 +115,6 @@ export function createVal3dityExtensionSource(
     name: `embedded ${versionLabel} report`,
     location: sourceName,
     sourceKind: 'embedded',
-    sourceText: null,
   }
 }
 
@@ -314,11 +314,11 @@ export function assertValidationAnnotationsMatchDataset(
 export function mergeValidationAnnotations(
   dataset: ViewerDataset,
   annotations: ValidationAnnotations,
-  validationSource: ViewerDataset['validationSource'] = dataset.validationSource,
+  validationSource: (NonNullable<ViewerDataset['validationSource']> & { sourceText?: string | null }) | null = dataset.validationSource,
 ) {
   return {
     ...dataset,
-    validationSource,
+    validationSource: validationSource ? retainValidationText(validationSource) : null,
     features: dataset.features.map((feature) => {
       const annotation = annotations.get(feature.id)
       return {

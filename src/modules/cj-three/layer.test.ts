@@ -1,3 +1,4 @@
+import { packPolygons, packVertices } from '../cityjson-core/buffers'
 import { describe, expect, test } from 'bun:test'
 import * as THREE from 'three'
 import { parseCityJson } from '../cityjson-core/parse'
@@ -76,4 +77,14 @@ describe('Three.js geometry and layer', () => {
     expect(scene.children).toHaveLength(0)
     expect(() => layer.setData(dataset())).toThrow('disposed')
   })
+})
+
+test('native buffers match array input for holes, concave/closed/non-planar faces and degenerates', () => {
+  const vertices: Vec3[] = [[1000000, 4000000, 0], [1000010, 4000000, 0], [1000010, 4000010, 0], [1000000, 4000010, 0], [1000003, 4000003, 0], [1000003, 4000007, 0], [1000007, 4000007, 0], [1000007, 4000003, 0], [1000005, 4000005, 3]]
+  const polygons = [[[0, 1, 2, 3], [4, 5, 6, 7]], [[0, 1, 8, 3]], [[0, 1, 2, 3, 0]], [[0, 8, 2, 3]], [], [[0, 1]]]
+  for (const specialFaces of [new Set<number>(), new Set([1, 3])]) {
+    const legacy = buildObjectGeometryBlueprint(polygons, vertices, [1000000, 4000000, 0], specialFaces)
+    const packed = buildObjectGeometryBlueprint(packPolygons(polygons), packVertices(vertices), [1000000, 4000000, 0], specialFaces)
+    expect(packed).toEqual(legacy)
+  }
 })

@@ -1,5 +1,14 @@
 export type Vec3 = [number, number, number]
-export type PolygonRings = number[][]
+export type IndexArray = number[] | Uint32Array
+export type PolygonRings = IndexArray[]
+export type VertexInput = Vec3[] | Float64Array
+export interface PackedPolygons {
+  length: number
+  indices: Uint32Array
+  ringOffsets: Uint32Array
+  polygonOffsets: Uint32Array
+}
+export type PolygonInput = PolygonRings[] | PackedPolygons
 
 export type ViewerGeometryDisplayMode =
   | {
@@ -33,7 +42,6 @@ export interface ViewerValidationError {
 export interface ViewerDataset {
   sourceName: string
   sourceLocation: string
-  sourceText: string
   sources: ViewerDatasetSource[]
   validationSource: ViewerValidationSource | null
   center: Vec3
@@ -49,7 +57,6 @@ export interface ViewerDatasetSource {
   name: string
   location: string
   sourceKind: 'url' | 'file' | 'inline'
-  sourceText: string
   embeddedViewerState: string | null
   embeddedViewerStateError: string | null
   embeddedSourceName: string | null
@@ -64,7 +71,6 @@ export interface ViewerValidationSource {
   name: string
   location: string
   sourceKind: 'url' | 'file' | 'embedded' | 'generated'
-  sourceText: string | null
 }
 
 export interface ViewerFeature {
@@ -75,7 +81,7 @@ export interface ViewerFeature {
   validity: boolean | null
   errors: ViewerValidationError[]
   attributes: Record<string, unknown>
-  vertices: Vec3[]
+  vertices: Float64Array
   objects: ViewerCityObject[]
   extent: [number, number, number, number, number, number]
 }
@@ -84,10 +90,10 @@ export interface ViewerObjectGeometry {
   index: number
   geometryType: string | null
   lod: string | null
-  polygons: PolygonRings[]
+  polygons: PackedPolygons
   semanticSurfaces: Array<ViewerSemanticSurface | null>
-  sourceFaceIndices: number[]
-  vertexIndices: number[]
+  sourceFaceIndices: Uint32Array
+  vertexIndices: Uint32Array
 }
 
 export interface ViewerCityObject {

@@ -1,3 +1,4 @@
+import { polygonAt } from './modules/cityjson-core/buffers'
 import type { CityViewportHandle } from '@/components/viewer/viewport-handle'
 import { useAttributeColors } from '@/features/colors/use-attribute-colors'
 import type { FeatureGeometryChange } from '@/features/editing/geometry-editor'
@@ -238,7 +239,7 @@ function App() {
   )
   const selectedFace =
     activeObjectGeometry && selectedFaceIndex != null
-      ? activeObjectGeometry.polygons[selectedFaceIndex] ?? null
+      ? polygonAt(activeObjectGeometry.polygons, selectedFaceIndex) ?? null
       : null
   const selectedFaceRingCount = selectedFace?.length ?? 0
   const selectedFaceHoleCount = Math.max(selectedFaceRingCount - 1, 0)
@@ -570,7 +571,7 @@ function App() {
     }
 
     const activeVertexIndices = new Set(activeObjectGeometry.vertexIndices)
-    if (selectedFaceIndex != null && !activeObjectGeometry.polygons[selectedFaceIndex]) {
+    if (selectedFaceIndex != null && !polygonAt(activeObjectGeometry.polygons, selectedFaceIndex)) {
       setSelectedFaceIndex(null)
       setSelectedFaceRingIndex(0)
       setSelectedVertexIndex(null)
@@ -846,7 +847,7 @@ function App() {
       state.selection.faceIndex < restoredGeometry.polygons.length
         ? state.selection.faceIndex
         : null
-    const restoredFace = restoredFaceIndex != null ? restoredGeometry?.polygons[restoredFaceIndex] ?? null : null
+    const restoredFace = restoredFaceIndex != null ? (restoredGeometry ? polygonAt(restoredGeometry.polygons, restoredFaceIndex) : null) ?? null : null
     const restoredFaceRingIndex = restoredFace && state.selection.faceRingIndex < restoredFace.length
       ? state.selection.faceRingIndex
       : 0

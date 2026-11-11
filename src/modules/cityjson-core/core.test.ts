@@ -1,3 +1,4 @@
+import { vertexAt } from './buffers'
 import { describe, expect, test } from 'bun:test'
 import { collectAttributeValues } from './attributes'
 import { resolveObjectGeometries } from './geometry'
@@ -22,7 +23,7 @@ describe('standalone CityJSON core', () => {
     const dataset = parseCityJson(JSON.stringify(document), 'sample')
     const feature = dataset.features[0]
     const child = feature.objects.find(object => object.id === 'child')!
-    expect(feature.vertices[1]).toEqual([100010, 400000, 0])
+    expect(vertexAt(feature.vertices, 1)).toEqual([100010, 400000, 0])
     expect(child.parentIds).toEqual(['parent'])
     expect(resolveObjectGeometries(child, { kind: 'best' }).map(geometry => geometry.index)).toEqual([1, 2])
     expect(resolveObjectGeometries(child, { kind: 'lod', lod: '1' })).toHaveLength(1)
@@ -38,7 +39,8 @@ describe('standalone CityJSON core', () => {
     const seq = parseCityJsonSequence(sequence, 'sequence')
     expect(seq.features[0].vertices).toEqual(doc.features[0].vertices)
     expect(seq.features[0].objects).toEqual(doc.features[0].objects)
-    expect(seq.sources[0].sourceText).toBe(sequence)
+    expect('sourceText' in seq).toBe(false)
+    expect('sourceText' in seq.sources[0]).toBe(false)
   })
 
   test('combining duplicate feature IDs retains distinct, stable identities', () => {

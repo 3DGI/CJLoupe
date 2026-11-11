@@ -1,3 +1,4 @@
+import { buildPackedPolygons, uniqueIndices } from './buffers'
 import { readGeographicalExtent } from './extents'
 import { measurePerformance, nowPerformance, recordPerformanceMeasure } from './performance'
 import type { CityJsonDocument, CityJsonFeature, CityJsonGeometry, CityJsonHeader, CityJsonObject, CityJsonSemantics, CityJsonTransform, ViewerDatasetInfo } from './source-types'
@@ -58,14 +59,12 @@ export function combineViewerDatasets(datasets: ViewerDataset[]): ViewerDataset 
         name: 'embedded val3dity reports',
         location: validationSources.map((source) => source.location).join('\n'),
         sourceKind: 'embedded',
-        sourceText: null,
       }
     : null)
 
   return {
     sourceName,
     sourceLocation,
-    sourceText: '',
     sources,
     validationSource,
     center,
@@ -109,7 +108,7 @@ function parseCityJsonForSource(
 
       const type = parsed.type
       if (type === 'CityJSON') {
-        return parseCityJsonDocument(parsed as CityJsonDocument, sourceName, text, options)
+        return parseCityJsonDocument(parsed as CityJsonDocument, sourceName, options)
       }
 
       if (cityJsonKind === 'document') {
@@ -170,7 +169,7 @@ export function parseCityJsonSequence(text: string, sourceName: string, options:
         }
 
         startedAt = nowPerformance()
-        const worldVertices = transformVerticesInPlace(feature.vertices, transform)
+        const worldVertices = transformVertices(feature.vertices, transform)
         vertexTransformDuration += nowPerformance() - startedAt
 
         startedAt = nowPerformance()
@@ -215,7 +214,6 @@ export function parseCityJsonSequence(text: string, sourceName: string, options:
     return measurePerformance('cjvis:cityjson:create-viewer-dataset', () =>
       createViewerDataset(
         sourceName,
-        text,
         features,
         info,
         'CityJSONFeatures',
@@ -226,7 +224,7 @@ export function parseCityJsonSequence(text: string, sourceName: string, options:
   })
 }
 
-function parseCityJsonDocument(document: CityJsonDocument, sourceName: string, sourceText: string, options: CityJsonParseOptions): ViewerDataset {
+function parseCityJsonDocument(document: CityJsonDocument, sourceName: string, options: CityJsonParseOptions): ViewerDataset {
   return measurePerformance('cjvis:cityjson:parse-document-total', () => {
     if (!isCityObjectsRecord(document.CityObjects)) {
       throw new Error('CityJSON object must contain a top-level "CityObjects" object.')
@@ -240,9 +238,6 @@ function parseCityJsonDocument(document: CityJsonDocument, sourceName: string, s
     const vertices = document.vertices
     const transform = document.transform ?? {}
     const info = extractDatasetInfo(document)
-    const worldVertices = measurePerformance('cjvis:cityjson:transform-document-vertices', () =>
-      transformVerticesInPlace(vertices, transform),
-    )
     const featureRootIds = measurePerformance('cjvis:cityjson:collect-feature-roots', () =>
       collectFeatureRootIds(cityObjectsById),
     )
@@ -261,18 +256,19 @@ function parseCityJsonDocument(document: CityJsonDocument, sourceName: string, s
           processedObjectIds.add(objectId)
         }
 
-        const localized = localizeCityObjects(cityObjects, worldVertices)
+        const localized = localizeVertices(cityObjects, vertices, transform)
         const viewerFeature = createViewerFeature({
           featureId: rootObjectId,
           rootObjectId,
           rootObject,
-          cityObjects: localized.cityObjects,
+          cityObjects,
+          remap: localized.remap,
           vertices: localized.vertices,
           options,
         })
 
         if (viewerFeature) {
-          features.push((options.onFeature?.(viewerFeature, localized.cityObjects, document) ?? viewerFeature))
+          features.push((options.onFeature?.(viewerFeature, cityObjects, document) ?? viewerFeature))
         }
       }
 
@@ -281,18 +277,19 @@ function parseCityJsonDocument(document: CityJsonDocument, sourceName: string, s
           continue
         }
 
-        const localized = localizeCityObjects({ [objectId]: object }, worldVertices)
+        const localized = localizeVertices({ [objectId]: object }, vertices, transform)
         const viewerFeature = createViewerFeature({
           featureId: objectId,
           rootObjectId: objectId,
           rootObject: object,
-          cityObjects: localized.cityObjects,
+          cityObjects: { [objectId]: object },
+          remap: localized.remap,
           vertices: localized.vertices,
           options,
         })
 
         if (viewerFeature) {
-          features.push((options.onFeature?.(viewerFeature, localized.cityObjects, document) ?? viewerFeature))
+          features.push((options.onFeature?.(viewerFeature, { [objectId]: object }, document) ?? viewerFeature))
         }
       }
     })
@@ -300,7 +297,6 @@ function parseCityJsonDocument(document: CityJsonDocument, sourceName: string, s
     return measurePerformance('cjvis:cityjson:create-viewer-dataset', () =>
       createViewerDataset(
         sourceName,
-        sourceText,
         features,
         info,
         'CityJSON',
@@ -313,7 +309,6 @@ function parseCityJsonDocument(document: CityJsonDocument, sourceName: string, s
 
 function createViewerDataset(
   sourceName: string,
-  sourceText: string,
   features: ViewerFeature[],
   info: ViewerDatasetInfo,
   cityJsonKind: 'CityJSON' | 'CityJSONFeatures',
@@ -350,14 +345,12 @@ function createViewerDataset(
   const dataset: ViewerDataset = {
     sourceName,
     sourceLocation: sourceName,
-    sourceText,
     validationSource: null,
     sources: [
       {
         name: sourceName,
         location: sourceName,
         sourceKind: 'inline',
-        sourceText,
         embeddedViewerState: null,
         embeddedViewerStateError: null,
         embeddedSourceName: null,
@@ -385,7 +378,6 @@ function getDatasetSources(dataset: ViewerDataset): ViewerDatasetSource[] {
           name: dataset.sourceName,
           location: dataset.sourceLocation,
           sourceKind: 'inline',
-          sourceText: dataset.sourceText,
           embeddedViewerState: null,
           embeddedViewerStateError: null,
           embeddedSourceName: null,
@@ -477,27 +469,26 @@ function createViewerFeature({
   rootObject,
   cityObjects,
   vertices,
+  remap,
   options,
 }: {
   featureId: string
   rootObjectId: string
   rootObject: CityJsonObject
   cityObjects: Record<string, CityJsonObject>
-  vertices: Vec3[]
+  vertices: Float64Array
+  remap?: ReadonlyMap<number, number>
   options: CityJsonParseOptions
 }): ViewerFeature | null {
-  const objects = createViewerObjects(cityObjects, options)
+  const objects = createViewerObjects(cityObjects, options, remap)
   const renderableObjects = objects.filter((object) => object.geometries.length > 0)
   if (renderableObjects.length === 0) {
     return null
   }
 
-  const vertexIndices = uniqueVertexIndices(
-    renderableObjects.flatMap((object) =>
-      object.geometries.flatMap((geometry) => geometry.polygons),
-    ),
-  )
-  const extent = calculateExtentFromIndices(vertices, vertexIndices)
+  const extent = calculateExtentFromIndices(vertices, (function* () {
+    for (const object of renderableObjects) for (const geometry of object.geometries) yield* geometry.vertexIndices
+  })())
   if (!extent) {
     return null
   }
@@ -516,9 +507,9 @@ function createViewerFeature({
   }
 }
 
-function createViewerObjects(cityObjects: Record<string, CityJsonObject>, options: CityJsonParseOptions) {
+function createViewerObjects(cityObjects: Record<string, CityJsonObject>, options: CityJsonParseOptions, remap?: ReadonlyMap<number, number>) {
   const objects = Object.entries(cityObjects).map(([id, object]) => {
-    const geometries = extractRenderableGeometries(object.geometry ?? [])
+    const geometries = extractRenderableGeometries(object.geometry ?? [], remap)
 
     return {
       id,
@@ -593,82 +584,17 @@ function collectCityObjectSubtree(
   return collected
 }
 
-function localizeCityObjects(
-  cityObjects: Record<string, CityJsonObject>,
-  vertices: Vec3[],
-) {
-  const globalVertexIndices = collectCityObjectVertexIndices(cityObjects)
-    .filter((index) => index >= 0 && index < vertices.length)
-  const localVertexIndices = Array.from(new Set(globalVertexIndices)).toSorted((left, right) => left - right)
-  const localIndexByGlobalIndex = new Map(
-    localVertexIndices.map((globalIndex, localIndex) => [globalIndex, localIndex]),
-  )
-  const localizedCityObjects = Object.fromEntries(
-    Object.entries(cityObjects).map(([objectId, object]) => [
-      objectId,
-      remapCityObjectVertexIndices(object, localIndexByGlobalIndex),
-    ]),
-  )
-
-  return {
-    cityObjects: localizedCityObjects,
-    vertices: localVertexIndices.map((index) => vertices[index]),
+function localizeVertices(cityObjects: Record<string, CityJsonObject>, vertices: number[][], transform: CityJsonTransform) {
+  const used = new Set<number>()
+  function collect(value: unknown) {
+    if (typeof value === 'number' && Number.isInteger(value) && value >= 0 && value < vertices.length) used.add(value)
+    else if (Array.isArray(value)) for (const child of value) collect(child)
   }
-}
-
-function collectCityObjectVertexIndices(cityObjects: Record<string, CityJsonObject>) {
-  const indices: number[] = []
-
-  for (const object of Object.values(cityObjects)) {
-    for (const geometry of object.geometry ?? []) {
-      collectBoundaryVertexIndices(geometry.boundaries, indices)
-    }
-  }
-
-  return indices
-}
-
-function collectBoundaryVertexIndices(value: unknown, indices: number[]) {
-  if (typeof value === 'number' && Number.isInteger(value)) {
-    indices.push(value)
-    return
-  }
-
-  if (!Array.isArray(value)) {
-    return
-  }
-
-  for (const entry of value) {
-    collectBoundaryVertexIndices(entry, indices)
-  }
-}
-
-function remapCityObjectVertexIndices(
-  object: CityJsonObject,
-  localIndexByGlobalIndex: Map<number, number>,
-): CityJsonObject {
-  return {
-    ...object,
-    geometry: object.geometry?.map((geometry) => ({
-      ...geometry,
-      boundaries: remapBoundaryVertexIndices(geometry.boundaries, localIndexByGlobalIndex),
-    })),
-  }
-}
-
-function remapBoundaryVertexIndices(
-  value: unknown,
-  localIndexByGlobalIndex: Map<number, number>,
-): unknown {
-  if (typeof value === 'number' && Number.isInteger(value)) {
-    return localIndexByGlobalIndex.get(value) ?? value
-  }
-
-  if (!Array.isArray(value)) {
-    return value
-  }
-
-  return value.map((entry) => remapBoundaryVertexIndices(entry, localIndexByGlobalIndex))
+  for (const object of Object.values(cityObjects)) for (const geometry of object.geometry ?? []) collect(geometry.boundaries)
+  const indices = Array.from(used).sort((a, b) => a - b)
+  const remap = new Map<number, number>()
+  for (let i = 0; i < indices.length; i++) remap.set(indices[i], i)
+  return { remap, vertices: transformVertices(vertices, transform, indices) }
 }
 
 function hasRenderableChild(
@@ -695,9 +621,9 @@ function hasRenderableChild(
   return false
 }
 
-function extractRenderableGeometries(geometries: CityJsonGeometry[]) {
+function extractRenderableGeometries(geometries: CityJsonGeometry[], remap?: ReadonlyMap<number, number>) {
   return geometries.flatMap((geometry, index) => {
-    const polygons = extractPolygons(geometry.type ?? '', geometry.boundaries)
+    const polygons = buildPackedPolygons(callback => visitPolygons(geometry.type ?? '', geometry.boundaries, callback), remap)
     if (polygons.length === 0) {
       return []
     }
@@ -711,11 +637,11 @@ function extractRenderableGeometries(geometries: CityJsonGeometry[]) {
     return [{
       index,
       geometryType: geometry.type ?? null,
-      lod: geometry.lod ?? null,
+      lod: geometry.lod == null ? null : String(geometry.lod),
       polygons,
       semanticSurfaces,
-      sourceFaceIndices: polygons.map((_, polygonIndex) => polygonIndex),
-      vertexIndices: uniqueVertexIndices(polygons),
+      sourceFaceIndices: Uint32Array.from({ length: polygons.length }, (_, polygonIndex) => polygonIndex),
+      vertexIndices: uniqueIndices(polygons.indices),
     } satisfies ViewerObjectGeometry]
   })
 }
@@ -738,30 +664,18 @@ function pickBestGeometryIndex(geometries: ViewerObjectGeometry[]) {
   return bestGeometryIndex
 }
 
-function extractPolygons(geometryType: string, boundaries: unknown): PolygonRings[] {
-  if (!boundaries || !Array.isArray(boundaries)) {
-    return []
+function visitPolygons(geometryType: string, boundaries: unknown, visit: (polygon: PolygonRings) => void) {
+  if (!Array.isArray(boundaries)) return
+  const depth = geometryType === 'MultiSurface' || geometryType === 'CompositeSurface' ? 0
+    : geometryType === 'Solid' ? 1 : geometryType === 'MultiSolid' || geometryType === 'CompositeSolid' ? 2 : -1
+  if (depth < 0) return
+  function walk(values: unknown[], level: number) {
+    for (const value of values) {
+      if (level === 0) { if (isPolygonRings(value)) visit(value) }
+      else if (Array.isArray(value)) walk(value, level - 1)
+    }
   }
-
-  if (geometryType === 'MultiSurface' || geometryType === 'CompositeSurface') {
-    return boundaries.filter(isPolygonRings)
-  }
-
-  if (geometryType === 'Solid') {
-    return boundaries.flatMap((shell) =>
-      Array.isArray(shell) ? shell.filter(isPolygonRings) : [],
-    )
-  }
-
-  if (geometryType === 'MultiSolid' || geometryType === 'CompositeSolid') {
-    return boundaries.flatMap((solid) =>
-      Array.isArray(solid)
-        ? solid.flatMap((shell) => (Array.isArray(shell) ? shell.filter(isPolygonRings) : []))
-        : [],
-    )
-  }
-
-  return []
+  walk(boundaries, depth)
 }
 
 function extractSemanticSurfaces(
@@ -826,58 +740,37 @@ function isPolygonRings(value: unknown): value is PolygonRings {
   return Array.isArray(value) && value.every((ring) => Array.isArray(ring))
 }
 
-function uniqueVertexIndices(polygons: PolygonRings[]) {
-  const indices = new Set<number>()
-
-  for (const polygon of polygons) {
-    for (const ring of polygon) {
-      for (const index of ring) {
-        if (typeof index === 'number') {
-          indices.add(index)
-        }
-      }
-    }
-  }
-
-  return Array.from(indices).toSorted((left, right) => left - right)
-}
-
 function deriveFeatureLabel(featureId: string) {
   const prefix = 'NL.IMBAG.Pand.'
   return featureId.startsWith(prefix) ? featureId.slice(prefix.length) : featureId
 }
 
-function transformVerticesInPlace(vertices: number[][], transform: CityJsonTransform): Vec3[] {
+function transformVertices(vertices: number[][], transform: CityJsonTransform, indices?: number[]): Float64Array {
   const scale = transform.scale ?? [1, 1, 1]
   const translate = transform.translate ?? [0, 0, 0]
-
-  for (const vertex of vertices) {
-    vertex[0] = (vertex[0] ?? 0) * (scale[0] ?? 1) + (translate[0] ?? 0)
-    vertex[1] = (vertex[1] ?? 0) * (scale[1] ?? 1) + (translate[1] ?? 0)
-    vertex[2] = (vertex[2] ?? 0) * (scale[2] ?? 1) + (translate[2] ?? 0)
+  const result = new Float64Array((indices?.length ?? vertices.length) * 3)
+  for (let i = 0; i < result.length / 3; i++) {
+    const vertex = vertices[indices ? indices[i] : i]
+    for (let axis = 0; axis < 3; axis++) result[i * 3 + axis] = (vertex[axis] ?? 0) * (scale[axis] ?? 1) + (translate[axis] ?? 0)
   }
-
-  return vertices as Vec3[]
+  return result
 }
 
 function calculateExtentFromIndices(
-  vertices: Vec3[],
-  indices: number[],
+  vertices: Float64Array,
+  indices: Iterable<number>,
 ): ViewerFeature['extent'] | null {
   const min: Vec3 = [Infinity, Infinity, Infinity]
   const max: Vec3 = [-Infinity, -Infinity, -Infinity]
   let hasVertex = false
 
   for (const index of indices) {
-    const vertex = vertices[index]
-    if (!vertex) {
-      continue
-    }
-
+    if (index >= vertices.length / 3) continue
     hasVertex = true
     for (let axis = 0; axis < 3; axis += 1) {
-      min[axis] = Math.min(min[axis], vertex[axis])
-      max[axis] = Math.max(max[axis], vertex[axis])
+      const value = vertices[index * 3 + axis]
+      min[axis] = Math.min(min[axis], value)
+      max[axis] = Math.max(max[axis], value)
     }
   }
 

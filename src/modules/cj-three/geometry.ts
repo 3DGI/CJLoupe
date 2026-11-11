@@ -1,5 +1,6 @@
 import * as THREE from 'three'
-import type { PolygonRings, Vec3 } from '../cityjson-core/types'
+import { hasVertex, vertexAt, vertexComponent, polygonAt, polygonRings } from '../cityjson-core/buffers'
+import type { IndexArray, VertexInput, PolygonInput, PolygonRings, Vec3 } from '../cityjson-core/types'
 import type { ObjectGeometryBlueprint } from './types'
 
 export const PLANARITY_DISTANCE_TOLERANCE = 0.0001
@@ -10,8 +11,8 @@ export const NON_PLANAR_NORMAL_EXTRA_VERTEX_MAX_BUDGET = 500000
 export const EMPTY_FACE_INDEX_SET = new Set<number>()
 
 export function buildObjectGeometryBlueprint(
-  polygons: PolygonRings[],
-  vertices: Vec3[],
+  polygons: PolygonInput,
+  vertices: VertexInput,
   center: Vec3,
   triangleNormalFaceIndices: ReadonlySet<number> = EMPTY_FACE_INDEX_SET,
 ): ObjectGeometryBlueprint {
@@ -45,7 +46,7 @@ export function buildObjectGeometryBlueprint(
   }
 
   for (let polyIndex = 0; polyIndex < polygons.length; polyIndex += 1) {
-    const sourcePolygon = polygons[polyIndex]
+    const sourcePolygon = polygonAt(polygons, polyIndex)!
     const allowTriangleNormals = triangleNormalFaceIndices.has(polyIndex)
     if (
       sourcePolygon.length === 1 &&
@@ -137,7 +138,7 @@ export function buildObjectGeometryBlueprint(
 
 export function preparePolygonGeometry(
   polygon: PolygonRings,
-  vertices: Vec3[],
+  vertices: VertexInput,
   allowTriangleNormals: boolean,
 ) {
   const rings: Vec3[][] = []
@@ -190,15 +191,25 @@ export function collectRingOffsets(rings: Vec3[][]) {
   return ringOffsets
 }
 
-export function countRenderablePolygonVertices(polygons: PolygonRings[], vertices: Vec3[]) {
+export function countRenderablePolygonVertices(polygons: PolygonInput, vertices: VertexInput) {
   let count = 0
+  if (!Array.isArray(polygons)) {
+    for (let r = 0; r < polygons.ringOffsets.length - 1; r++) {
+      let ringCount = 0
+      for (let i = polygons.ringOffsets[r]; i < polygons.ringOffsets[r + 1]; i++) {
+        if (hasVertex(vertices, polygons.indices[i])) ringCount++
+      }
+      if (ringCount >= 3) count += ringCount
+    }
+    return count
+  }
 
-  for (const polygon of polygons) {
+  for (const polygon of polygonRings(polygons)) {
     let polygonCount = 0
     for (const ring of polygon) {
       let ringCount = 0
       for (const index of ring) {
-        if (Array.isArray(vertices[index])) {
+        if (hasVertex(vertices, index)) {
           ringCount += 1
         }
       }
@@ -212,37 +223,38 @@ export function countRenderablePolygonVertices(polygons: PolygonRings[], vertice
   return count
 }
 
-export function countRenderableRingVertices(ring: number[], vertices: Vec3[]) {
+export function countRenderableRingVertices(ring: IndexArray, vertices: VertexInput) {
   let count = 0
   for (const index of ring) {
-    if (Array.isArray(vertices[index])) {
+    if (hasVertex(vertices, index)) {
       count += 1
     }
   }
   return count
 }
 
-export function collectRingVertices(ring: number[], vertices: Vec3[]) {
+export function collectRingVertices(ring: IndexArray, vertices: VertexInput) {
   const ringVertices: Vec3[] = []
   for (const index of ring) {
-    const vertex = vertices[index]
-    if (Array.isArray(vertex)) {
+    const vertex = vertexAt(vertices, index)
+    if (vertex) {
       ringVertices.push(vertex)
     }
   }
   return ringVertices
 }
 
-export function hasClosingDuplicateVertex(ring: number[], vertices: Vec3[]) {
+export function hasClosingDuplicateVertex(ring: IndexArray, vertices: VertexInput) {
   if (ring.length < 2) {
     return false
   }
 
-  const first = vertices[ring[0]]
-  const last = vertices[ring[ring.length - 1]]
-  return Array.isArray(first) &&
-    Array.isArray(last) &&
-    samePoint(first, last)
+  const first = ring[0]
+  const last = ring[ring.length - 1]
+  return hasVertex(vertices, first) && hasVertex(vertices, last) &&
+    vertexComponent(vertices, first, 0) === vertexComponent(vertices, last, 0) &&
+    vertexComponent(vertices, first, 1) === vertexComponent(vertices, last, 1) &&
+    vertexComponent(vertices, first, 2) === vertexComponent(vertices, last, 2)
 }
 
 export function removeClosingDuplicateVertex(ringVertices: Vec3[]) {
@@ -262,8 +274,8 @@ export function samePoint(first: Vec3, second: Vec3) {
 }
 
 export function fillIndexedRingBuffers(
-  ring: number[],
-  vertices: Vec3[],
+  ring: IndexArray,
+  vertices: VertexInput,
   center: Vec3,
   normal: THREE.Vector3,
   positions: Float32Array,
@@ -273,16 +285,12 @@ export function fillIndexedRingBuffers(
   let componentOffset = startOffset
 
   for (const index of ring) {
-    const vertex = vertices[index]
-    if (!Array.isArray(vertex)) {
-      continue
-    }
-
-    positions[componentOffset] = vertex[0] - center[0]
+    if (!hasVertex(vertices, index)) continue
+    positions[componentOffset] = vertexComponent(vertices, index, 0) - center[0]
     normals[componentOffset++] = normal.x
-    positions[componentOffset] = vertex[1] - center[1]
+    positions[componentOffset] = vertexComponent(vertices, index, 1) - center[1]
     normals[componentOffset++] = normal.y
-    positions[componentOffset] = vertex[2] - center[2]
+    positions[componentOffset] = vertexComponent(vertices, index, 2) - center[2]
     normals[componentOffset++] = normal.z
   }
 }
@@ -494,14 +502,17 @@ export function isConvexProjectedRing(points: THREE.Vector2[]) {
   return sign !== 0
 }
 
-export function isConvexIndexedRing(ring: number[], vertices: Vec3[], normal: THREE.Vector3) {
-  const ringVertices = collectRingVertices(ring, vertices)
-  if (ringVertices.length !== 4) {
-    return false
+export function isConvexIndexedRing(ring: IndexArray, vertices: VertexInput, normal: THREE.Vector3) {
+  if (ring.length !== 4 || countRenderableRingVertices(ring, vertices) !== 4) return false
+  const { origin, axisU, axisV } = makeBasis(vertexAt(vertices, ring[0])!, normal)
+  const points: THREE.Vector2[] = []
+  for (const index of ring) {
+    const x = vertexComponent(vertices, index, 0) - origin.x
+    const y = vertexComponent(vertices, index, 1) - origin.y
+    const z = vertexComponent(vertices, index, 2) - origin.z
+    points.push(new THREE.Vector2(x * axisU.x + y * axisU.y + z * axisU.z, x * axisV.x + y * axisV.y + z * axisV.z))
   }
-
-  const { origin, axisU, axisV } = makeBasis(ringVertices[0], normal)
-  return isConvexProjectedRing(ringVertices.map((vertex) => projectToPlane(vertex, origin, axisU, axisV)))
+  return isConvexProjectedRing(points)
 }
 
 export function isNonPlanarPolygon(rings: Vec3[][], normal: THREE.Vector3) {
@@ -561,35 +572,26 @@ export function computeNormal(points: Vec3[]) {
   return normal.normalize()
 }
 
-export function computeIndexedRingNormal(ring: number[], vertices: Vec3[]) {
+export function computeIndexedRingNormal(ring: IndexArray, vertices: VertexInput) {
   let nx = 0
   let ny = 0
   let nz = 0
-  let first: Vec3 | null = null
-  let previous: Vec3 | null = null
-
+  let first = -1
+  let previous = -1
+  function addEdge(a: number, b: number) {
+    const ax = vertexComponent(vertices, a, 0), ay = vertexComponent(vertices, a, 1), az = vertexComponent(vertices, a, 2)
+    const bx = vertexComponent(vertices, b, 0), by = vertexComponent(vertices, b, 1), bz = vertexComponent(vertices, b, 2)
+    nx += (ay - by) * (az + bz)
+    ny += (az - bz) * (ax + bx)
+    nz += (ax - bx) * (ay + by)
+  }
   for (const index of ring) {
-    const current = vertices[index]
-    if (!Array.isArray(current)) {
-      continue
-    }
-
-    if (!first) {
-      first = current
-    }
-    if (previous) {
-      nx += (previous[1] - current[1]) * (previous[2] + current[2])
-      ny += (previous[2] - current[2]) * (previous[0] + current[0])
-      nz += (previous[0] - current[0]) * (previous[1] + current[1])
-    }
-    previous = current
+    if (!hasVertex(vertices, index)) continue
+    if (first < 0) first = index
+    if (previous >= 0) addEdge(previous, index)
+    previous = index
   }
-
-  if (first && previous) {
-    nx += (previous[1] - first[1]) * (previous[2] + first[2])
-    ny += (previous[2] - first[2]) * (previous[0] + first[0])
-    nz += (previous[0] - first[0]) * (previous[1] + first[1])
-  }
+  if (first >= 0 && previous >= 0) addEdge(previous, first)
 
   const normal = new THREE.Vector3(nx, ny, nz)
   if (normal.lengthSq() === 0) {

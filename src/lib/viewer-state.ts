@@ -1,3 +1,4 @@
+import { requireSourceText, getSourceText } from './source-text'
 import { deflateSync, inflateSync, strToU8, zip } from 'fflate'
 
 import type {
@@ -318,7 +319,7 @@ export async function createViewerShareOutput(
       kind: 'file',
       name: makeStateFileName(source.name, source.cityJsonKind),
       data: new Blob(
-        [embedViewerStateInCityJson(source.sourceText, source.cityJsonKind, encodedState, source.name)],
+        [embedViewerStateInCityJson(requireSourceText(source), source.cityJsonKind, encodedState, source.name)],
         { type: source.cityJsonKind === 'CityJSONFeatures' ? 'application/x-ndjson' : 'application/json' },
       ),
     }
@@ -329,7 +330,7 @@ export async function createViewerShareOutput(
   for (const source of dataset.sources) {
     const name = makeUniqueArchiveName(makeStateFileName(source.name, source.cityJsonKind), usedNames)
     files[name] = strToU8(embedViewerStateInCityJson(
-      source.sourceText,
+      requireSourceText(source),
       source.cityJsonKind,
       encodedState,
       source.name,
@@ -338,11 +339,11 @@ export async function createViewerShareOutput(
 
   const validationSource = dataset.validationSource
   if (validationSource && validationSource.sourceKind !== 'embedded') {
-    if (!validationSource.sourceText) {
+    if (!getSourceText(validationSource)) {
       throw new Error('The standalone validation report is not available for download.')
     }
     const reportName = makeUniqueArchiveName(makeValidationReportFileName(validationSource.name), usedNames)
-    files[reportName] = strToU8(validationSource.sourceText)
+    files[reportName] = strToU8(getSourceText(validationSource)!)
   }
   files['README.txt'] = strToU8(
     'CJLoupe view bundle\n\nExtract this archive, then drag all CityJSON files and the optional val3dity report into CJLoupe together.\n',

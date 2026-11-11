@@ -1,10 +1,11 @@
+import { retainDatasetText, readAppFileText } from './source-text'
 import * as io from '../modules/cityjson-core/io'
 import type { CityJsonParseOptions } from '../modules/cityjson-core/parse'
 import * as core from '../modules/cityjson-core/parse'
 import type { CityJsonHeader } from '../modules/cityjson-core/source-types'
 import { applyVal3dityExtensionValidation, createVal3dityExtensionSource, getDisplayCityObjectAttributes, hasVal3dityReport, parseValidationReport } from './cityjson-validation'
 import { CJLOUPE_VIEWER_STATE_PROPERTY, VIEWER_STATE_VERSION } from './viewer-state-schema'
-export { classifyJsonFile } from '../modules/cityjson-core/io'
+export function classifyJsonFile(file: File) { return io.classifyJsonFile(file, readAppFileText) }
 export { combineViewerDatasets } from '../modules/cityjson-core/parse'
 export * from './cityjson-validation'
 
@@ -20,13 +21,13 @@ const appParsing: CityJsonParseOptions = {
     }
   },
 }
-export function parseCityJson(text: string, sourceName: string) { return core.parseCityJson(text, sourceName, appParsing) }
-export function parseCityJsonSequence(text: string, sourceName: string) { return core.parseCityJsonSequence(text, sourceName, appParsing) }
+export function parseCityJson(text: string, sourceName: string) { return retainDatasetText(core.parseCityJson(text, sourceName, appParsing), text) }
+export function parseCityJsonSequence(text: string, sourceName: string) { return retainDatasetText(core.parseCityJsonSequence(text, sourceName, appParsing), text) }
 export function loadCityJsonFromUrl(url: string, sourceName: string, options?: { cityJsonKind?: 'auto' | 'document' | 'sequence'; signal?: AbortSignal }) {
-  return io.loadCityJsonFromUrl(url, sourceName, { ...appParsing, ...options })
+  return io.loadCityJsonFromUrl(url, sourceName, { ...appParsing, ...options, onLoad: retainDatasetText, readText: readAppFileText })
 }
 export function loadCityJsonFromFile(file: File, options?: { cityJsonKind?: 'auto' | 'document' | 'sequence' }) {
-  return io.loadCityJsonFromFile(file, { ...appParsing, ...options })
+  return io.loadCityJsonFromFile(file, { ...appParsing, ...options, onLoad: retainDatasetText, readText: readAppFileText })
 }
 export function loadCityJsonSequenceFromUrl(url: string, sourceName: string) { return loadCityJsonFromUrl(url, sourceName, { cityJsonKind: 'sequence' }) }
 export function loadCityJsonSequenceFromFile(file: File) { return loadCityJsonFromFile(file, { cityJsonKind: 'sequence' }) }
@@ -37,7 +38,7 @@ export async function loadValidationReportFromUrl(url: string, options?: { signa
   return { annotations: parseValidationReport(sourceText), sourceText }
 }
 export async function loadValidationReportFromFile(file: File) {
-  const sourceText = await io.readFileText(file)
+  const sourceText = await readAppFileText(file)
   return { annotations: parseValidationReport(sourceText), sourceText }
 }
 

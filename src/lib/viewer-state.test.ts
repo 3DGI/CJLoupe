@@ -1,3 +1,4 @@
+import { retainSourceText, retainValidationText, getSourceText } from './source-text'
 import { describe, expect, test } from 'bun:test'
 import { deflateSync, inflateSync, strFromU8, strToU8, unzipSync } from 'fflate'
 
@@ -278,12 +279,12 @@ describe('share output selection', () => {
       source('same.city.json', 'file'),
       source('same.city.json', 'url'),
     ])
-    bundled.validationSource = {
+    bundled.validationSource = retainValidationText({
       name: 'report.json',
       location: 'report.json',
       sourceKind: 'file',
       sourceText: '{"features":[]}',
-    }
+    })
 
     expect(getViewerShareMode(bundled)).toBe('archive')
     const output = await createViewerShareOutput(bundled, state, 'https://example.test/')
@@ -304,23 +305,23 @@ describe('share output selection', () => {
 
   test('preserves a standalone report when combining it with embedded validation', () => {
     const standalone = dataset([source('standalone.city.json', 'file')])
-    standalone.validationSource = {
+    standalone.validationSource = retainValidationText({
       name: 'standalone-report.json',
       location: 'standalone-report.json',
       sourceKind: 'file',
       sourceText: '{"features":[]}',
-    }
+    })
     const embedded = dataset([source('embedded.city.json', 'file')])
     embedded.validationSource = {
       name: 'embedded val3dity report',
       location: 'embedded.city.json',
       sourceKind: 'embedded',
-      sourceText: null,
     }
 
     const combined = combineViewerDatasets([standalone, embedded])
 
     expect(combined.validationSource).toEqual(standalone.validationSource)
+    expect(getSourceText(combined.validationSource)).toBe('{"features":[]}')
     expect(getViewerShareMode(combined)).toBe('archive')
   })
 })
@@ -330,11 +331,10 @@ function source(
   sourceKind: ViewerDatasetSource['sourceKind'],
   embeddedViewerState: string | null = null,
 ): ViewerDatasetSource {
-  return {
+  return retainSourceText({
     name,
     location: name,
     sourceKind,
-    sourceText: '{"type":"CityJSON","version":"2.0","CityObjects":{},"vertices":[]}',
     embeddedViewerState,
     embeddedViewerStateError: null,
     embeddedSourceName: null,
@@ -343,14 +343,13 @@ function source(
     featureCount: 0,
     transform: null,
     metadata: null,
-  }
+  }, '{"type":"CityJSON","version":"2.0","CityObjects":{},"vertices":[]}')
 }
 
 function dataset(sources: ViewerDatasetSource[]): ViewerDataset {
   return {
     sourceName: sources.length === 1 ? sources[0].name : `${sources.length} CityJSON files`,
     sourceLocation: sources.map((entry) => entry.location).join('\n'),
-    sourceText: sources.length === 1 ? sources[0].sourceText : '',
     sources,
     validationSource: null,
     center: [0, 0, 0],

@@ -1,3 +1,5 @@
+import { vertexAt, polygonAt, unpackVertices } from '@/modules/cityjson-core/buffers'
+import type { VertexInput, IndexArray, PolygonInput } from '@/modules/cityjson-core/types'
 import { clearLayerGeometry } from '@/modules/cj-three/scene'
 import type { FeatureGeometryChange } from '@/features/editing/geometry-editor'
 import { buildObjectGeometryBlueprint, buildUngroupedObjectGeometry } from '@/modules/cj-three/geometry'
@@ -1644,7 +1646,7 @@ function resolveDisplayedObjectGeometries(
 }
 
 function cloneFeatureVertices(feature: ViewerFeature) {
-  return feature.vertices.map((vertex) => [...vertex] as Vec3)
+  return unpackVertices(feature.vertices)
 }
 
 function getRenderableFeatureVertices(runtime: Runtime, feature: ViewerFeature) {
@@ -1996,7 +1998,7 @@ function syncSelectionOutlineProxy(
   }
 
   const selectedFace = selection.selectedFaceIndex != null
-    ? objectGeometry.polygons[selection.selectedFaceIndex] ?? null
+    ? polygonAt(objectGeometry.polygons, selection.selectedFaceIndex) ?? null
     : null
   const hasSelectedFace = selection.selectedFaceIndex != null && selectedFace != null
 
@@ -2701,8 +2703,8 @@ function hideEditWireframe(runtime: Runtime) {
 }
 
 function buildEditPoints(
-  vertexIndices: number[],
-  vertices: Vec3[],
+  vertexIndices: IndexArray,
+  vertices: VertexInput,
   center: Vec3,
   color: string,
   size: number,
@@ -2711,7 +2713,7 @@ function buildEditPoints(
   const positions: number[] = []
 
   for (const vertexIndex of vertexIndices) {
-    const vertex = vertices[vertexIndex]
+    const vertex = vertexAt(vertices, vertexIndex)
     if (!vertex) {
       continue
     }
@@ -2771,8 +2773,8 @@ function syncEditPointGeometry(
 
 function updatePointPositions(
   points: THREE.Points | null,
-  vertexIndices: number[],
-  vertices: Vec3[],
+  vertexIndices: IndexArray,
+  vertices: VertexInput,
   center: Vec3,
 ) {
   if (!points) {
@@ -2785,7 +2787,7 @@ function updatePointPositions(
   }
 
   for (let index = 0; index < vertexIndices.length; index += 1) {
-    const vertex = vertices[vertexIndices[index]]
+    const vertex = vertexAt(vertices, vertexIndices[index])
     if (!vertex) {
       continue
     }
@@ -2852,8 +2854,8 @@ function getViewportCenter(runtime: Runtime, data: ViewerDataset | null): Vec3 |
 }
 
 function buildEdgeSegments(
-  polygons: PolygonRings[],
-  vertices: Vec3[],
+  polygons: PolygonInput,
+  vertices: VertexInput,
   center: Vec3,
   selectedFaceIndex: number | null,
   selectedFaceRingIndex: number,
@@ -2876,7 +2878,7 @@ function buildEdgeSegments(
   const activeRingVertexEdgeInstanceColors: number[] = []
 
   for (let polyIndex = 0; polyIndex < polygons.length; polyIndex += 1) {
-    const polygon = polygons[polyIndex]
+    const polygon = polygonAt(polygons, polyIndex)!
     for (let ringIndex = 0; ringIndex < polygon.length; ringIndex += 1) {
       const ring = polygon[ringIndex]
       if (ring.length < 2) {
@@ -2889,8 +2891,8 @@ function buildEdgeSegments(
       for (let index = 0; index < edgeCount; index += 1) {
         const startIndex = ring[index]
         const endIndex = index + 1 < ring.length ? ring[index + 1] : ring[0]
-        const start = vertices[startIndex]
-        const end = vertices[endIndex]
+        const start = vertexAt(vertices, startIndex)
+        const end = vertexAt(vertices, endIndex)
         if (!start || !end) {
           continue
         }
@@ -2993,7 +2995,7 @@ function centerViewOnVertex(
     return
   }
 
-  const vertex = feature.vertices[focusTarget.vertexIndex]
+  const vertex = vertexAt(feature.vertices, focusTarget.vertexIndex)
   if (!vertex) {
     return
   }
@@ -3037,7 +3039,7 @@ function centerViewOnValidationError(
   const objectGeometry = getObjectGeometryByIndex(object, focusedGeometryIndex)
 
   const face =
-    objectGeometry && focusTarget.faceIndex != null ? objectGeometry.polygons[focusTarget.faceIndex] ?? null : null
+    objectGeometry && focusTarget.faceIndex != null ? polygonAt(objectGeometry.polygons, focusTarget.faceIndex) ?? null : null
   const faceExtent = face
     ? extentFromVertexIndices(uniqueVertexIndices(face), feature.vertices)
     : null
@@ -3668,7 +3670,7 @@ function getMeasurementPoint(
       ? data.features.find((candidate) => candidate.id === selection.selectedFeatureId) ?? null
       : null
     const vertex = feature && vertexIndex != null
-      ? getRenderableFeatureVertices(runtime, feature)[vertexIndex]
+      ? vertexAt(getRenderableFeatureVertices(runtime, feature), vertexIndex)
       : null
     if (vertex) {
       return [...vertex] as Vec3
@@ -3886,12 +3888,12 @@ function localCenterFromExtent(extent: ViewerFeature['extent'], center: Vec3) {
   )
 }
 
-function extentFromVertexIndices(indices: number[], vertices: Vec3[]): ViewerFeature['extent'] | null {
+function extentFromVertexIndices(indices: IndexArray, vertices: VertexInput): ViewerFeature['extent'] | null {
   const extent: ViewerFeature['extent'] = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity]
   let hasVertex = false
 
   for (const index of indices) {
-    const vertex = vertices[index]
+    const vertex = vertexAt(vertices, index)
     if (!vertex) {
       continue
     }
@@ -3909,7 +3911,7 @@ function extentFromVertexIndices(indices: number[], vertices: Vec3[]): ViewerFea
 }
 
 function uniqueVertexIndices(polygon: PolygonRings) {
-  return [...new Set(polygon.flat())]
+  return [...new Set(polygon.flatMap(ring => Array.from(ring)))]
 }
 
 function extentMaxDimension(extent: ViewerFeature['extent']) {
