@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- do not rebuild scene unnecessarily 
+- Do not rebuild scene unnecessarily when picking
 - Use packed buffers for cityjson geometry to reduce memory requirements
 - Add a toggle below the material button to show object geographical extents as wireframe boxes only when `geographicalExtent` is declared in the input
 - Show parent attributes below the selected object's own attributes in the left panel, grouped by parent type

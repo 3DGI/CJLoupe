@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { createLatestTaskRunner } from './latest-task'
 import { assembleScene, loadSceneSources } from './load-scene'
 import { parseCityJson } from '../../lib/cityjson'
+import { loadDroppedFiles } from './drop-files'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -49,5 +50,36 @@ describe('dataset loading', () => {
     expect(combined.validationSource?.name).toBe('report.json')
     expect(current.features).toHaveLength(1)
     expect(assembleScene(loaded, current, false).features).toHaveLength(1)
+  })
+
+  test('an old drop still classifying cannot overtake a newer file load', async () => {
+    const runner = createLatestTaskRunner(), classification = deferred<string>()
+    class SlowFile extends File { text() { return classification.promise } }
+    const events: string[] = []
+    const oldDrop = runner.run(
+      signal => loadDroppedFiles([new SlowFile([], 'old.json')], false, false, signal),
+      { start() {}, apply: () => events.push('old applied'), error: () => events.push('old error'), finish: () => events.push('old finished') },
+    )
+    await runner.run(
+      signal => loadSceneSources({ sources: [{ kind: 'file', file: new File([source], 'new.city.json') }] }, signal),
+      { start() {}, apply: () => events.push('new applied'), error: () => events.push('new error'), finish: () => events.push('new finished') },
+    )
+    classification.resolve(source)
+    await oldDrop
+    expect(events).toEqual(['new applied', 'new finished'])
+  })
+
+  test('drops classify CityJSON and reports within one load and preserve append policy', async () => {
+    const signal = new AbortController().signal
+    const city = new File([source], 'model.json')
+    const report = new File([JSON.stringify({ features: [{ id: 'a', validity: true, errors: [] }] })], 'report.json')
+    const together = await loadDroppedFiles([city, report], false, false, signal)
+    expect(together?.kind).toBe('scene')
+    if (together?.kind !== 'scene') throw new Error('Expected scene')
+    expect(assembleScene(together.loaded, null, together.append).features[0].validity).toBe(true)
+    expect((await loadDroppedFiles([report], true, false, signal))?.kind).toBe('report')
+    const appended = await loadDroppedFiles([new File([source], 'model.CITY.JSON')], true, true, signal)
+    expect(appended?.kind === 'scene' && appended.append).toBe(true)
+    expect(await loadDroppedFiles([new File(['ignore'], 'notes.txt')], true, false, signal)).toBeNull()
   })
 })

@@ -524,9 +524,15 @@ export function syncRuntimeAttributeColor(
 ) {
   const previousAttributeColor = runtime.attributeColor
   const previousValuesByObjectKey = previousAttributeColor?.valuesByObjectKey ?? null
+  const previousBatchMode = getBatchColorMode(runtime)
+  const modeChanged = previousAttributeColor?.mode !== attributeColor?.mode
+  const directColorsChanged = attributeColor?.mode === 'direct' && (
+    previousAttributeColor?.directColorsByObjectKey !== attributeColor.directColorsByObjectKey ||
+    previousAttributeColor?.missingColor !== attributeColor.missingColor
+  )
   runtime.attributeColor = attributeColor
   syncAttributeColorSharedUniforms(runtime.attributeColorSharedUniforms, attributeColor)
-  syncBatchMaterials(runtime)
+  if (previousBatchMode !== getBatchColorMode(runtime)) syncBatchMaterials(runtime)
 
   if (
     attributeColor?.mode === 'continuous' &&
@@ -542,13 +548,16 @@ export function syncRuntimeAttributeColor(
     attributeColor &&
     (
       runtime.preparedAttributeColorValuesByObjectKey !== attributeColor.valuesByObjectKey ||
-      previousAttributeColor?.directColorsByObjectKey !== attributeColor.directColorsByObjectKey ||
-      previousValuesByObjectKey == null
+      modeChanged || directColorsChanged || previousValuesByObjectKey == null
     )
   ) {
     applyAttributeColorToScene(runtime)
     runtime.preparedAttributeColorValuesByObjectKey = attributeColor.valuesByObjectKey
   }
+
+  // Continuous values live in the shared texture. Palette/domain changes only
+  // touch uniforms; instance colours need updating on mode/direct-colour changes.
+  return { batchColorsChanged: modeChanged || directColorsChanged }
 }
 
 export function getRenderedGeometryTarget(

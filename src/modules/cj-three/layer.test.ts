@@ -1,5 +1,5 @@
 import { packPolygons, packVertices } from '../cityjson-core/buffers'
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, spyOn, test } from 'bun:test'
 import * as THREE from 'three'
 import { parseCityJson } from '../cityjson-core/parse'
 import type { Vec3 } from '../cityjson-core/types'
@@ -76,6 +76,66 @@ describe('Three.js geometry and layer', () => {
     expect(disposals).toBe(1)
     expect(scene.children).toHaveLength(0)
     expect(() => layer.setData(dataset())).toThrow('disposed')
+  })
+
+  test('unchanged theme and display mode preserve geometry and do not notify the host', () => {
+    let changes = 0
+    const layer = createCityLayer({ onChange: () => changes++ })
+    layer.setData(dataset())
+    const initial = layer.group.children[0]
+    layer.setTheme('light')
+    layer.setGeometryDisplayMode({ kind: 'best' })
+    expect(layer.group.children[0]).toBe(initial)
+    expect(changes).toBe(1)
+    layer.setTheme('dark')
+    expect(layer.group.children[0]).not.toBe(initial)
+    layer.setGeometryDisplayMode({ kind: 'lod', lod: '1' })
+    const lodMesh = layer.group.children[0]
+    layer.setGeometryDisplayMode({ kind: 'lod', lod: '1' })
+    layer.setTheme('dark')
+    expect(layer.group.children[0]).toBe(lodMesh)
+    expect(changes).toBe(3)
+    layer.dispose()
+  })
+
+  test('continuous colour changes skip instance writes while mode and direct colour changes update them', () => {
+    const layer = createCityLayer()
+    layer.setData(dataset())
+    const batch = layer.group.children[0] as THREE.BatchedMesh
+    const writes = spyOn(batch, 'setColorAt')
+    layer.setAttributeColors(colors)
+    expect(writes).toHaveBeenCalledTimes(1)
+    writes.mockClear()
+    const material = batch.material
+    layer.setAttributeColors({ ...colors, domainMin: 2, colors: ['#ff0000', '#0000ff'], missingColor: '#abcdef' })
+    layer.setAttributeColors({ ...colors, valuesByObjectKey: { 'building::building': 8 } })
+    expect(writes).not.toHaveBeenCalled()
+    expect(batch.material).toBe(material)
+    const direct: ViewerAttributeColorState = { ...colors, mode: 'direct', directColorsByObjectKey: { 'building::building': '#ff0000' } }
+    layer.setAttributeColors(direct)
+    expect(writes).toHaveBeenCalledTimes(1)
+    expect(batch.getColorAt(0, new THREE.Color()).getHexString()).toBe('ff0000')
+    layer.setAttributeColors({ ...direct, directColorsByObjectKey: {}, missingColor: '#0000ff' })
+    expect(batch.getColorAt(0, new THREE.Color()).getHexString()).toBe('0000ff')
+    layer.setAttributeColors(null)
+    expect(batch.getColorAt(0, new THREE.Color()).getHexString()).not.toBe('0000ff')
+    writes.mockRestore()
+    layer.dispose()
+  })
+
+  test('palette changes reuse the value texture; new values replace it', () => {
+    const state = createLayerState()
+    syncRuntimeAttributeColor(state, colors)
+    const texture = state.attributeColorSharedUniforms.valueMap.value
+    const visits = spyOn(state.batchedMeshes, Symbol.iterator)
+    expect(syncRuntimeAttributeColor(state, { ...colors, domainMin: 2, colors: ['#ff0000', '#0000ff'] }).batchColorsChanged).toBe(false)
+    expect(visits).not.toHaveBeenCalled()
+    expect(state.attributeColorSharedUniforms.min.value).toBe(2)
+    expect(state.attributeColorSharedUniforms.valueMap.value).toBe(texture)
+    syncRuntimeAttributeColor(state, { ...colors, valuesByObjectKey: { 'building::building': 8 } })
+    expect(state.attributeColorSharedUniforms.valueMap.value).not.toBe(texture)
+    visits.mockRestore()
+    state.attributeColorSharedUniforms.valueMap.value.dispose()
   })
 })
 

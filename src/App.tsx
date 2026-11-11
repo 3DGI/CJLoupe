@@ -5,6 +5,7 @@ import type { FeatureGeometryChange } from '@/features/editing/geometry-editor'
 import { createGeometryEditor } from '@/features/editing/geometry-editor'
 import type { DatasetInput, SceneLoadRequest } from '@/features/loading/load-scene'
 import { assembleScene, loadReport, loadSceneSources } from '@/features/loading/load-scene'
+import { loadDroppedFiles } from '@/features/loading/drop-files'
 import { useDatasetLoading } from '@/features/loading/use-dataset-loading'
 import { useViewerSelection } from '@/features/selection/use-viewer-selection'
 import { useViewerSharing } from '@/features/sharing/use-viewer-sharing'
@@ -13,7 +14,7 @@ import { ChangelogDialogContent, InfoDialogContent, Val3dityParametersDialog } f
 import { CopyIdButton, FeatureListPanel } from '@/features/viewer/components/feature-list'
 import { DesktopViewportStatusBar, DesktopViewportToolbar, EditSelectionOverlay, MobileViewportToolbar, VersionButton, ViewportGeometryModeBar, ViewportHelpPanel } from '@/features/viewer/components/toolbar'
 import type { DetailPaneMode, ErrorCodeFilterOption, FeatureListItem, HelpItem, InfoPanelSection, MobileInspectMode, MobilePanelView, Val3dityParameterForm } from '@/features/viewer/presentation'
-import { CAMERA_FOLLOW_QUERY_PARAM, DEFAULT_CAMERA_FOCAL_LENGTH, DEFAULT_VAL3DITY_PARAMETERS, EMPTY_ATTRIBUTES, EMPTY_CITY_OBJECTS, GITHUB_REPO_URL, VIEWER_APPEARANCE_MODES, buildCameraFollowerUrl, buildVal3dityValidationOptions, collectObjectAncestors, countDatasetObjects, countErrorsByObjectId, createCameraSyncChannelId, distanceBetweenPoints, formatObjectDisplayId, getAvailablePickingModes, getCameraFollowChannelFromUrl, getCurrentFaceIndexForSourceFace, getFaceVertexCycle, getPickingModeDescription, getThemeModeLabel, isCityJsonFileName, isEditableTarget, isValidVal3dityParameters, nextPickingMode, tryParseHttpUrl, waitForNextPaint } from '@/features/viewer/presentation'
+import { CAMERA_FOLLOW_QUERY_PARAM, DEFAULT_CAMERA_FOCAL_LENGTH, DEFAULT_VAL3DITY_PARAMETERS, EMPTY_ATTRIBUTES, EMPTY_CITY_OBJECTS, GITHUB_REPO_URL, VIEWER_APPEARANCE_MODES, buildCameraFollowerUrl, buildVal3dityValidationOptions, collectObjectAncestors, countDatasetObjects, countErrorsByObjectId, createCameraSyncChannelId, distanceBetweenPoints, formatObjectDisplayId, getAvailablePickingModes, getCameraFollowChannelFromUrl, getCurrentFaceIndexForSourceFace, getFaceVertexCycle, getPickingModeDescription, getThemeModeLabel, isEditableTarget, isValidVal3dityParameters, nextPickingMode, tryParseHttpUrl, waitForNextPaint } from '@/features/viewer/presentation'
 import { buildAttributeColorModel } from '@/lib/attribute-colors'
 import type { AttributeColorDomain, AttributeColorMapId } from '@/modules/colors/palettes'
 import { DEFAULT_ATTRIBUTE_COLOR_MAP_ID, DEFAULT_CATEGORICAL_COLOR_MAP_ID, getContinuousAttributeColorMapColors, getDefaultAttributeColorDomain, isAttributeColorMapId } from '@/modules/colors/palettes'
@@ -71,7 +72,6 @@ import {
 import type { LoadedValidationReport } from '@/lib/cityjson'
 import {
   assertValidationAnnotationsMatchDataset,
-  classifyJsonFile,
   mergeValidationAnnotations
 } from '@/lib/cityjson'
 import {
@@ -662,7 +662,6 @@ function App() {
   async function openCityJsonFiles(files: File[], append = false) {
     if (files.length) await loadScene({ sources: files.map(file => ({ kind: 'file', file })), append })
   }
-  async function openCityJsonFile(file: File, append = false) { await openCityJsonFiles([file], append) }
 
   const applyLoadedAnnotations = useCallback((
     expectedDataset: ViewerDataset,
@@ -731,59 +730,20 @@ function App() {
     event.preventDefault()
     setIsDragging(false)
     const files = Array.from(event.dataTransfer.files)
-    if (files.length === 0) return
-    const appendToCurrentScene = event.shiftKey
-
-    const cityFiles: File[] = []
-    const ambiguousJsonFiles: File[] = []
-    let reportFile: File | null = null
-
-    for (const file of files) {
-      const name = file.name.toLowerCase()
-      if (isCityJsonFileName(name)) {
-        cityFiles.push(file)
-      } else if (name.endsWith('.json')) {
-        ambiguousJsonFiles.push(file)
-      }
-    }
-
-    const classifiedJsonFiles = await Promise.all(
-      ambiguousJsonFiles.map(async (file) => ({ file, kind: await classifyJsonFile(file) })),
-    )
-    const unknownJsonFiles: File[] = []
-    for (const { file, kind } of classifiedJsonFiles) {
-      if (kind === 'cityjson') {
-        cityFiles.push(file)
-      } else if (kind === 'validation-report') {
-        reportFile = file
-      } else {
-        unknownJsonFiles.push(file)
-      }
-    }
-
-    for (const file of unknownJsonFiles) {
-      if (dataset || cityFiles.length > 0) {
-        reportFile = file
-      } else {
-        cityFiles.push(file)
-      }
-    }
-
-    if (cityFiles.length > 0 && reportFile && !appendToCurrentScene) {
-      void openCityJsonFilesAndReport(cityFiles, reportFile)
-    } else if (cityFiles.length > 0) {
-      void openCityJsonFiles(cityFiles, appendToCurrentScene)
-    } else if (reportFile) {
-      if (dataset) {
-        void openAnnotationFile(reportFile)
-      } else {
-        void openCityJsonFile(reportFile, appendToCurrentScene)
-      }
-    }
-  }
-
-  async function openCityJsonFilesAndReport(files: File[], report: File) {
-    await loadScene({ sources: files.map(file => ({ kind: 'file', file })), report: { kind: 'file', file: report } })
+    if (!files.some(file => /\.(jsonl?|cityjson)$/i.test(file.name))) return
+    const append = event.shiftKey
+    const current = datasetRef.current
+    await runLoad({
+      fallback: 'Failed to load dropped files.',
+      load: signal => loadDroppedFiles(files, current != null, append, signal),
+      apply: result => {
+        if (result?.kind === 'scene') {
+          applyDataset(assembleScene(result.loaded, datasetRef.current, result.append), { restoreEmbeddedState: !result.append })
+        } else if (result?.kind === 'report' && current) {
+          applyLoadedAnnotations(current, result.report, result.report.source)
+        }
+      },
+    })
   }
 
   const resetViewerState = useCallback(() => {

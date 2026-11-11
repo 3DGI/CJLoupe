@@ -243,15 +243,6 @@ export function nextPickingMode(mode: ViewerPickingMode, editMode: boolean): Vie
   return modes[(currentIndex + 1) % modes.length] ?? modes[0]
 }
 
-export function isCityJsonFileName(name: string) {
-  return (
-    name.endsWith('.jsonl') ||
-    name.endsWith('.city.jsonl') ||
-    name.endsWith('.city.json') ||
-    name.endsWith('.cityjson')
-  )
-}
-
 export function tryParseHttpUrl(text: string): string | null {
   const trimmed = text.trim()
   if (!trimmed) {

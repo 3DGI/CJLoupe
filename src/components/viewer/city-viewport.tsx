@@ -1,4 +1,5 @@
 import { editGeometryDisplayChanged } from '@/features/editing/geometry-display'
+import { createFrameScheduler } from '@/features/viewer/frame-scheduler'
 import { vertexAt, polygonAt, unpackVertices } from '@/modules/cityjson-core/buffers'
 import type { VertexInput, IndexArray, PolygonInput } from '@/modules/cityjson-core/types'
 import { clearLayerGeometry } from '@/modules/cj-three/scene'
@@ -144,6 +145,8 @@ type CityViewportProps = {
 }
 
 type Runtime = LayerState & {
+  frame: ReturnType<typeof createFrameScheduler>
+  pendingRenderedDataset: ViewerDataset | null
   renderer: THREE.WebGLRenderer
   scene: THREE.Scene
   camera: ViewerCamera
@@ -670,8 +673,17 @@ function CityViewport({
     const selectionOutlineJfaQuad = new FullScreenQuad(new SelectionOutlineJFAMaterial())
     const selectionOutlineEffectQuad = new FullScreenQuad(new SelectionOutlineEffectMaterial())
 
+    const frame = createFrameScheduler(() => {
+      measurePerformance('cjvis:viewport:render-frame', () => drawViewport(runtime))
+      reportViewportCenter(runtime, dataRef.current, onViewportCenterChangeRef.current)
+      const renderedDataset = runtime.pendingRenderedDataset
+      runtime.pendingRenderedDataset = null
+      if (renderedDataset) onDataRenderedRef.current(renderedDataset)
+    }, callback => window.requestAnimationFrame(callback), id => window.cancelAnimationFrame(id))
     const runtime: Runtime = {
       ...layerState,
+      frame,
+      pendingRenderedDataset: null,
       renderer,
       scene,
       camera,
@@ -719,29 +731,8 @@ function CityViewport({
     applyViewportTheme(runtime, themeRef.current)
 
     runtimeRef.current = runtime
-    let pendingRenderFrame: number | null = null
     let pendingWheelIdleTimeout: number | null = null
-
-    const renderNow = () => {
-      const activeRuntime = runtimeRef.current
-      if (!activeRuntime) {
-        return
-      }
-
-      renderViewport(activeRuntime)
-      reportViewportCenter(activeRuntime, dataRef.current, onViewportCenterChangeRef.current)
-    }
-
-    const requestRender = () => {
-      if (pendingRenderFrame != null) {
-        return
-      }
-
-      pendingRenderFrame = window.requestAnimationFrame(() => {
-        pendingRenderFrame = null
-        renderNow()
-      })
-    }
+    const requestRender = frame.request
 
     const setSelectionOutlineInteractive = (interactive: boolean) => {
       const activeRuntime = runtimeRef.current
@@ -1089,9 +1080,7 @@ function CityViewport({
     handleResize()
 
     return () => {
-      if (pendingRenderFrame != null) {
-        window.cancelAnimationFrame(pendingRenderFrame)
-      }
+      frame.dispose()
       if (pendingCameraSyncFrameRef.current != null) {
         window.cancelAnimationFrame(pendingCameraSyncFrameRef.current)
         pendingCameraSyncFrameRef.current = null
@@ -1178,8 +1167,7 @@ function CityViewport({
       }
       lastCameraSyncPoseRef.current = message.pose
       applyCameraSyncPose(runtime, message.pose, dataRef.current, onCameraFocalLengthSyncRef.current)
-      renderViewport(runtime)
-      reportViewportCenter(runtime, dataRef.current, onViewportCenterChangeRef.current)
+      requestViewportRender(runtime)
       scheduleCameraSyncPose()
     }
 
@@ -1234,9 +1222,8 @@ function CityViewport({
       if (cameraSyncTransportRef.current?.role === 'follow' && lastCameraSyncPoseRef.current) {
         applyCameraSyncPose(runtime, lastCameraSyncPoseRef.current, data, onCameraFocalLengthSyncRef.current)
       }
-      measurePerformance('cjvis:viewport:render-frame', () => renderViewport(runtime))
-      reportViewportCenter(runtime, data, onViewportCenterChangeRef.current)
-      onDataRenderedRef.current(data)
+      runtime.pendingRenderedDataset = data
+      requestViewportRender(runtime)
       scheduleCameraSyncPose()
     })
   }, [data, scheduleCameraSyncPose])
@@ -1245,18 +1232,18 @@ function CityViewport({
     const runtime = runtimeRef.current
     if (!runtime) return
     rebuildObjectExtents(runtime, showObjectExtents ? data : null, theme)
-    renderViewport(runtime)
+    requestViewportRender(runtime)
     return () => clearTransientGroup(runtime.objectExtentGroup)
   }, [data, geometryChange, showObjectExtents, theme])
 
   useEffect(() => {
     const runtime = runtimeRef.current
-    if (!runtime) return
+    if (!runtime || !showObjectExtents) return
     for (const lines of runtime.objectExtentGroup.children) {
       lines.visible = !isolateSelectedFeature || !selectedFeatureId || lines.userData.featureId === selectedFeatureId
     }
-    renderViewport(runtime)
-  }, [data, showObjectExtents, isolateSelectedFeature, selectedFeatureId, theme])
+    requestViewportRender(runtime)
+  }, [data, geometryChange, showObjectExtents, isolateSelectedFeature, selectedFeatureId, theme])
 
   useEffect(() => {
     if (
@@ -1280,8 +1267,7 @@ function CityViewport({
       currentData,
       onCameraFocalLengthSyncRef.current,
     )
-    renderViewport(runtime)
-    reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
+    requestViewportRender(runtime)
     scheduleCameraSyncPose()
   }, [cameraRestoreRequest, scheduleCameraSyncPose])
 
@@ -1292,7 +1278,7 @@ function CityViewport({
     }
 
     rebuildMeasurementOverlay(runtime, data, measurementPoints, theme)
-    renderViewport(runtime)
+    requestViewportRender(runtime)
   }, [data, measurementPoints, theme])
 
   useEffect(() => {
@@ -1344,8 +1330,7 @@ function CityViewport({
 
     previousSelectionRef.current = selectionRef.current
     previousIsolateSelectedFeatureRef.current = isolateSelectedFeatureRef.current
-    renderViewport(runtime)
-    reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
+    requestViewportRender(runtime)
   }, [geometryChange, geometryDisplayMode])
 
   useEffect(() => {
@@ -1371,8 +1356,7 @@ function CityViewport({
         isolateSelectedFeatureRef.current,
         showVertexGizmoRef.current,
       )
-      renderViewport(runtime)
-      reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
+      requestViewportRender(runtime)
       previousSelectionRef.current = selection
       previousIsolateSelectedFeatureRef.current = isolateSelectedFeatureRef.current
       return
@@ -1388,8 +1372,7 @@ function CityViewport({
       isolateSelectedFeatureRef.current,
       showVertexGizmoRef.current,
     )
-    renderViewport(runtime)
-    reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
+    requestViewportRender(runtime)
     previousSelectionRef.current = selection
     previousIsolateSelectedFeatureRef.current = isolateSelectedFeatureRef.current
   }, [selectedFeatureId, activeObjectId, activeGeometryIndex, editMode, selectedFaceIndex, selectedFaceRingIndex, selectedVertexIndex, hideOccludedEditEdges, isolateSelectedFeature, showVertexGizmo])
@@ -1422,8 +1405,7 @@ function CityViewport({
       centerViewOnFeature(runtime, currentData, feature)
     }
 
-    renderViewport(runtime)
-    reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
+    requestViewportRender(runtime)
     scheduleCameraSyncPose()
   }, [focusRevision, focusTarget, scheduleCameraSyncPose])
 
@@ -1447,8 +1429,7 @@ function CityViewport({
         showVertexGizmoRef.current,
       )
     }
-    renderViewport(runtime)
-    reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
+    requestViewportRender(runtime)
   }, [theme])
 
   useEffect(() => {
@@ -1460,16 +1441,14 @@ function CityViewport({
 
     if (appearanceMode === 'normal') {
       runtime.normalColorUniforms.enabled.value = 1
-      renderViewport(runtime)
-      reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
+      requestViewportRender(runtime)
       return
     }
 
     runtime.normalColorUniforms.enabled.value = 0
     const previousAppearanceMode = runtime.appearanceMode
     if (previousAppearanceMode === appearanceMode) {
-      renderViewport(runtime)
-      reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
+      requestViewportRender(runtime)
       return
     }
 
@@ -1498,8 +1477,7 @@ function CityViewport({
       )
     }
 
-    renderViewport(runtime)
-    reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
+    requestViewportRender(runtime)
   }, [appearanceMode])
 
   useEffect(() => {
@@ -1509,8 +1487,8 @@ function CityViewport({
       return
     }
 
-    syncRuntimeAttributeColor(runtime, attributeColor)
-    if (currentData) {
+    const { batchColorsChanged } = syncRuntimeAttributeColor(runtime, attributeColor)
+    if (currentData && batchColorsChanged) {
       applyBatchSelectionAppearance(
         runtime,
         selectionRef.current,
@@ -1518,28 +1496,15 @@ function CityViewport({
         runtime.batchedObjectsByRenderKey.values(),
       )
     }
-    renderViewport(runtime)
-    reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
+    requestViewportRender(runtime)
   }, [attributeColor])
 
-  const previewFrameRef = useRef<number | null>(null)
-  const previewDomainRef = useRef<{ min: number; max: number } | null>(null)
   useImperativeHandle(ref, () => ({
     previewColorDomain(domain) {
-      if (!Number.isFinite(domain.min) || !Number.isFinite(domain.max)) return
-      previewDomainRef.current = domain
-      if (previewFrameRef.current != null) return
-      previewFrameRef.current = window.requestAnimationFrame(() => {
-        previewFrameRef.current = null
-        const runtime = runtimeRef.current
-        const pending = previewDomainRef.current
-        if (runtime && pending && previewColorDomain(runtime, pending)) renderViewport(runtime)
-      })
+      const runtime = runtimeRef.current
+      if (runtime && previewColorDomain(runtime, domain)) requestViewportRender(runtime)
     },
   }), [])
-  useEffect(() => () => {
-    if (previewFrameRef.current != null) window.cancelAnimationFrame(previewFrameRef.current)
-  }, [])
 
   useEffect(() => {
     const runtime = runtimeRef.current
@@ -1550,8 +1515,7 @@ function CityViewport({
 
     fitCameraToDataset(runtime, currentData)
     fittedDatasetKeyRef.current = getDatasetViewKey(currentData)
-    renderViewport(runtime)
-    reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
+    requestViewportRender(runtime)
     scheduleCameraSyncPose()
   }, [viewportResetRevision, scheduleCameraSyncPose])
 
@@ -1567,8 +1531,7 @@ function CityViewport({
     }
 
     setTopDownCameraView(runtime)
-    renderViewport(runtime)
-    reportViewportCenter(runtime, dataRef.current, onViewportCenterChangeRef.current)
+    requestViewportRender(runtime)
     scheduleCameraSyncPose()
   }, [topDownViewRevision, scheduleCameraSyncPose])
 
@@ -1588,8 +1551,7 @@ function CityViewport({
       updatePerspectiveFocalLength(runtime, cameraFocalLength)
     }
 
-    renderViewport(runtime)
-    reportViewportCenter(runtime, dataRef.current, onViewportCenterChangeRef.current)
+    requestViewportRender(runtime)
     scheduleCameraSyncPose()
   }, [cameraFocalLength, scheduleCameraSyncPose])
 
@@ -2676,7 +2638,11 @@ function clearEditPointOverlays(runtime: Runtime) {
   }
 }
 
-function renderViewport(runtime: Runtime) {
+function requestViewportRender(runtime: Runtime) {
+  runtime.frame.request()
+}
+
+function drawViewport(runtime: Runtime) {
   updateCameraClipping(runtime)
   syncCameraLightRig(runtime)
   runtime.renderer.clear(true, true, true)

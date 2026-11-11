@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { Vec3, ViewerDataset, ViewerGeometryDisplayMode } from '../cityjson-core/types'
 import type { ViewerAttributeColorState } from '../colors/types'
+import { getGeometryDisplayModeKey } from '../cityjson-core/geometry'
 import { createAttributeColorSharedUniforms, createNormalColorUniforms, createSelectionTintUniforms, createSemanticSurfaceSharedUniforms } from './materials'
 import type { SceneBuildOptions } from './scene'
 import { clearLayerGeometry, rebuildFeatureGeometry, rebuildScene, resolveBatchedObjectColor, resolveObjectHit, syncRuntimeAttributeColor } from './scene'
@@ -67,7 +68,10 @@ export function createCityLayer(options: CityLayerOptions = {}) {
       rebuild()
     },
     setGeometryDisplayMode(mode: ViewerGeometryDisplayMode) {
-      assertActive(); build.geometryDisplayMode = mode; rebuild()
+      assertActive()
+      if (getGeometryDisplayModeKey(build.geometryDisplayMode) === getGeometryDisplayModeKey(mode)) return
+      build.geometryDisplayMode = mode
+      rebuild()
     },
     setAppearance(mode: ViewerAppearanceMode) {
       assertActive()
@@ -76,12 +80,19 @@ export function createCityLayer(options: CityLayerOptions = {}) {
       if (state.appearanceMode !== next) { state.appearanceMode = next; rebuild() }
       else changed()
     },
-    setTheme(theme: Theme) { assertActive(); state.theme = theme; rebuild() },
+    setTheme(theme: Theme) {
+      assertActive()
+      if (state.theme === theme) return
+      state.theme = theme
+      rebuild()
+    },
     setAttributeColors(colors: ViewerAttributeColorState | null) {
       assertActive()
-      syncRuntimeAttributeColor(state, colors)
-      const color = new THREE.Color()
-      for (const record of state.batchedObjectsByRenderKey.values()) record.batch.setColorAt(record.instanceId, color.set(resolveBatchedObjectColor(state, record)))
+      const { batchColorsChanged } = syncRuntimeAttributeColor(state, colors)
+      if (batchColorsChanged) {
+        const color = new THREE.Color()
+        for (const record of state.batchedObjectsByRenderKey.values()) record.batch.setColorAt(record.instanceId, color.set(resolveBatchedObjectColor(state, record)))
+      }
       changed()
     },
     previewColorDomain(domain: { min: number; max: number }) {
