@@ -4,6 +4,8 @@ import { measurePerformance, nowPerformance, recordPerformanceMeasure } from './
 import type { CityJsonDocument, CityJsonFeature, CityJsonGeometry, CityJsonHeader, CityJsonObject, CityJsonSemantics, CityJsonTransform, ViewerDatasetInfo } from './source-types'
 import type { PolygonRings, Vec3, ViewerCityObject, ViewerDataset, ViewerDatasetSource, ViewerFeature, ViewerObjectGeometry, ViewerSemanticSurface } from './types'
 
+const featureLabelCollator = new Intl.Collator(undefined, { numeric: true })
+
 export type CityJsonParseOptions = {
   kind?: 'auto' | 'document' | 'sequence'
   onFeature?: (feature: ViewerFeature, objects: Record<string, CityJsonObject>, header: CityJsonHeader) => ViewerFeature
@@ -39,7 +41,7 @@ export function combineViewerDatasets(datasets: ViewerDataset[]): ViewerDataset 
     }
   }
 
-  features.sort((left, right) => left.label.localeCompare(right.label, undefined, { numeric: true }))
+  features.sort((left, right) => featureLabelCollator.compare(left.label, right.label))
 
   const extent = calculateCombinedExtent(features)
   const center: Vec3 = [
@@ -319,7 +321,7 @@ function createViewerDataset(
     throw new Error('No renderable CityJSON features were found.')
   }
 
-  features.sort((left, right) => left.label.localeCompare(right.label, undefined, { numeric: true }))
+  features.sort((left, right) => featureLabelCollator.compare(left.label, right.label))
 
   const globalMin: Vec3 = [Infinity, Infinity, Infinity]
   const globalMax: Vec3 = [-Infinity, -Infinity, -Infinity]

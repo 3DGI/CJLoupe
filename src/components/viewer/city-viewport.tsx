@@ -1,13 +1,14 @@
+import { editGeometryDisplayChanged } from '@/features/editing/geometry-display'
 import { vertexAt, polygonAt, unpackVertices } from '@/modules/cityjson-core/buffers'
 import type { VertexInput, IndexArray, PolygonInput } from '@/modules/cityjson-core/types'
 import { clearLayerGeometry } from '@/modules/cj-three/scene'
 import type { FeatureGeometryChange } from '@/features/editing/geometry-editor'
-import { buildObjectGeometryBlueprint, buildUngroupedObjectGeometry } from '@/modules/cj-three/geometry'
+import { buildUngroupedObjectGeometry } from '@/modules/cj-three/geometry'
 import { createLayerState, previewColorDomain } from '@/modules/cj-three/layer'
 import { baseColorForType, computeFaceErrorGroups, SELECTION_TINT_COLOR, SELECTION_TINT_STRENGTH, SEMANTIC_SELECTION_TINT_STRENGTH, syncSemanticSurfaceSharedUniforms } from '@/modules/cj-three/materials'
 import type { SceneBuildOptions } from '@/modules/cj-three/scene'
-import { buildObjectMeshPresentation, collectObjectErrorFaceIndices, getRenderedGeometryTarget, rebuildFeatureGeometry as rebuildLayerFeature, rebuildScene as rebuildLayerScene, replaceBatchedRecordGeometry, resolveBatchedObjectColor, resolveObjectHit, syncBatchMaterials, syncRuntimeAttributeColor } from '@/modules/cj-three/scene'
-import type { AttributeColorUniforms, BatchedObjectRecord, LayerState, ObjectGeometryBlueprint, Theme, TriangleFaceIndices } from '@/modules/cj-three/types'
+import { getRenderedGeometryTarget, rebuildFeatureGeometry as rebuildLayerFeature, rebuildScene as rebuildLayerScene, resolveBatchedObjectColor, resolveObjectHit, syncBatchMaterials, syncRuntimeAttributeColor } from '@/modules/cj-three/scene'
+import type { AttributeColorUniforms, BatchedObjectRecord, LayerState, Theme, TriangleFaceIndices } from '@/modules/cj-three/types'
 import type { Ref } from 'react'
 import { useCallback, useEffect, useImperativeHandle, useRef } from 'react'
 import * as THREE from 'three'
@@ -467,7 +468,6 @@ function CityViewport({
   })
   const previousIsolateSelectedFeatureRef = useRef(isolateSelectedFeature)
   const previousGeometryDisplayModeRef = useRef(geometryDisplayMode)
-  const previousActiveGeometryIndexRef = useRef(activeGeometryIndex)
   const onSelectFeatureRef = useRef(onSelectFeature)
   const onClearSelectionRef = useRef(onClearSelection)
   const onSelectFaceRef = useRef(onSelectFace)
@@ -1231,7 +1231,6 @@ function CityViewport({
       previousSelectionRef.current = selectionRef.current
       previousIsolateSelectedFeatureRef.current = isolateSelectedFeatureRef.current
       previousGeometryDisplayModeRef.current = selectionRef.current.geometryDisplayMode
-      previousActiveGeometryIndexRef.current = selectionRef.current.activeGeometryIndex
       if (cameraSyncTransportRef.current?.role === 'follow' && lastCameraSyncPoseRef.current) {
         applyCameraSyncPose(runtime, lastCameraSyncPoseRef.current, data, onCameraFocalLengthSyncRef.current)
       }
@@ -1308,12 +1307,9 @@ function CityViewport({
       (geometryDisplayMode.kind === 'lod' &&
         previousGeometryDisplayModeRef.current.kind === 'lod' &&
         previousGeometryDisplayModeRef.current.lod !== geometryDisplayMode.lod)
-    const activeGeometryChanged =
-      previousActiveGeometryIndexRef.current !== activeGeometryIndex
     previousGeometryDisplayModeRef.current = geometryDisplayMode
-    previousActiveGeometryIndexRef.current = activeGeometryIndex
 
-    if (displayModeChanged || activeGeometryChanged) {
+    if (displayModeChanged) {
       rebuildScene(runtime, currentData, selectionRef.current)
       rebuildAnnotations(runtime)
       syncSelection(
@@ -1350,7 +1346,7 @@ function CityViewport({
     previousIsolateSelectedFeatureRef.current = isolateSelectedFeatureRef.current
     renderViewport(runtime)
     reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
-  }, [geometryChange, geometryDisplayMode, activeGeometryIndex])
+  }, [geometryChange, geometryDisplayMode])
 
   useEffect(() => {
     const runtime = runtimeRef.current
@@ -1362,16 +1358,7 @@ function CityViewport({
     const selection = selectionRef.current
     const previousSelection = previousSelectionRef.current
     const previousIsolateSelectedFeature = previousIsolateSelectedFeatureRef.current
-    const editDisplaySetChanged =
-      previousSelection.editMode !== selection.editMode ||
-      (
-        selection.editMode &&
-        (
-          previousSelection.selectedFeatureId !== selection.selectedFeatureId ||
-          previousSelection.activeObjectId !== selection.activeObjectId ||
-          previousSelection.activeGeometryIndex !== selection.activeGeometryIndex
-        )
-      )
+    const editDisplaySetChanged = editGeometryDisplayChanged(previousSelection, selection)
 
     if (editDisplaySetChanged) {
       rebuildScene(runtime, currentData, selection)
@@ -1391,10 +1378,6 @@ function CityViewport({
       return
     }
 
-    if (runtime.appearanceMode === 'semantic' && !editMode) {
-      updateSelectionSurfacePresentation(runtime, currentData, previousSelection, selection)
-    }
-
     syncSelectionDelta(
       runtime,
       currentData,
@@ -1409,7 +1392,7 @@ function CityViewport({
     reportViewportCenter(runtime, currentData, onViewportCenterChangeRef.current)
     previousSelectionRef.current = selection
     previousIsolateSelectedFeatureRef.current = isolateSelectedFeatureRef.current
-  }, [selectedFeatureId, activeObjectId, editMode, selectedFaceIndex, selectedFaceRingIndex, selectedVertexIndex, hideOccludedEditEdges, isolateSelectedFeature, showVertexGizmo])
+  }, [selectedFeatureId, activeObjectId, activeGeometryIndex, editMode, selectedFaceIndex, selectedFaceRingIndex, selectedVertexIndex, hideOccludedEditEdges, isolateSelectedFeature, showVertexGizmo])
 
   useEffect(() => {
     const runtime = runtimeRef.current
@@ -1694,138 +1677,6 @@ function shouldRebuildForSemanticModeToggle(
   }
 
   return false
-}
-
-function updateSelectionSurfacePresentation(
-  runtime: Runtime,
-  data: ViewerDataset,
-  previousSelection: ViewSelection,
-  selection: ViewSelection,
-) {
-  const previousObjectKey =
-    previousSelection.selectedFeatureId && previousSelection.activeObjectId
-      ? viewerObjectKey(previousSelection.selectedFeatureId, previousSelection.activeObjectId)
-      : null
-  const nextObjectKey =
-    selection.selectedFeatureId && selection.activeObjectId
-      ? viewerObjectKey(selection.selectedFeatureId, selection.activeObjectId)
-      : null
-  const didSelectedObjectChange = previousObjectKey !== nextObjectKey
-  const didGeometryModeChange =
-    previousSelection.geometryDisplayMode.kind !== selection.geometryDisplayMode.kind ||
-    (previousSelection.geometryDisplayMode.kind === 'lod' &&
-      selection.geometryDisplayMode.kind === 'lod' &&
-      previousSelection.geometryDisplayMode.lod !== selection.geometryDisplayMode.lod) ||
-    previousSelection.activeGeometryIndex !== selection.activeGeometryIndex
-  const didSelectedFaceChange = previousSelection.selectedFaceIndex !== selection.selectedFaceIndex
-  const didEditModeChange = previousSelection.editMode !== selection.editMode
-  const didActiveGeometryOverrideMove =
-    didSelectedObjectChange &&
-    (previousSelection.activeGeometryIndex != null || selection.activeGeometryIndex != null)
-
-  if (didSelectedFaceChange && !didActiveGeometryOverrideMove && !didGeometryModeChange && !didEditModeChange) {
-    return
-  }
-
-  if (!didActiveGeometryOverrideMove && !didGeometryModeChange && !didEditModeChange) {
-    return
-  }
-
-  const affectedKeys = new Set<string>()
-  if (previousObjectKey) {
-    affectedKeys.add(previousObjectKey)
-  }
-  if (nextObjectKey) {
-    affectedKeys.add(nextObjectKey)
-  }
-
-  const featureById = new Map(data.features.map((feature) => [feature.id, feature]))
-  for (const key of affectedKeys) {
-    const [featureId, objectId] = key.split('::')
-    const feature = featureById.get(featureId)
-    const objectById = feature ? new Map(feature.objects.map((object) => [object.id, object])) : null
-    const object = objectById?.get(objectId)
-    if (!feature || !object) {
-      continue
-    }
-
-    updateObjectSurfacePresentation(runtime, feature, object, selection)
-  }
-}
-
-function updateObjectSurfacePresentation(
-  runtime: Runtime,
-  feature: ViewerFeature,
-  object: ViewerFeature['objects'][number],
-  selection: ViewSelection,
-) {
-  const objectKey = viewerObjectKey(feature.id, object.id)
-  const objectGeometries = resolveDisplayedObjectGeometries(feature, object, selection)
-  if (objectGeometries.length === 0) {
-    return
-  }
-
-  const draftVertices = getRenderableFeatureVertices(runtime, feature)
-  const featureCenter: Vec3 = [
-    (feature.extent[0] + feature.extent[3]) * 0.5,
-    (feature.extent[1] + feature.extent[4]) * 0.5,
-    (feature.extent[2] + feature.extent[5]) * 0.5,
-  ]
-
-  for (const objectGeometry of objectGeometries) {
-    const { mesh, batchedRecord } = getRenderedGeometryTarget(runtime, objectKey, objectGeometry.index)
-    if (!mesh && !batchedRecord) {
-      continue
-    }
-
-    if (mesh) {
-      const existingBlueprint = mesh.userData.geometryBlueprint as ObjectGeometryBlueprint | undefined
-      const { blueprint, geometry, material } = buildObjectMeshPresentation(
-        runtime,
-        feature,
-        object,
-        objectGeometry,
-        draftVertices,
-        featureCenter,
-        existingBlueprint,
-      )
-      replaceMeshGeometry(mesh, geometry)
-      replaceMeshMaterial(mesh, material)
-      mesh.userData.geometryBlueprint = blueprint
-      mesh.userData.geometryIndex = objectGeometry.index
-      mesh.userData.triangleFaceIndices = geometry.userData.triangleFaceIndices
-      continue
-    }
-
-    if (batchedRecord) {
-      const blueprint = buildObjectGeometryBlueprint(
-        objectGeometry.polygons,
-        draftVertices,
-        featureCenter,
-        collectObjectErrorFaceIndices(
-          feature.errors,
-          object.id,
-          objectGeometry.index,
-          objectGeometry.sourceFaceIndices,
-        ),
-      )
-      replaceBatchedRecordGeometry(runtime, batchedRecord, objectGeometry, objectKey, blueprint)
-    }
-  }
-}
-
-function replaceMeshGeometry(mesh: THREE.Mesh, geometry: THREE.BufferGeometry) {
-  mesh.geometry.dispose()
-  mesh.geometry = geometry
-  mesh.userData.triangleFaceIndices = geometry.userData.triangleFaceIndices
-}
-
-function replaceMeshMaterial(mesh: THREE.Mesh, material: THREE.Material | THREE.Material[]) {
-  const currentMaterials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
-  for (const currentMaterial of currentMaterials) {
-    currentMaterial.dispose()
-  }
-  mesh.material = material
 }
 
 function rebuildAnnotations(runtime: Runtime) {

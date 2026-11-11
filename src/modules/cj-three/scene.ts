@@ -579,7 +579,34 @@ export function replaceBatchedRecordGeometry(
     objectKey,
   )
   try {
-    record.batch.setGeometryAt(record.geometryId, nextGeometry)
+    const batch = record.batch
+    const range = batch.getGeometryRangeAt(record.geometryId)!
+    const vertexCount = nextGeometry.getAttribute('position').count
+    const indexCount = nextGeometry.getIndex()!.count
+    if (vertexCount <= range.reservedVertexCount && indexCount <= range.reservedIndexCount) {
+      batch.setGeometryAt(record.geometryId, nextGeometry)
+    } else {
+      // A coordinate edit can change triangulation and require more vertices.
+      // Keep the instance (and its transform, colour and visibility), but give it
+      // a new geometry reservation before retiring the old one.
+      const reservedVertexCount = Math.max(vertexCount, range.reservedVertexCount)
+      const reservedIndexCount = Math.max(indexCount, range.reservedIndexCount)
+      const extraVertices = Math.max(0, reservedVertexCount - batch.unusedVertexCount)
+      const extraIndices = Math.max(0, reservedIndexCount - batch.unusedIndexCount)
+      if (extraVertices > 0 || extraIndices > 0) {
+        batch.setGeometrySize(
+          batch.geometry.getAttribute('position').count + extraVertices,
+          batch.geometry.getIndex()!.count + extraIndices,
+        )
+      }
+      const previousGeometryId = record.geometryId
+      const nextGeometryId = batch.addGeometry(nextGeometry, reservedVertexCount, reservedIndexCount)
+      batch.setGeometryIdAt(record.instanceId, nextGeometryId)
+      record.geometryId = nextGeometryId
+      batch.deleteGeometry(previousGeometryId)
+      // Reclaim the retired reservation so repeated edits do not leave holes.
+      batch.optimize()
+    }
     record.triangleFaceIndices = nextGeometry.userData.triangleFaceIndices
     record.blueprint = blueprint
     record.geometryIndex = objectGeometry.index
@@ -642,11 +669,17 @@ export function rebuildFeatureGeometry(
         ),
       )
       if (mesh) {
-        const { faceGroups } = resolveObjectFaceGroups(runtime, feature, object, objectGeometry)
-        const nextGeometry = buildGroupedObjectGeometry(nextBlueprint, faceGroups)
+        const presentation = buildObjectMeshPresentation(
+          runtime, feature, object, objectGeometry, vertices, center, nextBlueprint,
+        )
         mesh.geometry.dispose()
-        mesh.geometry = nextGeometry
-        mesh.userData.geometryBlueprint = nextBlueprint
+        for (const material of new Set(Array.isArray(mesh.material) ? mesh.material : [mesh.material])) {
+          material.dispose()
+        }
+        mesh.geometry = presentation.geometry
+        mesh.material = presentation.material
+        mesh.userData.triangleFaceIndices = presentation.geometry.userData.triangleFaceIndices
+        mesh.userData.geometryBlueprint = presentation.blueprint
         mesh.userData.geometryIndex = objectGeometry.index
       } else if (batchedRecord) {
         replaceBatchedRecordGeometry(runtime, batchedRecord, objectGeometry, objectKey, nextBlueprint)
